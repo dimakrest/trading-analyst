@@ -1,0 +1,268 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-analyst"
+version = "1.0.0"
+description = "Pattern detection system for technical analysis"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Trading Analyst Team", email = "team@tradinganalyst.local"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+requires-python = ">=3.11"
+dependencies = [
+    # FastAPI and ASGI server
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    # Database
+    "asyncpg==0.29.0",
+    "sqlalchemy[asyncio]==2.0.23",
+    "alembic==1.13.0",
+    # Configuration
+    "pydantic==2.5.0",
+    "pydantic-settings==2.1.0",
+    "python-dotenv==1.0.0",
+    # HTTP clients
+    "httpx==0.25.2",
+    # Financial data
+    "yfinance==0.2.66",
+    "pandas>=2.0.0,<3.0.0",
+    "numpy>=1.22.4,<1.29.0",
+    "scipy>=1.10.0,<2.0.0",
+    "exchange_calendars>=4.5.0",
+    # Broker integrations
+    "ib_async==2.0.1",
+    # Caching
+    "cachetools==5.3.2",
+    # Validation and reporting
+    "jinja2==3.1.2",
+    # Logging
+    "structlog==23.2.0",
+    # Rate Limiting
+    "slowapi==0.1.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest==7.4.3",
+    "pytest-asyncio==0.21.1",
+    "pytest-cov==4.1.0",
+    "pytest-xdist==3.3.1",
+    "pytest-mock==3.12.0",
+    "pytest-benchmark==4.0.0",
+    "pytest-timeout==2.2.0",
+    "hypothesis>=6.0.0",
+    "coverage[toml]==7.3.2",
+    # Linting and formatting
+    "black==23.11.0",
+    "mypy==1.7.1",
+    "flake8==6.1.0",
+    "flake8-docstrings==1.7.0",
+    "flake8-import-order==0.18.2",
+    "flake8-bugbear==23.9.16",
+    "pre-commit==3.5.0",
+    # Type stubs
+    "types-pytz==2024.1.0.20240203",
+    # Utilities
+    "psutil==5.9.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/trading-analyst/trading-analyst"
+Repository = "https://github.com/trading-analyst/trading-analyst"
+Documentation = "https://docs.tradinganalyst.local"
+"Bug Tracker" = "https://github.com/trading-analyst/trading-analyst/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["tests*"]
+
+# Black code formatting
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.git
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+    | migrations
+)/
+'''
+
+# MyPy type checking
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+show_column_numbers = true
+show_error_context = true
+pretty = true
+
+# MyPy per-module options
+[[tool.mypy.overrides]]
+module = [
+    "uvicorn.*",
+    "httpx.*",
+    "structlog.*",
+    "asyncpg.*",
+    "alembic.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/.*",
+    "*/venv/*",
+    "*/.venv/*",
+    "*/migrations/*",
+    "app/main.py",
+    "*/conftest.py",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+sort = "Cover"
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "Trading Analyst Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+pythonpath = ["."]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+    "--tb=short",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-report=xml:coverage.xml",
+    # Temporarily disabled due to pytest-cov + async SQLAlchemy limitation
+    # Re-enable after resolving test isolation issues with coverage
+    # "--cov-fail-under=80",
+    "--no-cov-on-fail",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow tests that may take longer to run",
+    "database: Tests that require database access",
+    "external: Tests that make external API calls",
+    "performance: Performance benchmark tests",
+    "stress: Stress testing with large datasets",
+]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning:sqlalchemy.*",
+    "ignore::DeprecationWarning:pydantic.*",
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
+
+# Ruff linting configuration (alternative to flake8)
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "D",   # pydocstyle
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "D100",  # Missing docstring in public module
+    "D104",  # Missing docstring in public package
+    "D107",  # Missing docstring in __init__
+]
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "migrations",
+]
+
+[tool.ruff.pydocstyle]
+convention = "google"
+
+[tool.ruff.isort]
+known-first-party = ["app", "tests"]
+force-single-line = true
+

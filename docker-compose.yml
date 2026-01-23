@@ -1,0 +1,64 @@
+# Development Docker Compose - Auto-configured per instance
+# Usage: ./scripts/dev.sh (handles env setup automatically)
+
+services:
+  postgres-dev:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trading_analyst_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-trader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localpass}
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./backend/create_test_db.sh:/docker-entrypoint-initdb.d/02-create-test-db.sh
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trader} -d ${POSTGRES_DB:-trading_analyst_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend-dev:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:localpass@postgres-dev:5432/trading_analyst_dev}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONPATH: /app
+      DOCKER_ENV: "true"
+      BROKER_TYPE: ${BROKER_TYPE:-mock}
+      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-yahoo}
+      IB_HOST: ${IB_HOST:-host.docker.internal}
+      IB_PORT: ${IB_PORT:-7497}
+      IB_CLIENT_ID: ${IB_CLIENT_ID:-1}
+      IB_DATA_CLIENT_ID: ${IB_DATA_CLIENT_ID:-99}
+      IB_ACCOUNT: ${IB_ACCOUNT:-}
+      IB_CONNECTION_TIMEOUT: ${IB_CONNECTION_TIMEOUT:-30}
+      IB_ORDER_TIMEOUT: ${IB_ORDER_TIMEOUT:-60}
+    volumes:
+      - ./backend:/app
+      - ${ANALYTICS_PATH:-./analytics}:/analytics
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+  # Frontend runs locally: cd frontend && npm run dev
+  # Removed from Docker to avoid node_modules sync issues
+
+volumes:
+  postgres_data_dev:
+    driver: local

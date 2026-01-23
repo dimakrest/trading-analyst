@@ -1,0 +1,122 @@
+#!/bin/bash
+
+# Pre-commit hook for Trading Analyst
+# Checks for common accessibility violations before commit
+
+echo "🔍 Running pre-commit accessibility checks..."
+
+# Colors for output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# Track if we found any issues
+has_errors=0
+
+# Get list of staged files
+staged_tsx_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(tsx|ts|css)$' || true)
+
+if [ -z "$staged_tsx_files" ]; then
+  echo "✅ No TypeScript/CSS files to check"
+  exit 0
+fi
+
+echo "📝 Checking files for accessibility violations..."
+
+# Check 1: Forbidden dark: classes
+echo ""
+echo "1. Checking for dark: classes..."
+forbidden_dark_classes=$(echo "$staged_tsx_files" | xargs git diff --cached | grep -E '^\+.*className.*dark:' || true)
+
+if [ -n "$forbidden_dark_classes" ]; then
+  echo -e "${RED}❌ BLOCKED: Found forbidden 'dark:' classes${NC}"
+  echo ""
+  echo "The following lines contain 'dark:' classes which are forbidden:"
+  echo "$forbidden_dark_classes"
+  echo ""
+  echo -e "${YELLOW}Fix: Use ShadCN theme colors instead:${NC}"
+  echo "  ❌ text-gray-900 dark:text-white"
+  echo "  ✅ text-foreground"
+  echo ""
+  echo "See: docs/frontend/DESIGN_SYSTEM.md"
+  has_errors=1
+fi
+
+# Check 2: Hardcoded gray colors without theme colors
+echo ""
+echo "2. Checking for hardcoded gray colors..."
+gray_usage=$(echo "$staged_tsx_files" | xargs git diff --cached | grep -E '^\+.*className.*(text-gray-[0-9]|bg-gray-[0-9])' || true)
+
+if [ -n "$gray_usage" ]; then
+  echo -e "${YELLOW}⚠️  WARNING: Found hardcoded gray colors${NC}"
+  echo ""
+  echo "Consider using ShadCN theme colors instead:"
+  echo "  text-gray-600 → text-muted-foreground"
+  echo "  text-gray-900 → text-foreground"
+  echo "  bg-gray-100 → bg-muted"
+  echo ""
+  echo "These will be flagged but won't block the commit."
+  echo "Review: docs/frontend/DESIGN_SYSTEM.md"
+  echo ""
+fi
+
+# Check 3: Forbidden low-contrast colors
+echo ""
+echo "3. Checking for low-contrast colors..."
+low_contrast=$(echo "$staged_tsx_files" | xargs git diff --cached | grep -E '^\+.*(text-red-500|text-green-500|text-green-600[^0-9-])' || true)
+
+if [ -n "$low_contrast" ]; then
+  echo -e "${RED}❌ BLOCKED: Found potentially low-contrast colors${NC}"
+  echo ""
+  echo "The following colors have insufficient contrast:"
+  echo "$low_contrast"
+  echo ""
+  echo -e "${YELLOW}Fix:${NC}"
+  echo "  ❌ text-red-500   (3.94:1) → ✅ text-red-600   (5.14:1)"
+  echo "  ❌ text-green-500 (3.78:1) → ✅ text-green-700 (6.64:1)"
+  echo "  ⚠️  text-green-600 (4.54:1) → ✅ text-green-700 (6.64:1) [recommended]"
+  echo ""
+  echo "See: docs/frontend/DESIGN_SYSTEM.md"
+  has_errors=1
+fi
+
+# Check 4: Inline style with hardcoded colors
+echo ""
+echo "4. Checking for inline color styles..."
+inline_colors=$(echo "$staged_tsx_files" | xargs git diff --cached | grep -E '^\+.*style.*color.*#[0-9a-fA-F]{3,6}' || true)
+
+if [ -n "$inline_colors" ]; then
+  echo -e "${RED}❌ BLOCKED: Found inline color styles${NC}"
+  echo ""
+  echo "Use Tailwind classes or CSS variables instead:"
+  echo "  ❌ style={{ color: '#127a47' }}"
+  echo "  ✅ className='text-primary'"
+  echo ""
+  has_errors=1
+fi
+
+# Summary
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if [ $has_errors -eq 1 ]; then
+  echo -e "${RED}❌ Pre-commit checks FAILED${NC}"
+  echo ""
+  echo "Your commit has been blocked due to accessibility violations."
+  echo "Please fix the issues above and try again."
+  echo ""
+  echo "Resource:"
+  echo "  • docs/frontend/DESIGN_SYSTEM.md"
+  echo ""
+  echo "To skip this hook (NOT RECOMMENDED):"
+  echo "  git commit --no-verify"
+  echo ""
+  exit 1
+else
+  echo -e "${GREEN}✅ Pre-commit checks PASSED${NC}"
+  echo ""
+  echo "Note: Run 'npm run test:e2e' to verify full accessibility compliance."
+  echo ""
+  exit 0
+fi

@@ -1,0 +1,73 @@
+[run]
+# Source code directory
+source = app
+
+# Exclude patterns
+omit =
+    */tests/*
+    */test_*
+    */__pycache__/*
+    */.*
+    */venv/*
+    */.venv/*
+    */node_modules/*
+    */migrations/*
+    app/main.py
+    */conftest.py
+    setup.py
+    */site-packages/*
+
+# Enable branch coverage
+branch = True
+
+# Parallel execution support
+parallel = True
+
+# Concurrency support for async code
+concurrency = thread
+
+[report]
+# Reporting options
+precision = 2
+show_missing = True
+skip_covered = False
+sort = Cover
+
+# Exclude lines from coverage
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    def __str__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
+    class.*\bProtocol\):
+    raise ValueError
+    raise TypeError
+    pass
+
+# Partial branches to exclude
+partial_branches =
+    pragma: no branch
+    if settings.debug:
+    if settings.is_development:
+    if __name__ == .__main__.:
+
+[html]
+# HTML report configuration
+directory = htmlcov
+title = Trading Analyst Coverage Report
+show_contexts = True
+
+[xml]
+# XML report configuration
+output = coverage.xml
+
+[json]
+# JSON report configuration
+output = coverage.json
+show_contexts = True
+pretty_print = True

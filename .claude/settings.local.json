@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(tree:*)",
+      "Bash(python:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(docker build:*)",
+      "Bash(docker-compose up:*)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(docker:*)",
+      "Bash(curl:*)",
+      "Bash(npx playwright:*)",
+      "Bash(npm run test:run:*)",
+      "Bash(npm run test:e2e:*)",
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "Bash(open http://localhost:5173)",
+      "Bash(npm run type-check:*)",
+      "WebSearch",
+      "Bash(docker-compose exec:*)",
+      "mcp__perplexity__perplexity_search_web",
+      "Bash(python3 -m pytest tests/detectors/test_ma_crossover.py::test_multiple_crossovers_detection -xvs)",
+      "Bash(npm run test:coverage:*)",
+      "Bash(npm test:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(alembic current:*)",
+      "WebFetch(domain:code.claude.com)",
+      "Bash(npm run test:*)",
+      "Bash(python3 -m pytest:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(git add:*)",
+      "Bash(./scripts/dc.sh exec backend-dev pytest tests/unit/repositories/ -v --tb=short)",
+      "Bash(./scripts/dc.sh exec backend-dev python -c \"from app.models import *; from app.repositories import *; print\\(''Models:'', [x for x in dir\\(\\) if not x.startswith\\(''_''\\)]\\)\")"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "enabledMcpjsonServers": [
+    "shadcn"
+  ],
+  "enableAllProjectMcpServers": true
+}

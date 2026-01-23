@@ -1,0 +1,111 @@
+# Environment files (auto-generated)
+.env
+.env.local
+.env.*.local
+.env.dev
+
+# API Keys and Secrets
+secrets/
+*.key
+*.pem
+*.cert
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Virtual environments
+backend/venv/
+backend/env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.hypothesis/
+coverage.xml
+coverage/
+.nyc_output/
+test-results/
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+backups/*.sql
+
+# Frontend
+node_modules/
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+.npm
+.yarn-integrity
+
+# Docker
+docker-compose.override.yml
+
+# Trading Data (sensitive)
+data/
+trading_data/
+portfolio_data/
+signals/
+
+# Jupyter Notebooks (may contain sensitive data)
+*.ipynb_checkpoints
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+tasks
+frontend/test-results
+
+# Claude Code artifacts (agent working files)
+.artifacts/
+*_REPORT.md
+*_PROGRESS.md
+
+# Validation reports (generated)
+backend/tests/validation/validation_reports/
+frontend/e2e/screenshots/visual-tests
+frontend/tests/ui/viewport-matrix.spec.ts-snapshots
+
+.gemini/
+gha-creds-*.json
+.docker-data/

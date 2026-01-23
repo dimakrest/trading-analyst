@@ -1,0 +1,10 @@
+# Trading Watchlist
+# One symbol per line, comments start with #
+AAPL
+MSFT
+NVDA
+GOOGL
+AMZN
+META
+TSLA
+AMD
