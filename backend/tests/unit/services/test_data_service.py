@@ -4,11 +4,13 @@ Tests the DataService's ability to use smart freshness checking to minimize
 unnecessary API calls while ensuring users always see the latest available data.
 """
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.stock import StockPrice
 from app.providers.base import PriceDataPoint, PriceDataRequest
 from app.services.cache_service import FreshnessResult, MarketDataCache
 from app.services.data_service import DataService
@@ -62,7 +64,8 @@ def mock_repository():
 
     repo.sync_price_data = AsyncMock(side_effect=mock_sync)
 
-    # Mock get_price_data_by_date_range as async (for freshness check)
+    # Mock get_price_data_by_date_range as async
+    # Default: return empty list (will be overridden in tests)
     repo.get_price_data_by_date_range = AsyncMock(return_value=[])
 
     return repo
@@ -73,10 +76,6 @@ def mock_cache(mock_repository):
     """Create a mock market data cache."""
     cache = MagicMock(spec=MarketDataCache)
     cache.repository = mock_repository
-
-    # Default: cache miss
-    cache.get = AsyncMock(return_value=(None, "miss"))
-    cache.set = AsyncMock()
 
     return cache
 
@@ -95,6 +94,21 @@ def data_service(db_session: AsyncSession, mock_provider, mock_cache, mock_repos
 # Helper functions
 
 
+def create_mock_stock_price(symbol: str, timestamp: datetime, index: int = 0) -> MagicMock:
+    """Create a mock StockPrice database record."""
+    mock_record = MagicMock(spec=StockPrice)
+    mock_record.symbol = symbol
+    mock_record.timestamp = timestamp
+    mock_record.interval = "1d"
+    mock_record.open_price = Decimal(str(100.0 + index))
+    mock_record.high_price = Decimal(str(105.0 + index))
+    mock_record.low_price = Decimal(str(95.0 + index))
+    mock_record.close_price = Decimal(str(102.0 + index))
+    mock_record.volume = 1000000 + (index * 1000)
+    mock_record.last_fetched_at = datetime.now(timezone.utc)
+    return mock_record
+
+
 def create_freshness_result(
     is_fresh: bool,
     reason: str,
@@ -102,6 +116,7 @@ def create_freshness_result(
     last_data_date: date | None = None,
     last_complete_trading_day: date | None = None,
     fetch_start_date: date | None = None,
+    cached_records: list[StockPrice] | None = None,
 ) -> FreshnessResult:
     """Create a FreshnessResult for testing."""
     if last_complete_trading_day is None:
@@ -116,6 +131,7 @@ def create_freshness_result(
         last_complete_trading_day=last_complete_trading_day,
         needs_fetch=not is_fresh,
         fetch_start_date=fetch_start_date,
+        cached_records=cached_records,
     )
 
 
@@ -129,44 +145,38 @@ async def test_smart_cache_hit_returns_without_fetching(
     mock_cache,
 ):
     """Test that smart cache hit returns cached data without fetching from provider."""
-    # Arrange: Mock smart freshness check to indicate fresh data
+    # Arrange: Create mock cached records
+    cached_records = [
+        create_mock_stock_price(
+            "AAPL",
+            datetime(2024, 12, 1, tzinfo=timezone.utc),
+            0
+        )
+    ]
+
+    # Mock smart freshness check to indicate fresh data with cached_records
     freshness = create_freshness_result(
         is_fresh=True,
         reason="Data covers up to last complete trading day",
         market_status="pre_market",
         last_data_date=date(2024, 12, 2),
         last_complete_trading_day=date(2024, 12, 2),
+        cached_records=cached_records,
     )
     mock_cache.check_freshness_smart = AsyncMock(return_value=freshness)
 
-    # Mock cache.get to return cached data
-    cached_points = [
-        PriceDataPoint(
-            symbol="AAPL",
-            timestamp=datetime(2024, 12, 1, tzinfo=timezone.utc),
-            open_price=100.0,
-            high_price=105.0,
-            low_price=95.0,
-            close_price=102.0,
-            volume=1000000,
-        )
-    ]
-    mock_cache.get = AsyncMock(return_value=(cached_points, "l2_hit"))
-
     # Act: Fetch data
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime(2024, 11, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 12, 2, tzinfo=timezone.utc),
         interval="1d",
     )
 
-    # Assert: Should return cache hit without calling provider
-    assert result["cache_hit"] is True
-    assert result["hit_type"] == "l2_hit"
-    assert result["market_status"] == "pre_market"
-    assert result["inserted"] == 0
-    assert result["updated"] == 0
+    # Assert: Should return cached data without calling provider
+    assert len(result) > 0
+    assert all(isinstance(r, PriceDataPoint) for r in result)
+    assert result[0].symbol == "AAPL"
 
     # Verify provider was NOT called
     mock_provider.fetch_price_data.assert_not_called()
@@ -179,40 +189,37 @@ async def test_smart_cache_hit_during_market_hours(
     mock_cache,
 ):
     """Test smart cache hit during market hours with 5-minute TTL."""
-    # Arrange: Mock freshness check for market_open status
+    # Arrange: Create mock cached records
+    cached_records = [
+        create_mock_stock_price(
+            "AAPL",
+            datetime.now(timezone.utc),
+            0
+        )
+    ]
+
+    # Mock freshness check for market_open status
     freshness = create_freshness_result(
         is_fresh=True,
         reason="Data fresh within 5-minute TTL",
         market_status="market_open",
         last_data_date=date.today(),
         last_complete_trading_day=date.today() - timedelta(days=1),
+        cached_records=cached_records,
     )
     mock_cache.check_freshness_smart = AsyncMock(return_value=freshness)
 
-    cached_points = [
-        PriceDataPoint(
-            symbol="AAPL",
-            timestamp=datetime.now(timezone.utc),
-            open_price=100.0,
-            high_price=105.0,
-            low_price=95.0,
-            close_price=102.0,
-            volume=1000000,
-        )
-    ]
-    mock_cache.get = AsyncMock(return_value=(cached_points, "l1_hit"))
-
     # Act
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime.now(timezone.utc) - timedelta(days=1),
         end_date=datetime.now(timezone.utc),
         interval="1d",
     )
 
-    # Assert
-    assert result["cache_hit"] is True
-    assert result["market_status"] == "market_open"
+    # Assert: Should return cached data
+    assert len(result) > 0
+    assert result[0].symbol == "AAPL"
     mock_provider.fetch_price_data.assert_not_called()
 
 
@@ -238,8 +245,15 @@ async def test_incremental_fetch_uses_correct_start_date(
     )
     mock_cache.check_freshness_smart = AsyncMock(return_value=freshness)
 
+    # Mock repository to return merged data after fetch
+    merged_records = [
+        create_mock_stock_price("AAPL", datetime(2024, 12, i, tzinfo=timezone.utc), i)
+        for i in range(1, 5)
+    ]
+    mock_repository.get_price_data_by_date_range = AsyncMock(return_value=merged_records)
+
     # Act: Request data from Nov 1 to Dec 4
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime(2024, 11, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 12, 4, tzinfo=timezone.utc),
@@ -247,7 +261,7 @@ async def test_incremental_fetch_uses_correct_start_date(
     )
 
     # Assert: Provider should be called with incremental start date (Dec 2)
-    assert result["cache_hit"] is False
+    assert len(result) > 0
     mock_provider.fetch_price_data.assert_called_once()
 
     call_args = mock_provider.fetch_price_data.call_args[0][0]
@@ -262,6 +276,7 @@ async def test_full_fetch_when_no_cached_data(
     data_service: DataService,
     mock_provider,
     mock_cache,
+    mock_repository,
 ):
     """Test full fetch when no cached data exists."""
     # Arrange: Mock freshness to indicate no cached data
@@ -275,8 +290,15 @@ async def test_full_fetch_when_no_cached_data(
     )
     mock_cache.check_freshness_smart = AsyncMock(return_value=freshness)
 
+    # Mock repository to return data after fetch
+    fetched_records = [
+        create_mock_stock_price("AAPL", datetime(2024, 11, i, tzinfo=timezone.utc), i)
+        for i in range(1, 5)
+    ]
+    mock_repository.get_price_data_by_date_range = AsyncMock(return_value=fetched_records)
+
     # Act
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime(2024, 11, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 12, 4, tzinfo=timezone.utc),
@@ -284,7 +306,7 @@ async def test_full_fetch_when_no_cached_data(
     )
 
     # Assert: Should fetch full range
-    assert result["cache_hit"] is False
+    assert len(result) > 0
     mock_provider.fetch_price_data.assert_called_once()
 
     call_args = mock_provider.fetch_price_data.call_args[0][0]
@@ -300,12 +322,18 @@ async def test_force_refresh_bypasses_smart_cache_check(
     data_service: DataService,
     mock_provider,
     mock_cache,
+    mock_repository,
 ):
     """Test that force_refresh bypasses smart cache check entirely."""
-    # Arrange: Don't set up freshness check - it shouldn't be called
+    # Arrange: Mock repository to return data after fetch
+    fetched_records = [
+        create_mock_stock_price("AAPL", datetime(2024, 11, i, tzinfo=timezone.utc), i)
+        for i in range(1, 5)
+    ]
+    mock_repository.get_price_data_by_date_range = AsyncMock(return_value=fetched_records)
 
     # Act: Use force_refresh=True
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime(2024, 11, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 12, 4, tzinfo=timezone.utc),
@@ -314,7 +342,7 @@ async def test_force_refresh_bypasses_smart_cache_check(
     )
 
     # Assert: Should fetch from provider without checking freshness
-    assert result["cache_hit"] is False
+    assert len(result) > 0
     mock_provider.fetch_price_data.assert_called_once()
 
     # Verify freshness check was NOT called
@@ -331,7 +359,7 @@ async def test_double_check_after_lock_uses_smart_freshness(
     mock_cache,
 ):
     """Test that double-check after acquiring lock also uses smart freshness."""
-    # Arrange: First check returns stale, second check (after lock) returns fresh
+    # Arrange: First check returns stale, second check (after lock) returns fresh with data
     freshness_stale = create_freshness_result(
         is_fresh=False,
         reason="Missing recent data",
@@ -340,11 +368,21 @@ async def test_double_check_after_lock_uses_smart_freshness(
         fetch_start_date=date(2024, 12, 1),
     )
 
+    # Create cached records for fresh result
+    cached_records = [
+        create_mock_stock_price(
+            "AAPL",
+            datetime(2024, 12, 2, tzinfo=timezone.utc),
+            0
+        )
+    ]
+
     freshness_fresh = create_freshness_result(
         is_fresh=True,
         reason="Data covers up to last complete trading day",
         market_status="pre_market",
         last_data_date=date(2024, 12, 2),
+        cached_records=cached_records,
     )
 
     # Mock check_freshness_smart to return stale first, then fresh
@@ -352,31 +390,17 @@ async def test_double_check_after_lock_uses_smart_freshness(
         side_effect=[freshness_stale, freshness_fresh]
     )
 
-    # Mock cache.get to return data on second call
-    cached_points = [
-        PriceDataPoint(
-            symbol="AAPL",
-            timestamp=datetime(2024, 12, 2, tzinfo=timezone.utc),
-            open_price=100.0,
-            high_price=105.0,
-            low_price=95.0,
-            close_price=102.0,
-            volume=1000000,
-        )
-    ]
-    mock_cache.get = AsyncMock(return_value=(cached_points, "l2_hit"))
-
     # Act
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime(2024, 11, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 12, 2, tzinfo=timezone.utc),
         interval="1d",
     )
 
-    # Assert: Should return cache hit (another request populated cache)
-    assert result["cache_hit"] is True
-    assert result["market_status"] == "pre_market"
+    # Assert: Should return cached data (another request populated cache)
+    assert len(result) > 0
+    assert result[0].symbol == "AAPL"
 
     # Verify freshness was checked twice (before and after lock)
     assert mock_cache.check_freshness_smart.call_count == 2
@@ -393,6 +417,7 @@ async def test_incremental_fetch_start_date_not_before_requested_start(
     data_service: DataService,
     mock_provider,
     mock_cache,
+    mock_repository,
 ):
     """Test that incremental fetch only applies if fetch_start_date > requested start_date."""
     # Arrange: fetch_start_date is BEFORE requested start_date (shouldn't use it)
@@ -405,8 +430,15 @@ async def test_incremental_fetch_start_date_not_before_requested_start(
     )
     mock_cache.check_freshness_smart = AsyncMock(return_value=freshness)
 
+    # Mock repository to return data after fetch
+    fetched_records = [
+        create_mock_stock_price("AAPL", datetime(2024, 11, i, tzinfo=timezone.utc), i)
+        for i in range(1, 5)
+    ]
+    mock_repository.get_price_data_by_date_range = AsyncMock(return_value=fetched_records)
+
     # Act: Request from Nov 1
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime(2024, 11, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 12, 4, tzinfo=timezone.utc),
@@ -425,31 +457,28 @@ async def test_smart_cache_with_after_hours_status(
     mock_cache,
 ):
     """Test smart cache behavior during after-hours."""
-    # Arrange: After-hours with complete data for today
+    # Arrange: Create mock cached records
+    cached_records = [
+        create_mock_stock_price(
+            "AAPL",
+            datetime.now(timezone.utc),
+            0
+        )
+    ]
+
+    # After-hours with complete data for today
     freshness = create_freshness_result(
         is_fresh=True,
         reason="Data covers up to last complete trading day (including today)",
         market_status="after_hours",
         last_data_date=date.today(),
         last_complete_trading_day=date.today(),
+        cached_records=cached_records,
     )
     mock_cache.check_freshness_smart = AsyncMock(return_value=freshness)
 
-    cached_points = [
-        PriceDataPoint(
-            symbol="AAPL",
-            timestamp=datetime.now(timezone.utc),
-            open_price=100.0,
-            high_price=105.0,
-            low_price=95.0,
-            close_price=102.0,
-            volume=1000000,
-        )
-    ]
-    mock_cache.get = AsyncMock(return_value=(cached_points, "l2_hit"))
-
     # Act
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime.now(timezone.utc) - timedelta(days=30),
         end_date=datetime.now(timezone.utc),
@@ -457,8 +486,8 @@ async def test_smart_cache_with_after_hours_status(
     )
 
     # Assert: Should use cache (data is complete for today after close)
-    assert result["cache_hit"] is True
-    assert result["market_status"] == "after_hours"
+    assert len(result) > 0
+    assert result[0].symbol == "AAPL"
     mock_provider.fetch_price_data.assert_not_called()
 
 
@@ -473,30 +502,27 @@ async def test_weekend_status_with_friday_data(
     friday = date(2024, 12, 6)  # Assuming this is a Friday
     saturday = date(2024, 12, 7)
 
+    # Create mock cached records
+    cached_records = [
+        create_mock_stock_price(
+            "AAPL",
+            datetime.combine(friday, datetime.min.time(), tzinfo=timezone.utc),
+            0
+        )
+    ]
+
     freshness = create_freshness_result(
         is_fresh=True,
         reason=f"Data covers up to last complete trading day ({friday})",
         market_status="closed",
         last_data_date=friday,
         last_complete_trading_day=friday,
+        cached_records=cached_records,
     )
     mock_cache.check_freshness_smart = AsyncMock(return_value=freshness)
 
-    cached_points = [
-        PriceDataPoint(
-            symbol="AAPL",
-            timestamp=datetime.combine(friday, datetime.min.time(), tzinfo=timezone.utc),
-            open_price=100.0,
-            high_price=105.0,
-            low_price=95.0,
-            close_price=102.0,
-            volume=1000000,
-        )
-    ]
-    mock_cache.get = AsyncMock(return_value=(cached_points, "l2_hit"))
-
     # Act: Request on Saturday
-    result = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol="AAPL",
         start_date=datetime.combine(
             saturday - timedelta(days=30),
@@ -508,6 +534,6 @@ async def test_weekend_status_with_friday_data(
     )
 
     # Assert: Should use cache (Friday is last complete trading day)
-    assert result["cache_hit"] is True
-    assert result["market_status"] == "closed"
+    assert len(result) > 0
+    assert result[0].symbol == "AAPL"
     mock_provider.fetch_price_data.assert_not_called()

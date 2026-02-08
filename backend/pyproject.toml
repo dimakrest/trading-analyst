@@ -43,8 +43,6 @@ dependencies = [
     "exchange_calendars>=4.5.0",
     # Broker integrations
     "ib_async==2.0.1",
-    # Caching
-    "cachetools==5.3.2",
     # Validation and reporting
     "jinja2==3.1.2",
     # Logging

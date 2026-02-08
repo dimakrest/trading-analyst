@@ -1,39 +1,28 @@
-"""Cache service for market data with two-level caching.
+"""Cache service for market data freshness checking.
 
-Implements L1 (in-memory) and L2 (database) caching to minimize API calls.
+Provides smart caching logic that understands market hours and trading days.
 """
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from cachetools import TTLCache
-
 from app.services import trading_calendar_service
-from app.providers.base import PriceDataPoint
 from app.repositories.stock_price import StockPriceRepository
+
+if TYPE_CHECKING:
+    from app.models.stock import StockPrice
 
 logger = logging.getLogger(__name__)
 
 
-class CacheHitType(str, Enum):
-    """Type of cache hit (for metrics and logging)."""
-    L1_HIT = "l1_hit"  # In-memory cache hit
-    L2_HIT = "l2_hit"  # Database cache hit
-    MISS = "miss"      # Cache miss, need to fetch
-
-
 @dataclass
 class CacheTTLConfig:
-    """TTL configuration for different data intervals."""
-    daily: int = 86400           # 24 hours
-    hourly: int = 3600           # 1 hour
-    intraday: int = 300          # 5 minutes
+    """TTL configuration for market data freshness checks."""
     market_hours_ttl: int = 300  # 5 minutes during market hours
-    l1_ttl: int = 30             # 30 seconds for L1 cache
-    l1_size: int = 200           # Max symbols in L1 cache
 
 
 @dataclass
@@ -47,160 +36,23 @@ class FreshnessResult:
     last_complete_trading_day: date  # Last day with complete data available
     needs_fetch: bool  # Whether to fetch new data
     fetch_start_date: date | None  # Start date for incremental fetch (if needed)
+    cached_records: list[StockPrice] | None = None  # Records from freshness check DB query
 
 
 class MarketDataCache:
     """
-    Two-level cache for market data:
-    - L1: In-memory (fast, recent, per-instance)
-    - L2: Database (persistent, shared, TTL-validated)
+    Market-aware freshness checker for market data.
 
-    Cache-first flow:
-    1. Check L1 (in-memory) → ~1ms
-    2. Check L2 (database) with TTL → ~20ms
-    3. On miss: caller fetches and stores → ~500ms
+    Provides smart caching logic that understands market hours and trading days:
+    - During market hours: 5-minute TTL for live data
+    - Pre/after/closed: Check data covers last complete trading day
+    - Historical requests: Check data covers requested range
+    - Incremental fetch: Only fetch missing dates when possible
     """
 
-    def __init__(
-        self,
-        repository: StockPriceRepository,
-        ttl_config: CacheTTLConfig,
-    ):
+    def __init__(self, repository: StockPriceRepository, ttl_config: CacheTTLConfig):
         self.repository = repository
         self.ttl_config = ttl_config
-
-        # L1: In-memory cache with TTL
-        self.l1_cache: TTLCache = TTLCache(
-            maxsize=ttl_config.l1_size,
-            ttl=ttl_config.l1_ttl
-        )
-
-        logger.info(
-            f"MarketDataCache initialized: "
-            f"L1 size={ttl_config.l1_size}, TTL={ttl_config.l1_ttl}s"
-        )
-
-    def _get_l1_key(
-        self,
-        symbol: str,
-        start_date: datetime,
-        end_date: datetime,
-        interval: str,
-    ) -> str:
-        """Generate cache key for L1."""
-        return f"{symbol}:{interval}:{start_date.date()}:{end_date.date()}"
-
-    def _get_ttl_for_interval(self, interval: str) -> int:
-        """Get appropriate TTL for interval type."""
-        intraday_intervals = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"]
-        hourly_intervals = ["1h", "4h"]
-
-        if interval in intraday_intervals:
-            return self.ttl_config.intraday
-        elif interval in hourly_intervals:
-            return self.ttl_config.hourly
-        else:
-            return self.ttl_config.daily
-
-    async def get(
-        self,
-        symbol: str,
-        start_date: datetime,
-        end_date: datetime,
-        interval: str,
-    ) -> tuple[list[PriceDataPoint] | None, CacheHitType]:
-        """
-        Attempt to get data from cache (L1 → L2).
-
-        Returns:
-            (data, hit_type) where:
-            - data: List of PriceDataPoint or None if cache miss
-            - hit_type: CacheHitType indicating where data came from
-        """
-        cache_key = self._get_l1_key(symbol, start_date, end_date, interval)
-
-        # Check L1 (in-memory)
-        if cache_key in self.l1_cache:
-            data = self.l1_cache[cache_key]
-            logger.debug(f"L1 cache hit: {cache_key}")
-            return (data, CacheHitType.L1_HIT)
-
-        # Check L2 (database) with TTL validation
-        ttl_seconds = self._get_ttl_for_interval(interval)
-        price_records, is_fresh = await self.repository.get_cached_price_data(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval,
-            ttl_seconds=ttl_seconds,
-        )
-
-        if price_records and is_fresh:
-            # Convert to PriceDataPoint
-            data = [self._record_to_point(record) for record in price_records]
-
-            # Store in L1 for next time
-            self.l1_cache[cache_key] = data
-
-            logger.debug(f"L2 cache hit: {cache_key}")
-            return (data, CacheHitType.L2_HIT)
-
-        # Cache miss
-        logger.debug(f"Cache miss: {cache_key}")
-        return (None, CacheHitType.MISS)
-
-    async def set(
-        self,
-        symbol: str,
-        start_date: datetime,
-        end_date: datetime,
-        interval: str,
-        data: list[PriceDataPoint],
-    ) -> None:
-        """
-        Store data in both cache levels.
-
-        Note: L2 storage is done by caller via repository.
-        This method only updates L1 and metadata.
-        """
-        cache_key = self._get_l1_key(symbol, start_date, end_date, interval)
-
-        # Store in L1
-        self.l1_cache[cache_key] = data
-
-        # Update L2 freshness timestamp
-        await self.repository.update_last_fetched_at(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval,
-        )
-
-        logger.debug(f"Cached {len(data)} points: {cache_key}")
-
-    def invalidate(
-        self,
-        symbol: str,
-        start_date: datetime | None = None,
-        end_date: datetime | None = None,
-        interval: str | None = None,
-    ) -> None:
-        """
-        Invalidate cache entries matching criteria.
-
-        If only symbol provided, clears all L1 entries for that symbol.
-        L2 invalidation requires database update (handled by caller).
-        """
-        keys_to_remove = []
-
-        for key in list(self.l1_cache.keys()):
-            if key.startswith(f"{symbol}:"):
-                keys_to_remove.append(key)
-
-        for key in keys_to_remove:
-            del self.l1_cache[key]
-
-        logger.debug(f"Invalidated {len(keys_to_remove)} cache entries for {symbol}")
 
     async def check_freshness_smart(
         self,
@@ -316,6 +168,7 @@ class MarketDataCache:
                     last_complete_trading_day=last_complete_day,
                     needs_fetch=False,
                     fetch_start_date=None,
+                    cached_records=price_records,
                 )
             else:
                 # Missing data within the historical range
@@ -362,6 +215,7 @@ class MarketDataCache:
                     last_complete_trading_day=last_complete_day,
                     needs_fetch=False,
                     fetch_start_date=None,
+                    cached_records=price_records,
                 )
             else:
                 return FreshnessResult(
@@ -388,6 +242,7 @@ class MarketDataCache:
                     last_complete_trading_day=last_complete_day,
                     needs_fetch=False,
                     fetch_start_date=None,
+                    cached_records=price_records,
                 )
             else:
                 # Missing data for completed trading days
@@ -402,15 +257,3 @@ class MarketDataCache:
                     needs_fetch=True,
                     fetch_start_date=last_data_date,  # Small overlap is OK
                 )
-
-    def _record_to_point(self, record) -> PriceDataPoint:
-        """Convert StockPrice model to PriceDataPoint."""
-        return PriceDataPoint(
-            symbol=record.symbol,
-            timestamp=record.timestamp,
-            open_price=record.open_price,
-            high_price=record.high_price,
-            low_price=record.low_price,
-            close_price=record.close_price,
-            volume=record.volume,
-        )

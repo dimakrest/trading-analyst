@@ -4,7 +4,7 @@ Tests cover:
 - Symbol validation via provider
 - Price data fetching with cache-first architecture
 - Integration with providers (Yahoo, Mock)
-- Cache orchestration (L1/L2)
+- Cache orchestration with market-aware freshness checking
 - Error handling for provider failures
 - Integration with StockPriceRepository
 - Concurrent operations and rate limiting
@@ -23,7 +23,7 @@ from app.core.exceptions import (
 from app.providers.base import PriceDataPoint, SymbolInfo
 from app.providers.mock import MockMarketDataProvider
 from app.repositories.stock_price import StockPriceRepository
-from app.services.cache_service import CacheHitType, MarketDataCache
+from app.services.cache_service import MarketDataCache
 from app.services.data_service import DataService, DataServiceConfig
 
 
@@ -86,8 +86,6 @@ class TestDataService:
         from app.services.cache_service import FreshnessResult
 
         cache = AsyncMock(spec=MarketDataCache)
-        # Default: cache miss
-        cache.get.return_value = (None, CacheHitType.MISS)
 
         # Default: freshness check indicates need to fetch
         default_freshness = FreshnessResult(
@@ -198,14 +196,27 @@ class TestDataService:
 
         assert "API Error" in str(exc_info.value)
 
-    async def test_fetch_and_store_data_cache_hit(
+    async def test_get_price_data_cache_hit(
         self, data_service, mock_provider, mock_cache, mock_repository
     ):
-        """Test fetch_and_store_data with cache hit."""
+        """Test get_price_data with cache hit."""
         from datetime import date, timedelta
+        from decimal import Decimal as D
+        from unittest.mock import MagicMock
+        from app.models.stock import StockPrice
         from app.services.cache_service import FreshnessResult
 
-        # Setup smart freshness check to indicate data is fresh
+        # Create mock StockPrice records
+        mock_record = MagicMock(spec=StockPrice)
+        mock_record.symbol = "AAPL"
+        mock_record.timestamp = datetime.now(UTC)
+        mock_record.open_price = D("100.0")
+        mock_record.high_price = D("102.0")
+        mock_record.low_price = D("99.0")
+        mock_record.close_price = D("101.0")
+        mock_record.volume = 1000000
+
+        # Setup smart freshness check to indicate data is fresh with cached_records
         freshness = FreshnessResult(
             is_fresh=True,
             reason="Data covers up to last complete trading day",
@@ -215,43 +226,29 @@ class TestDataService:
             last_complete_trading_day=date.today() - timedelta(days=1),
             needs_fetch=False,
             fetch_start_date=None,
+            cached_records=[mock_record],
         )
         mock_cache.check_freshness_smart.return_value = freshness
 
-        # Setup cache to return data (L1 hit)
-        cached_points = [
-            PriceDataPoint(
-                symbol="AAPL",
-                timestamp=datetime.now(UTC),
-                open_price=Decimal("100.0"),
-                high_price=Decimal("102.0"),
-                low_price=Decimal("99.0"),
-                close_price=Decimal("101.0"),
-                volume=1000000,
-            )
-        ]
-        mock_cache.get.return_value = (cached_points, CacheHitType.L1_HIT)
+        # Test get price data
+        result = await data_service.get_price_data("AAPL")
 
-        # Test fetch and store
-        result = await data_service.fetch_and_store_data("AAPL")
-
-        # Verify result indicates cache hit
-        assert result["cache_hit"] is True
-        assert result["hit_type"] == CacheHitType.L1_HIT
-        assert result["inserted"] == 0
-        assert result["updated"] == 0
-        assert result["market_status"] == "pre_market"
+        # Verify result contains data
+        assert len(result) > 0
+        assert all(isinstance(r, PriceDataPoint) for r in result)
+        assert result[0].symbol == "AAPL"
 
         # Provider should NOT be called (cache hit)
         mock_provider.fetch_price_data.assert_not_called()
         mock_repository.sync_price_data.assert_not_called()
 
-    async def test_fetch_and_store_data_cache_miss(
+    async def test_get_price_data_cache_miss(
         self, data_service, mock_provider, mock_cache, mock_repository
     ):
-        """Test fetch_and_store_data with cache miss."""
-        # Setup cache miss
-        mock_cache.get.return_value = (None, CacheHitType.MISS)
+        """Test get_price_data with cache miss."""
+        from unittest.mock import MagicMock
+        from decimal import Decimal as D
+        from app.models.stock import StockPrice
 
         # Setup provider response
         mock_points = [
@@ -267,30 +264,43 @@ class TestDataService:
         ]
         mock_provider.fetch_price_data.return_value = mock_points
 
-        # Setup repository response
+        # Setup repository response for sync
         mock_repository.sync_price_data.return_value = {
             "inserted": 1,
             "updated": 0,
             "skipped": 0,
         }
 
-        # Test fetch and store
-        result = await data_service.fetch_and_store_data("AAPL")
+        # Setup repository to return records after fetch
+        mock_record = MagicMock(spec=StockPrice)
+        mock_record.symbol = "AAPL"
+        mock_record.timestamp = datetime.now(UTC)
+        mock_record.open_price = D("100.0")
+        mock_record.high_price = D("102.0")
+        mock_record.low_price = D("99.0")
+        mock_record.close_price = D("101.0")
+        mock_record.volume = 1000000
+        mock_repository.get_price_data_by_date_range.return_value = [mock_record]
 
-        # Verify result
-        assert result["cache_hit"] is False
-        assert result["inserted"] == 1
-        assert result["updated"] == 0
+        # Test get price data
+        result = await data_service.get_price_data("AAPL")
+
+        # Verify result contains data
+        assert len(result) > 0
+        assert all(isinstance(r, PriceDataPoint) for r in result)
 
         # Provider should be called
         mock_provider.fetch_price_data.assert_called_once()
         mock_repository.sync_price_data.assert_called_once()
-        mock_cache.set.assert_called_once()
 
-    async def test_fetch_and_store_data_force_refresh(
+    async def test_get_price_data_force_refresh(
         self, data_service, mock_provider, mock_cache, mock_repository
     ):
-        """Test fetch_and_store_data with force_refresh."""
+        """Test get_price_data with force_refresh."""
+        from unittest.mock import MagicMock
+        from decimal import Decimal as D
+        from app.models.stock import StockPrice
+
         # Setup provider response
         mock_points = [
             PriceDataPoint(
@@ -312,8 +322,19 @@ class TestDataService:
             "skipped": 0,
         }
 
+        # Setup repository to return records after fetch
+        mock_record = MagicMock(spec=StockPrice)
+        mock_record.symbol = "AAPL"
+        mock_record.timestamp = datetime.now(UTC)
+        mock_record.open_price = D("100.0")
+        mock_record.high_price = D("102.0")
+        mock_record.low_price = D("99.0")
+        mock_record.close_price = D("101.0")
+        mock_record.volume = 1000000
+        mock_repository.get_price_data_by_date_range.return_value = [mock_record]
+
         # Test with force_refresh=True
-        result = await data_service.fetch_and_store_data("AAPL", force_refresh=True)
+        result = await data_service.get_price_data("AAPL", force_refresh=True)
 
         # Smart freshness check should NOT be called (force refresh bypasses it)
         mock_cache.check_freshness_smart.assert_not_called()
@@ -343,7 +364,7 @@ class TestDataService:
 
         # Try to use persistence operation - should fail with clear error
         with pytest.raises(RuntimeError, match="Database session required"):
-            await service.fetch_and_store_data("AAPL")
+            await service.get_price_data("AAPL")
 
     async def test_api_operations_work_without_session(self):
         """Test that API-only operations work without session."""
@@ -386,7 +407,6 @@ class TestDataServiceErrorHandling:
         from app.services.cache_service import FreshnessResult
 
         cache = AsyncMock(spec=MarketDataCache)
-        cache.get.return_value = (None, CacheHitType.MISS)
 
         # Default: freshness check indicates need to fetch
         default_freshness = FreshnessResult(
@@ -444,7 +464,7 @@ class TestDataServiceErrorHandling:
 
         # Test fetch - should propagate error
         with pytest.raises(APIError) as exc_info:
-            await data_service.fetch_and_store_data("AAPL")
+            await data_service.get_price_data("AAPL")
 
         assert "API Error" in str(exc_info.value)
 
@@ -453,7 +473,6 @@ class TestDataServiceErrorHandling:
     ):
         """Test handling of repository errors."""
         # Setup mocks
-        mock_cache.get.return_value = (None, CacheHitType.MISS)
         mock_provider.fetch_price_data.return_value = [
             PriceDataPoint(
                 symbol="AAPL",
@@ -471,7 +490,7 @@ class TestDataServiceErrorHandling:
 
         # Test - should propagate error
         with pytest.raises(Exception) as exc_info:
-            await data_service.fetch_and_store_data("AAPL")
+            await data_service.get_price_data("AAPL")
 
         assert "DB Error" in str(exc_info.value)
 
@@ -513,7 +532,6 @@ class TestDataServiceAdditionalCoverage:
         from app.services.cache_service import FreshnessResult
 
         cache = AsyncMock(spec=MarketDataCache)
-        cache.get.return_value = (None, CacheHitType.MISS)
 
         # Default: freshness check indicates need to fetch
         default_freshness = FreshnessResult(
