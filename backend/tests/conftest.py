@@ -325,9 +325,11 @@ def mock_yahoo_finance():
 
 
 # Database test helpers
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(autouse=True)
 async def clean_db(db_session: AsyncSession):
     """Clean database before and after test.
+
+    Automatically runs for all tests that use db_session.
 
     Args:
         db_session: Database session
@@ -341,7 +343,7 @@ async def clean_db(db_session: AsyncSession):
         pass
 
     await db_session.execute(
-        text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, symbols, sector_etf_mappings, stock_lists RESTART IDENTITY CASCADE")
+        text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, stock_lists RESTART IDENTITY CASCADE")
     )
     await db_session.commit()
 
@@ -354,7 +356,7 @@ async def clean_db(db_session: AsyncSession):
         pass
 
     await db_session.execute(
-        text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, symbols, sector_etf_mappings, stock_lists RESTART IDENTITY CASCADE")
+        text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, stock_lists RESTART IDENTITY CASCADE")
     )
     await db_session.commit()
 
