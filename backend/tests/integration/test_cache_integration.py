@@ -1,25 +1,24 @@
-"""Integration tests for the two-level cache architecture.
+"""Integration tests for the cache-first data service.
 
-Tests verify the complete cache flow:
-- L1 Cache: In-memory TTLCache (30 seconds, 200 symbols max)
-- L2 Cache: Database with TTL validation based on last_fetched_at
-- Cache Flow: Request → L1 → L2 → Provider → Store L2 → Store L1 → Return
+Tests verify the complete data flow:
+- Database cache with TTL validation based on last_fetched_at
+- Market-aware freshness checking
+- Cache Flow: Request → Freshness Check → Provider (if stale) → Store → Return
 
 Coverage includes:
 - Cache misses triggering provider fetch
-- L1 cache hits (fast in-memory)
-- L2 cache hits (database)
+- Cache hits returning data from database
 - TTL expiration forcing fresh fetch
 - Force refresh bypassing cache
 - Cache sharing across different request types
-- Cache statistics tracking
 - Multi-symbol cache isolation
+- Concurrent request deduplication
 """
 import asyncio
 import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -29,14 +28,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.stock import StockPrice
 from app.providers.mock import MockMarketDataProvider
 from app.repositories.stock_price import StockPriceRepository
-from app.services.cache_service import CacheHitType, CacheTTLConfig, MarketDataCache
+from app.services.cache_service import CacheTTLConfig, MarketDataCache
 from app.services.data_service import DataService
 
 
 @pytest_asyncio.fixture
 async def mock_provider():
-    """Create mock provider with predictable data."""
-    return MockMarketDataProvider()
+    """Create mock provider with predictable data and call tracking."""
+    provider = MockMarketDataProvider()
+    # Wrap the fetch_price_data method to track calls
+    original_fetch = provider.fetch_price_data
+    provider.fetch_price_data = AsyncMock(wraps=original_fetch)
+    return provider
 
 
 @pytest_asyncio.fixture
@@ -47,15 +50,8 @@ async def stock_repository(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def cache_service(stock_repository: StockPriceRepository):
-    """Create cache service with short TTLs for testing."""
-    ttl_config = CacheTTLConfig(
-        daily=86400,      # 24 hours
-        hourly=3600,      # 1 hour
-        intraday=300,     # 5 minutes
-        l1_ttl=30,        # 30 seconds
-        l1_size=200,      # 200 symbols
-    )
-    return MarketDataCache(stock_repository, ttl_config)
+    """Create cache service with default configuration."""
+    return MarketDataCache(stock_repository, CacheTTLConfig())
 
 
 @pytest_asyncio.fixture
@@ -82,16 +78,17 @@ async def data_service(
 async def test_cache_miss_fetches_and_stores(
     data_service: DataService,
     stock_repository: StockPriceRepository,
+    mock_provider: MockMarketDataProvider,
     db_session: AsyncSession,
 ):
     """Verify first request misses cache and fetches from provider.
 
     Flow:
-    1. First request for symbol should miss L1 and L2 cache
+    1. First request for symbol should miss cache
     2. Should fetch from provider
-    3. Should store in database (L2)
-    4. Should populate L1 cache
-    5. Verify last_fetched_at is set
+    3. Should store in database
+    4. Verify last_fetched_at is set
+    5. Second immediate request should hit cache (no provider call)
     """
     symbol = "AAPL"
     start_date = datetime.now(timezone.utc) - timedelta(days=30)
@@ -99,16 +96,19 @@ async def test_cache_miss_fetches_and_stores(
     interval = "1d"
 
     # First request - should miss cache
-    stats = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
 
-    # Verify cache miss
-    assert stats["cache_hit"] is False, "First request should miss cache"
-    assert stats["inserted"] > 0, "Should insert new records on cache miss"
+    # Verify provider was called
+    assert mock_provider.fetch_price_data.call_count == 1, "Should call provider on cache miss"
+
+    # Verify data returned
+    assert len(result) > 0, "Should return price data"
+    assert all(r.symbol == symbol for r in result), "All records should match symbol"
 
     # Verify data stored in database
     price_records = await stock_repository.get_price_data_by_date_range(
@@ -126,34 +126,38 @@ async def test_cache_miss_fetches_and_stores(
         age = datetime.now(timezone.utc) - record.last_fetched_at
         assert age.total_seconds() < 5, "last_fetched_at should be very recent"
 
-    # Verify L1 cache is populated (by making another request immediately)
-    stats2 = await data_service.fetch_and_store_data(
+    # Reset mock for second request
+    mock_provider.fetch_price_data.reset_mock()
+
+    # Second request - should hit cache
+    result2 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
 
-    assert stats2["cache_hit"] is True, "Second request should hit L1 cache"
-    assert stats2["hit_type"] == CacheHitType.L1_HIT, "Should be L1 cache hit"
+    # Verify cache hit (no provider call)
+    mock_provider.fetch_price_data.assert_not_called()
+    assert len(result2) > 0, "Should return cached data"
 
 
 # ============================================================================
-# Test 2: L1 cache hit returns fast
+# Test 2: Cache hit returns fast without provider call
 # ============================================================================
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_cache_hit_l1_returns_fast(
+async def test_cache_hit_returns_fast(
     data_service: DataService,
     mock_provider: MockMarketDataProvider,
 ):
-    """Verify L1 cache hits are fast and don't hit provider.
+    """Verify cache hits are fast and don't hit provider.
 
     Flow:
     1. First request fetches and caches
-    2. Second request (within L1 TTL) returns from L1
+    2. Second request returns from cache
     3. Should NOT hit provider again
-    4. Response time should be < 50ms
+    4. Response time should be reasonable (< 100ms for DB query)
     """
     symbol = "MSFT"
     start_date = datetime.now(timezone.utc) - timedelta(days=10)
@@ -161,28 +165,20 @@ async def test_cache_hit_l1_returns_fast(
     interval = "1d"
 
     # First request - populates cache
-    stats1 = await data_service.fetch_and_store_data(
+    result1 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats1["cache_hit"] is False, "First request should miss cache"
+    assert len(result1) > 0, "First request should return data"
 
-    # Track provider calls
-    original_fetch = mock_provider.fetch_price_data
-    call_count = 0
+    # Reset mock for tracking
+    mock_provider.fetch_price_data.reset_mock()
 
-    async def tracked_fetch(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return await original_fetch(*args, **kwargs)
-
-    mock_provider.fetch_price_data = tracked_fetch
-
-    # Second request - should hit L1 cache
+    # Second request - should hit cache
     start_time = time.perf_counter()
-    stats2 = await data_service.fetch_and_store_data(
+    result2 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
@@ -190,79 +186,56 @@ async def test_cache_hit_l1_returns_fast(
     )
     elapsed_ms = (time.perf_counter() - start_time) * 1000
 
-    assert stats2["cache_hit"] is True, "Second request should hit cache"
-    assert stats2["hit_type"] == CacheHitType.L1_HIT, "Should be L1 cache hit"
-    assert call_count == 0, "Should NOT call provider on L1 cache hit"
-    assert elapsed_ms < 50, f"L1 cache hit should be < 50ms, was {elapsed_ms:.2f}ms"
+    # Verify cache hit (no provider call)
+    mock_provider.fetch_price_data.assert_not_called()
+    assert len(result2) > 0, "Should return cached data"
+    assert elapsed_ms < 100, f"Cache hit should be < 100ms, was {elapsed_ms:.2f}ms"
 
 
 # ============================================================================
-# Test 3: L2 cache hit after L1 expires
+# Test 3: Cache persistence across service requests
 # ============================================================================
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_cache_hit_l2_after_l1_expires(
+async def test_cache_persistence(
     data_service: DataService,
-    cache_service: MarketDataCache,
     mock_provider: MockMarketDataProvider,
 ):
-    """Verify L2 cache hit after L1 expires.
+    """Verify cache persists in database across requests.
 
     Flow:
     1. First request fetches and caches
-    2. Clear L1 cache (simulate expiration)
-    3. Second request should hit L2 (database)
-    4. Should NOT hit provider again
-    5. Should repopulate L1 cache
+    2. Second request should hit cache
+    3. Should NOT hit provider again
     """
     symbol = "GOOGL"
     start_date = datetime.now(timezone.utc) - timedelta(days=20)
     end_date = datetime.now(timezone.utc)
     interval = "1d"
 
-    # First request - populates both caches
-    stats1 = await data_service.fetch_and_store_data(
+    # First request - populates cache
+    result1 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats1["cache_hit"] is False, "First request should miss cache"
+    assert len(result1) > 0, "First request should return data"
 
-    # Track provider calls
-    original_fetch = mock_provider.fetch_price_data
-    call_count = 0
+    # Reset mock for tracking
+    mock_provider.fetch_price_data.reset_mock()
 
-    async def tracked_fetch(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return await original_fetch(*args, **kwargs)
-
-    mock_provider.fetch_price_data = tracked_fetch
-
-    # Clear L1 cache to simulate expiration
-    cache_service.l1_cache.clear()
-
-    # Second request - should hit L2 cache
-    stats2 = await data_service.fetch_and_store_data(
+    # Second request - should hit cache
+    result2 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
 
-    assert stats2["cache_hit"] is True, "Second request should hit cache"
-    assert stats2["hit_type"] == CacheHitType.L2_HIT, "Should be L2 cache hit"
-    assert call_count == 0, "Should NOT call provider on L2 cache hit"
-
-    # Verify L1 cache is repopulated
-    stats3 = await data_service.fetch_and_store_data(
-        symbol=symbol,
-        start_date=start_date,
-        end_date=end_date,
-        interval=interval,
-    )
-    assert stats3["hit_type"] == CacheHitType.L1_HIT, "L1 cache should be repopulated"
+    # Verify cache hit (no provider call)
+    mock_provider.fetch_price_data.assert_not_called()
+    assert len(result2) > 0, "Should return cached data"
 
 
 # ============================================================================
@@ -273,7 +246,7 @@ async def test_cache_hit_l2_after_l1_expires(
 async def test_cache_miss_after_ttl_expires(
     data_service: DataService,
     stock_repository: StockPriceRepository,
-    cache_service: MarketDataCache,
+    mock_provider: MockMarketDataProvider,
     db_session: AsyncSession,
 ):
     """Verify cache miss when data doesn't cover last complete trading day.
@@ -302,14 +275,14 @@ async def test_cache_miss_after_ttl_expires(
     end_date = datetime(2024, 12, 3, tzinfo=timezone.utc)
     interval = "1d"
 
-    # First request - populates cache (no mocking needed for initial fetch)
-    stats1 = await data_service.fetch_and_store_data(
+    # First request - populates cache
+    result1 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats1["cache_hit"] is False, "First request should miss cache"
+    assert len(result1) > 0, "First request should return data"
 
     # Delete data from Dec 2 onwards to simulate incomplete cache
     # This makes the cached data NOT cover the last complete trading day (Dec 2)
@@ -323,8 +296,8 @@ async def test_cache_miss_after_ttl_expires(
     await db_session.execute(delete_stmt)
     await db_session.commit()
 
-    # Clear L1 cache
-    cache_service.l1_cache.clear()
+    # Reset mock for tracking
+    mock_provider.fetch_price_data.reset_mock()
 
     # Mock the market calendar class methods to simulate Tuesday pre-market
     # The cache should detect that data doesn't cover Monday (last complete trading day)
@@ -334,14 +307,15 @@ async def test_cache_miss_after_ttl_expires(
 
         # Second request - should miss cache because data is incomplete
         # (doesn't cover last complete trading day - Monday Dec 2)
-        stats2 = await data_service.fetch_and_store_data(
+        result2 = await data_service.get_price_data(
             symbol=symbol,
             start_date=start_date,
             end_date=end_date,
             interval=interval,
         )
 
-    assert stats2["cache_hit"] is False, "Incomplete cache should be treated as miss"
+    # Verify cache miss (provider was called)
+    assert mock_provider.fetch_price_data.call_count == 1, "Incomplete cache should trigger provider fetch"
 
     # Verify data was refetched (last_fetched_at should be recent)
     price_records = await stock_repository.get_price_data_by_date_range(
@@ -370,8 +344,8 @@ async def test_force_refresh_bypasses_cache(
 
     Flow:
     1. First request fetches and caches
-    2. Second request with force_refresh=True should bypass cache
-    3. Should fetch from provider even though cache has data
+    2. Verify cache hit on second request
+    3. force_refresh=True should bypass cache and fetch from provider
     4. Should update cache with fresh data
     """
     symbol = "NVDA"
@@ -380,36 +354,29 @@ async def test_force_refresh_bypasses_cache(
     interval = "1d"
 
     # First request - populates cache
-    stats1 = await data_service.fetch_and_store_data(
+    result1 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats1["cache_hit"] is False, "First request should miss cache"
+    assert len(result1) > 0, "First request should return data"
+
+    # Reset mock for tracking
+    mock_provider.fetch_price_data.reset_mock()
 
     # Verify cache is populated
-    stats2 = await data_service.fetch_and_store_data(
+    result2 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats2["cache_hit"] is True, "Cache should be populated"
-
-    # Track provider calls
-    original_fetch = mock_provider.fetch_price_data
-    call_count = 0
-
-    async def tracked_fetch(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return await original_fetch(*args, **kwargs)
-
-    mock_provider.fetch_price_data = tracked_fetch
+    mock_provider.fetch_price_data.assert_not_called()
 
     # Force refresh - should bypass cache
-    stats3 = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result3 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
@@ -417,22 +384,23 @@ async def test_force_refresh_bypasses_cache(
         force_refresh=True,
     )
 
-    assert stats3["cache_hit"] is False, "force_refresh should bypass cache"
-    assert call_count == 1, "force_refresh should call provider"
+    # Verify provider was called
+    assert mock_provider.fetch_price_data.call_count == 1, "force_refresh should call provider"
+    assert len(result3) > 0, "Should return fresh data"
 
     # Verify cache was updated (next request should hit cache)
-    mock_provider.fetch_price_data = original_fetch  # Reset tracker
-    stats4 = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result4 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats4["cache_hit"] is True, "Cache should be updated after force_refresh"
+    mock_provider.fetch_price_data.assert_not_called()
 
 
 # ============================================================================
-# Test 6: Simulation and chart share cache
+# Test 6: Different request types share cache
 # ============================================================================
 @pytest.mark.asyncio
 @pytest.mark.integration
@@ -443,8 +411,8 @@ async def test_different_request_types_share_cache(
     """Verify different request types share cache.
 
     Flow:
-    1. First request type (fetches hourly data)
-    2. Request chart data for same symbol/dates
+    1. First request fetches hourly data
+    2. Second request for same symbol/dates/interval
     3. Should use cached data (no duplicate provider call)
     4. Verify only one provider call made
     """
@@ -453,141 +421,103 @@ async def test_different_request_types_share_cache(
     end_date = datetime.now(timezone.utc)
     interval = "1h"
 
-    # Track provider calls
-    original_fetch = mock_provider.fetch_price_data
-    call_count = 0
-
-    async def tracked_fetch(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return await original_fetch(*args, **kwargs)
-
-    mock_provider.fetch_price_data = tracked_fetch
-
     # First request - hourly data fetch
-    stats1 = await data_service.fetch_and_store_data(
+    result1 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats1["cache_hit"] is False, "First request should miss cache"
-    assert call_count == 1, "Should call provider once"
+    assert len(result1) > 0, "First request should return data"
+    assert mock_provider.fetch_price_data.call_count == 1, "Should call provider once"
 
-    # Second request - simulates chart data request
-    stats2 = await data_service.fetch_and_store_data(
+    # Reset mock for tracking
+    mock_provider.fetch_price_data.reset_mock()
+
+    # Second request - same parameters
+    result2 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats2["cache_hit"] is True, "Chart request should use cached data"
-    assert call_count == 1, "Should NOT call provider again (cache hit)"
+
+    # Verify cache hit
+    mock_provider.fetch_price_data.assert_not_called()
+    assert len(result2) > 0, "Should return cached data"
 
 
 # ============================================================================
-# Test 7: Cache statistics tracking
+# Test 7: Multiple symbol requests with cache behavior
 # ============================================================================
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_cache_statistics_tracking(
+async def test_multiple_symbol_cache_behavior(
     data_service: DataService,
-    cache_service: MarketDataCache,
+    mock_provider: MockMarketDataProvider,
 ):
-    """Verify cache statistics are tracked correctly.
+    """Verify cache behavior across multiple symbols.
 
     Flow:
-    1. Make series of requests (mix of hits and misses)
-    2. Verify cache statistics are correct (L1 hits, L2 hits, misses)
-    3. Verify cache hit rate calculation
+    1. Make series of requests for different symbols
+    2. Verify cache hits and misses based on provider calls
     """
     symbols = ["AAPL", "MSFT", "GOOGL"]
     start_date = datetime.now(timezone.utc) - timedelta(days=10)
     end_date = datetime.now(timezone.utc)
     interval = "1d"
 
-    stats_list = []
+    provider_calls = []
 
     # Request 1: AAPL - miss
-    stats = await data_service.fetch_and_store_data(
+    result = await data_service.get_price_data(
         symbol=symbols[0],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    stats_list.append(stats)
-    assert stats["cache_hit"] is False, "First AAPL request should miss"
+    provider_calls.append(mock_provider.fetch_price_data.call_count)
+    assert len(result) > 0, "First AAPL request should return data"
 
-    # Request 2: AAPL - L1 hit
-    stats = await data_service.fetch_and_store_data(
+    # Request 2: AAPL - hit
+    mock_provider.fetch_price_data.reset_mock()
+    result = await data_service.get_price_data(
         symbol=symbols[0],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    stats_list.append(stats)
-    assert stats["cache_hit"] is True, "Second AAPL request should hit L1"
-    assert stats["hit_type"] == CacheHitType.L1_HIT
+    mock_provider.fetch_price_data.assert_not_called()
 
     # Request 3: MSFT - miss
-    stats = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result = await data_service.get_price_data(
         symbol=symbols[1],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    stats_list.append(stats)
-    assert stats["cache_hit"] is False, "First MSFT request should miss"
+    assert mock_provider.fetch_price_data.call_count == 1, "First MSFT request should call provider"
 
-    # Request 4: MSFT - L1 hit
-    stats = await data_service.fetch_and_store_data(
+    # Request 4: MSFT - hit
+    mock_provider.fetch_price_data.reset_mock()
+    result = await data_service.get_price_data(
         symbol=symbols[1],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    stats_list.append(stats)
-    assert stats["cache_hit"] is True, "Second MSFT request should hit L1"
-    assert stats["hit_type"] == CacheHitType.L1_HIT
+    mock_provider.fetch_price_data.assert_not_called()
 
-    # Clear L1 cache
-    cache_service.l1_cache.clear()
-
-    # Request 5: AAPL - L2 hit (L1 cleared)
-    stats = await data_service.fetch_and_store_data(
-        symbol=symbols[0],
-        start_date=start_date,
-        end_date=end_date,
-        interval=interval,
-    )
-    stats_list.append(stats)
-    assert stats["cache_hit"] is True, "AAPL request should hit L2"
-    assert stats["hit_type"] == CacheHitType.L2_HIT
-
-    # Request 6: GOOGL - miss
-    stats = await data_service.fetch_and_store_data(
+    # Request 5: GOOGL - miss
+    mock_provider.fetch_price_data.reset_mock()
+    result = await data_service.get_price_data(
         symbol=symbols[2],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    stats_list.append(stats)
-    assert stats["cache_hit"] is False, "First GOOGL request should miss"
-
-    # Calculate statistics
-    total_requests = len(stats_list)
-    cache_hits = sum(1 for s in stats_list if s["cache_hit"])
-    l1_hits = sum(1 for s in stats_list if s.get("hit_type") == CacheHitType.L1_HIT)
-    l2_hits = sum(1 for s in stats_list if s.get("hit_type") == CacheHitType.L2_HIT)
-    misses = sum(1 for s in stats_list if not s["cache_hit"])
-    hit_rate = (cache_hits / total_requests) * 100
-
-    assert total_requests == 6, "Should have 6 total requests"
-    assert cache_hits == 3, "Should have 3 cache hits"
-    assert l1_hits == 2, "Should have 2 L1 hits"
-    assert l2_hits == 1, "Should have 1 L2 hit"
-    assert misses == 3, "Should have 3 cache misses"
-    assert hit_rate == 50.0, "Cache hit rate should be 50%"
+    assert mock_provider.fetch_price_data.call_count == 1, "First GOOGL request should call provider"
 
 
 # ============================================================================
@@ -598,6 +528,7 @@ async def test_cache_statistics_tracking(
 async def test_multiple_symbols_cache_isolation(
     data_service: DataService,
     stock_repository: StockPriceRepository,
+    mock_provider: MockMarketDataProvider,
 ):
     """Verify each symbol has isolated cache entry.
 
@@ -613,40 +544,45 @@ async def test_multiple_symbols_cache_isolation(
     interval = "1d"
 
     # Fetch AAPL
-    stats1 = await data_service.fetch_and_store_data(
+    result1 = await data_service.get_price_data(
         symbol=symbols[0],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats1["cache_hit"] is False, "First AAPL request should miss"
+    assert len(result1) > 0, "First AAPL request should return data"
+    assert mock_provider.fetch_price_data.call_count == 1, "Should call provider for AAPL"
 
     # Fetch MSFT
-    stats2 = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result2 = await data_service.get_price_data(
         symbol=symbols[1],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats2["cache_hit"] is False, "First MSFT request should miss (different symbol)"
+    assert len(result2) > 0, "First MSFT request should return data"
+    assert mock_provider.fetch_price_data.call_count == 1, "Should call provider for MSFT (different symbol)"
 
     # Verify AAPL cache still works
-    stats3 = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result3 = await data_service.get_price_data(
         symbol=symbols[0],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats3["cache_hit"] is True, "AAPL cache should still be valid"
+    mock_provider.fetch_price_data.assert_not_called()
 
     # Verify MSFT cache works
-    stats4 = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result4 = await data_service.get_price_data(
         symbol=symbols[1],
         start_date=start_date,
         end_date=end_date,
         interval=interval,
     )
-    assert stats4["cache_hit"] is True, "MSFT cache should be valid"
+    mock_provider.fetch_price_data.assert_not_called()
 
     # Verify database has separate records
     aapl_records = await stock_repository.get_price_data_by_date_range(
@@ -681,67 +617,13 @@ async def test_multiple_symbols_cache_isolation(
 
 
 # ============================================================================
-# Test 9: Cache invalidation
-# ============================================================================
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_cache_invalidation(
-    data_service: DataService,
-    cache_service: MarketDataCache,
-    mock_provider: MockMarketDataProvider,
-):
-    """Verify cache invalidation clears L1 cache for a symbol.
-
-    Flow:
-    1. Fetch data for symbol (populates L1 cache)
-    2. Invalidate cache for symbol
-    3. Next request should miss L1 but hit L2
-    """
-    symbol = "INTC"
-    start_date = datetime.now(timezone.utc) - timedelta(days=10)
-    end_date = datetime.now(timezone.utc)
-    interval = "1d"
-
-    # First request - populates cache
-    stats1 = await data_service.fetch_and_store_data(
-        symbol=symbol,
-        start_date=start_date,
-        end_date=end_date,
-        interval=interval,
-    )
-    assert stats1["cache_hit"] is False, "First request should miss cache"
-
-    # Second request - should hit L1
-    stats2 = await data_service.fetch_and_store_data(
-        symbol=symbol,
-        start_date=start_date,
-        end_date=end_date,
-        interval=interval,
-    )
-    assert stats2["cache_hit"] is True, "Second request should hit L1"
-    assert stats2["hit_type"] == CacheHitType.L1_HIT
-
-    # Invalidate cache
-    cache_service.invalidate(symbol)
-
-    # Third request - should miss L1 but hit L2
-    stats3 = await data_service.fetch_and_store_data(
-        symbol=symbol,
-        start_date=start_date,
-        end_date=end_date,
-        interval=interval,
-    )
-    assert stats3["cache_hit"] is True, "Should hit L2 after L1 invalidation"
-    assert stats3["hit_type"] == CacheHitType.L2_HIT, "Should be L2 hit after invalidation"
-
-
-# ============================================================================
-# Test 10: Different intervals have separate cache entries
+# Test 9: Different intervals have separate cache entries
 # ============================================================================
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_different_intervals_cache_isolation(
     data_service: DataService,
+    mock_provider: MockMarketDataProvider,
 ):
     """Verify different intervals have separate cache entries.
 
@@ -756,44 +638,49 @@ async def test_different_intervals_cache_isolation(
     end_date = datetime.now(timezone.utc)
 
     # Fetch daily data
-    stats1 = await data_service.fetch_and_store_data(
+    result1 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval="1d",
     )
-    assert stats1["cache_hit"] is False, "First 1d request should miss"
+    assert len(result1) > 0, "First 1d request should return data"
+    assert mock_provider.fetch_price_data.call_count == 1, "Should call provider for 1d"
 
     # Fetch hourly data (same symbol/dates, different interval)
-    stats2 = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result2 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval="1h",
     )
-    assert stats2["cache_hit"] is False, "First 1h request should miss (different interval)"
+    assert len(result2) > 0, "First 1h request should return data"
+    assert mock_provider.fetch_price_data.call_count == 1, "Should call provider for 1h (different interval)"
 
     # Verify daily cache still works
-    stats3 = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result3 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval="1d",
     )
-    assert stats3["cache_hit"] is True, "1d cache should still be valid"
+    mock_provider.fetch_price_data.assert_not_called()
 
     # Verify hourly cache works
-    stats4 = await data_service.fetch_and_store_data(
+    mock_provider.fetch_price_data.reset_mock()
+    result4 = await data_service.get_price_data(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
         interval="1h",
     )
-    assert stats4["cache_hit"] is True, "1h cache should be valid"
+    mock_provider.fetch_price_data.assert_not_called()
 
 
 # ============================================================================
-# Test 11: Concurrent requests for same symbol don't duplicate API calls
+# Test 10: Concurrent requests for same symbol don't duplicate API calls
 # ============================================================================
 @pytest.mark.asyncio
 @pytest.mark.integration
@@ -807,8 +694,7 @@ async def test_concurrent_requests_same_symbol_no_duplicates(
     1. Fire 5 concurrent requests for SAME symbol/interval/dates
     2. Should only trigger 1 provider call (double-check locking)
     3. Should not raise IntegrityError from duplicate inserts
-    4. Should have 1 cache miss (first request) and 4 cache hits (others wait for first)
-    5. All requests should succeed
+    4. All requests should succeed and return data
 
     This tests the fix for Issue #3 (race condition in concurrent cache writes).
     """
@@ -832,7 +718,7 @@ async def test_concurrent_requests_same_symbol_no_duplicates(
 
     # Fire 5 concurrent requests for SAME symbol/interval/dates
     tasks = [
-        data_service.fetch_and_store_data(symbol, start_date, end_date, interval)
+        data_service.get_price_data(symbol, start_date, end_date, interval)
         for _ in range(5)
     ]
 
@@ -846,24 +732,8 @@ async def test_concurrent_requests_same_symbol_no_duplicates(
     # Verify only 1 provider call (race condition prevented)
     assert call_count == 1, f"Expected 1 provider call, got {call_count}"
 
-    # Count cache misses (only first request should miss)
-    cache_misses = sum(1 for r in results if not r.get("cache_hit", False))
-    assert cache_misses == 1, f"Expected 1 cache miss, got {cache_misses}"
-
-    # Verify cache hits (4 requests should wait and get cached data)
-    cache_hits = sum(1 for r in results if r.get("cache_hit", False))
-    assert cache_hits == 4, f"Expected 4 cache hits, got {cache_hits}"
-
-    # Verify all requests succeeded (returned dict with expected keys)
+    # Verify all requests succeeded (returned list of PriceDataPoint)
     for r in results:
-        assert isinstance(r, dict), "All requests should return dict"
-        assert "cache_hit" in r, "All results should have cache_hit key"
-
-    # Log statistics for debugging
-    total_inserted = sum(r.get("inserted", 0) for r in results)
-    total_updated = sum(r.get("updated", 0) for r in results)
-
-    # Should have inserted records only once (from first request)
-    assert total_inserted > 0, "Should have inserted records"
-    # Other requests hit cache, so total inserts should be from only 1 request
-    assert total_inserted == results[0].get("inserted", 0), "Only first request should insert"
+        assert isinstance(r, list), "All requests should return list"
+        assert len(r) > 0, "All results should have data"
+        assert all(hasattr(point, 'symbol') for point in r), "All results should be PriceDataPoint"

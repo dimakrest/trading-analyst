@@ -188,24 +188,11 @@ async def get_data_service(
     - session: Database session for persistence
     - provider: Market data provider (Yahoo, Mock, etc.)
 
-    The cache is created internally using configuration settings.
+    The cache is created internally using default configuration.
     """
-    settings = get_settings()
     repository = StockPriceRepository(session)
+    cache = MarketDataCache(repository, CacheTTLConfig())
 
-    # Create cache configuration
-    ttl_config = CacheTTLConfig(
-        daily=settings.cache_ttl_daily,
-        hourly=settings.cache_ttl_hourly,
-        intraday=settings.cache_ttl_intraday,
-        l1_ttl=settings.cache_l1_ttl,
-        l1_size=settings.cache_l1_size,
-    )
-
-    # Create cache
-    cache = MarketDataCache(repository, ttl_config)
-
-    # Create service
     return DataService(
         session=session,
         provider=provider,

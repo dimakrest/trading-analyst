@@ -3,7 +3,7 @@
 This service provides a comprehensive interface for fetching, validating,
 and persisting financial market data. It handles:
 - Provider abstraction (Yahoo Finance, Mock, etc.)
-- Two-level caching (L1 in-memory + L2 database)
+- Market-aware caching (database with smart freshness logic)
 - Cache-first orchestration to minimize API calls
 - Data validation and transformation
 - Error handling for external API dependencies
@@ -52,7 +52,7 @@ class DataService:
 
     Architecture:
     - Uses injected MarketDataProviderInterface (not hardcoded Yahoo)
-    - Uses MarketDataCache for two-level caching
+    - Uses MarketDataCache for market-aware freshness checking
     - Orchestrates: cache check → provider fetch → repository store
     - Maintains backward-compatible API
 
@@ -121,15 +121,7 @@ class DataService:
 
     def _create_default_cache(self) -> MarketDataCache:
         """Create cache with default configuration."""
-        settings = get_settings()
-        ttl_config = CacheTTLConfig(
-            daily=settings.cache_ttl_daily,
-            hourly=settings.cache_ttl_hourly,
-            intraday=settings.cache_ttl_intraday,
-            l1_ttl=settings.cache_l1_ttl,
-            l1_size=settings.cache_l1_size,
-        )
-        return MarketDataCache(self.repository, ttl_config)
+        return MarketDataCache(self.repository, CacheTTLConfig())
 
     @staticmethod
     async def _get_fetch_lock(cache_key: str) -> asyncio.Lock:
@@ -194,16 +186,16 @@ class DataService:
         force_refresh: bool = False,
     ) -> list[PriceDataPoint]:
         """
-        Get price data with cache-first logic (recommended method).
+        Get price data with cache-first logic.
 
-        This is the unified interface for fetching price data. It:
-        1. Checks cache (L1 memory → L2 database)
-        2. Fetches from provider if cache miss
-        3. Stores to database
-        4. Returns typed PriceDataPoint list
+        Flow:
+        1. Check freshness (market-aware) — returns cached data if fresh
+        2. If stale: acquire lock, double-check, fetch from provider, store in DB
+        3. Read full merged range from DB after store
 
-        For most use cases, this is the method you want. Use fetch_and_store_data()
-        only if you need operation statistics (inserted/updated counts).
+        Race condition protection:
+        - Per-cache-key locks prevent duplicate provider fetches
+        - Double-check after lock acquisition catches concurrent populates
 
         Args:
             symbol: Stock symbol (e.g., 'AAPL')
@@ -229,86 +221,9 @@ class DataService:
         if start_date is None:
             start_date = end_date - timedelta(days=get_settings().default_history_days)
 
-        # Cache-first fetch and store
-        await self.fetch_and_store_data(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval,
-            force_refresh=force_refresh,
-        )
-
-        # Read from database
-        price_records = await self.repository.get_price_data_by_date_range(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval,
-        )
-
-        # Convert DB records to PriceDataPoint
-        return [
-            PriceDataPoint(
-                symbol=record.symbol,
-                timestamp=record.timestamp,
-                open_price=record.open_price,
-                high_price=record.high_price,
-                low_price=record.low_price,
-                close_price=record.close_price,
-                volume=record.volume,
-            )
-            for record in price_records
-        ]
-
-    async def fetch_and_store_data(
-        self,
-        symbol: str,
-        start_date: datetime | None = None,
-        end_date: datetime | None = None,
-        interval: str = "1d",
-        include_pre_post: bool = False,
-        force_refresh: bool = False,
-    ) -> dict[str, int]:
-        """
-        Fetch data with market-aware cache logic and store in database.
-
-        Smart caching logic:
-        1. Check market status (pre-market, open, after-hours, closed)
-        2. Determine if cached data covers all complete trading days
-        3. Only fetch if data is actually missing or stale
-        4. Fetch incrementally (only missing dates) when possible
-
-        Cache-first flow with race condition protection:
-        1. Quick smart freshness check (L1 → L2) unless force_refresh
-        2. If cache fresh: return cached data (no fetch, no stats)
-        3. If cache stale: acquire lock for this cache key
-        4. Double-check cache after acquiring lock (another request may have populated it)
-        5. If still stale: fetch from provider → store → update cache
-
-        Race condition protection:
-        - Uses per-cache-key locks to prevent duplicate fetches
-        - Only one request per cache key fetches from provider
-        - Other concurrent requests wait for lock, then get cached data
-
-        Args:
-            force_refresh: Skip cache and fetch fresh data
-
-        Returns:
-            Statistics dict: {"inserted": N, "updated": M, "cache_hit": bool, "hit_type": CacheHitType | None}
-        """
-        self._require_repository()
-
-        # Normalize inputs
-        symbol = symbol.upper().strip()
-        if end_date is None:
-            end_date = datetime.now(timezone.utc)
-        if start_date is None:
-            start_date = end_date - timedelta(days=get_settings().default_history_days)
-
-        # Generate cache key for lock coordination
         cache_key = f"{symbol}:{interval}:{start_date.date()}:{end_date.date()}"
 
-        # Smart cache check without lock (unless force refresh)
+        # Smart cache check (no lock needed)
         fetch_start = start_date
         if not force_refresh and self.cache:
             freshness = await self.cache.check_freshness_smart(
@@ -318,45 +233,28 @@ class DataService:
                 interval=interval,
             )
 
-            if freshness.is_fresh:
-                self.logger.info(
-                    f"Smart cache hit for {symbol}: {freshness.reason} "
+            if freshness.is_fresh and freshness.cached_records is not None:
+                self.logger.debug(
+                    f"Cache hit for {symbol}: {freshness.reason} "
                     f"(market: {freshness.market_status})"
                 )
-                # Return cached data
-                cached_data, hit_type = await self.cache.get(
-                    symbol=symbol,
-                    start_date=start_date,
-                    end_date=end_date,
-                    interval=interval,
-                )
-                return {
-                    "inserted": 0,
-                    "updated": 0,
-                    "cache_hit": True,
-                    "hit_type": hit_type,
-                    "market_status": freshness.market_status,
-                }
+                return [self._record_to_point(r) for r in freshness.cached_records]
 
-            # Need to fetch - use incremental start date if available
+            # Use incremental start date if available
             if freshness.fetch_start_date and freshness.fetch_start_date > start_date.date():
-                # Incremental fetch from where we left off
                 fetch_start = datetime.combine(
                     freshness.fetch_start_date,
                     datetime.min.time(),
-                    tzinfo=timezone.utc
+                    tzinfo=timezone.utc,
                 )
-                self.logger.info(
+                self.logger.debug(
                     f"Incremental fetch for {symbol}: {freshness.fetch_start_date} to {end_date.date()}"
                 )
-        else:
-            fetch_start = start_date
 
-        # Cache miss or force refresh - acquire lock for this cache key
+        # Cache miss — acquire lock for this cache key
         fetch_lock = await self._get_fetch_lock(cache_key)
         async with fetch_lock:
-            # Double-check cache after acquiring lock (race condition protection)
-            # Another concurrent request may have populated cache while we were waiting
+            # Double-check after lock (race condition protection)
             if not force_refresh and self.cache:
                 freshness = await self.cache.check_freshness_smart(
                     symbol=symbol,
@@ -365,75 +263,61 @@ class DataService:
                     interval=interval,
                 )
 
-                if freshness.is_fresh:
-                    self.logger.info(
-                        f"Smart cache hit after lock for {symbol}: {freshness.reason} "
-                        f"(market: {freshness.market_status}) - another request populated cache"
+                if freshness.is_fresh and freshness.cached_records is not None:
+                    self.logger.debug(
+                        f"Cache hit after lock for {symbol}: {freshness.reason} "
+                        f"(market: {freshness.market_status})"
                     )
-                    cached_data, hit_type = await self.cache.get(
-                        symbol=symbol,
-                        start_date=start_date,
-                        end_date=end_date,
-                        interval=interval,
-                    )
-                    return {
-                        "inserted": 0,
-                        "updated": 0,
-                        "cache_hit": True,
-                        "hit_type": hit_type,
-                        "market_status": freshness.market_status,
-                    }
+                    return [self._record_to_point(r) for r in freshness.cached_records]
 
                 # Update fetch_start in case it changed
                 if freshness.fetch_start_date and freshness.fetch_start_date > start_date.date():
                     fetch_start = datetime.combine(
                         freshness.fetch_start_date,
                         datetime.min.time(),
-                        tzinfo=timezone.utc
+                        tzinfo=timezone.utc,
                     )
 
-            # Still cache miss - fetch from provider
+            # Fetch from provider
             request = PriceDataRequest(
                 symbol=symbol,
                 start_date=fetch_start,
                 end_date=end_date,
                 interval=interval,
-                include_pre_post=include_pre_post,
             )
-
             price_points = await self.provider.fetch_price_data(request)
 
-            # Convert to dicts for repository
-            price_dicts = [
-                self._point_to_dict(point, interval)
-                for point in price_points
-            ]
-
-            # Store in database
-            stats = await self.repository.sync_price_data(
+            # Store in database (sync_price_data already sets last_fetched_at)
+            price_dicts = [self._point_to_dict(point, interval) for point in price_points]
+            await self.repository.sync_price_data(
                 symbol=symbol,
                 new_data=price_dicts,
                 interval=interval,
             )
 
-            # Update cache
-            if self.cache:
-                await self.cache.set(
-                    symbol=symbol,
-                    start_date=start_date,
-                    end_date=end_date,
-                    interval=interval,
-                    data=price_points,
-                )
+            self.logger.info(f"Fetched and stored {len(price_points)} points for {symbol}")
 
-            self.logger.info(
-                f"Fetched and stored {len(price_points)} points for {symbol}"
-            )
+        # Read full merged range from DB (includes both old + new data)
+        price_records = await self.repository.get_price_data_by_date_range(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval,
+        )
+        return [self._record_to_point(r) for r in price_records]
 
-            return {
-                **stats,
-                "cache_hit": False,
-            }
+    @staticmethod
+    def _record_to_point(record) -> PriceDataPoint:
+        """Convert StockPrice DB record to PriceDataPoint."""
+        return PriceDataPoint(
+            symbol=record.symbol,
+            timestamp=record.timestamp,
+            open_price=record.open_price,
+            high_price=record.high_price,
+            low_price=record.low_price,
+            close_price=record.close_price,
+            volume=record.volume,
+        )
 
     def _point_to_dict(
         self,

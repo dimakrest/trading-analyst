@@ -94,30 +94,6 @@ class Settings(BaseSettings):
         description="Market data provider: 'yahoo', 'ib', 'mock'"
     )
 
-    # Cache TTL Configuration (seconds)
-    cache_ttl_daily: int = Field(
-        default=86400,  # 24 hours
-        description="TTL for daily data in cache (seconds)"
-    )
-    cache_ttl_hourly: int = Field(
-        default=3600,  # 1 hour
-        description="TTL for hourly data in cache (seconds)"
-    )
-    cache_ttl_intraday: int = Field(
-        default=300,  # 5 minutes
-        description="TTL for intraday data in cache (seconds)"
-    )
-
-    # In-memory cache configuration
-    cache_l1_size: int = Field(
-        default=200,
-        description="Max symbols in L1 (in-memory) cache"
-    )
-    cache_l1_ttl: int = Field(
-        default=30,
-        description="TTL for L1 cache in seconds"
-    )
-
     # Job Queue Timing
     job_heartbeat_interval: int = Field(
         default=30,

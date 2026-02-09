@@ -56,6 +56,9 @@ class TestStockPricesSourceField:
         Returns:
             DataService: Mocked DataService with provider
         """
+        from app.services.cache_service import FreshnessResult
+        from datetime import date
+
         # Create mock session
         mock_session = AsyncMock()
 
@@ -68,23 +71,32 @@ class TestStockPricesSourceField:
         mock_records = []
 
         for i in range(5):
-            date = start_date + timedelta(days=i)
-            mock_records.append(self._create_mock_stock_price("AAPL", date, i))
+            record_date = start_date + timedelta(days=i)
+            mock_records.append(self._create_mock_stock_price("AAPL", record_date, i))
 
         # Mock repository methods
         mock_repository.get_price_data_by_date_range = AsyncMock(return_value=mock_records)
 
         # Create cache with test configuration
-        ttl_config = CacheTTLConfig(
-            daily=3600,
-            hourly=1800,
-            intraday=300,
-            l1_ttl=60,
-            l1_size=100,
-        )
+        ttl_config = CacheTTLConfig()
         mock_cache = MagicMock(spec=MarketDataCache)
         mock_cache.repository = mock_repository
         mock_cache.ttl_config = ttl_config
+
+        # Mock check_freshness_smart to return fresh data with cached_records
+        mock_cache.check_freshness_smart = AsyncMock(
+            return_value=FreshnessResult(
+                is_fresh=True,
+                reason="Test data is fresh",
+                market_status="closed",
+                recommended_ttl=3600,
+                last_data_date=date.today(),
+                last_complete_trading_day=date.today(),
+                needs_fetch=False,
+                fetch_start_date=None,
+                cached_records=mock_records,
+            )
+        )
 
         # Create DataService with the provider
         data_service = DataService(
@@ -92,16 +104,6 @@ class TestStockPricesSourceField:
             provider=provider,
             cache=mock_cache,
             repository=mock_repository,
-        )
-
-        # Mock the fetch_and_store_data method to return stats
-        data_service.fetch_and_store_data = AsyncMock(
-            return_value={
-                "fetched": 5,
-                "stored": 5,
-                "cached": 0,
-                "errors": 0,
-            }
         )
 
         return data_service
