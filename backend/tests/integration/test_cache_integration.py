@@ -13,6 +13,9 @@ Coverage includes:
 - Cache sharing across different request types
 - Multi-symbol cache isolation
 - Concurrent request deduplication
+- Double-check after lock (race condition)
+- Incremental fetch start date
+- Market-hours 5-minute TTL
 """
 import asyncio
 import time
@@ -22,7 +25,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stock import StockPrice
@@ -733,3 +736,256 @@ async def test_concurrent_requests_same_symbol_no_duplicates(
         assert isinstance(r, list), "All requests should return list"
         assert len(r) > 0, "All results should have data"
         assert all(hasattr(point, 'symbol') for point in r), "All results should be PriceDataPoint"
+
+
+# ============================================================================
+# Test 11: Double-check after lock detects fresh data
+# ============================================================================
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_double_check_after_lock_returns_cached(
+    data_service: DataService,
+    mock_provider: MockMarketDataProvider,
+):
+    """Verify double-check after lock returns cached data without re-fetching.
+
+    Race condition scenario:
+    1. Request A and B both see stale cache
+    2. Request A acquires lock, fetches, stores, releases lock
+    3. Request B acquires lock, double-checks, finds fresh data → returns cache
+    4. Provider should only be called once total
+
+    This explicitly tests the double-check code path at data_service.py:249-267.
+    """
+    symbol = "DBLCHK"
+    start_date = datetime.now(timezone.utc) - timedelta(days=10)
+    end_date = datetime.now(timezone.utc)
+    interval = "1d"
+
+    # Track call count and add delay to widen the race window
+    call_count = 0
+    original_fetch = mock_provider.fetch_price_data
+
+    async def slow_fetch(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(0.1)  # Slow fetch to widen race window
+        return await original_fetch(*args, **kwargs)
+
+    mock_provider.fetch_price_data = slow_fetch
+
+    # Clear any existing lock for this cache key
+    cache_key = f"{symbol}:{interval}:{start_date.date()}:{end_date.date()}"
+    DataService._fetch_locks.pop(cache_key, None)
+
+    # Fire 3 concurrent requests — first enters lock and fetches,
+    # others wait for lock then double-check finds fresh cache
+    tasks = [
+        data_service.get_price_data(symbol, start_date, end_date, interval)
+        for _ in range(3)
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Verify no errors
+    errors = [r for r in results if isinstance(r, Exception)]
+    assert len(errors) == 0, f"No errors expected, got: {errors}"
+
+    # KEY ASSERTION: Provider called exactly once.
+    # The other requests hit the double-check-after-lock path and returned cache.
+    assert call_count == 1, (
+        f"Expected exactly 1 provider call (double-check should return cache), got {call_count}"
+    )
+
+    # All requests should return data
+    for r in results:
+        assert isinstance(r, list) and len(r) > 0, "All requests should return data"
+
+
+# ============================================================================
+# Test 12: Incremental fetch uses correct start date
+# ============================================================================
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_incremental_fetch_uses_correct_start_date(
+    data_service: DataService,
+    mock_provider: MockMarketDataProvider,
+    db_session: AsyncSession,
+):
+    """Verify incremental fetch starts from the gap, not from the beginning.
+
+    Tests data_service.py:235-244 — when cache has partial data, fetch_start_date
+    is set so only missing data is fetched.
+
+    Flow:
+    1. Populate cache with data for a date range
+    2. Delete recent data to simulate incomplete cache
+    3. Mock market calendar so freshness check returns stale with fetch_start_date
+    4. Request data — provider should be called with start_date near the gap
+    """
+    symbol = "INCR"
+    # Use fixed dates for deterministic testing
+    start_date = datetime(2024, 11, 1, tzinfo=timezone.utc)
+    end_date = datetime(2024, 11, 20, tzinfo=timezone.utc)
+    interval = "1d"
+
+    # Step 1: Populate cache with full range
+    result1 = await data_service.get_price_data(
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        interval=interval,
+    )
+    assert len(result1) > 0, "First request should return data"
+    assert mock_provider.fetch_price_data.call_count == 1
+
+    # Step 2: Delete data from Nov 10 onward to simulate incomplete cache
+    from sqlalchemy import delete
+    delete_stmt = (
+        delete(StockPrice)
+        .where(StockPrice.symbol == symbol.upper())
+        .where(StockPrice.timestamp >= datetime(2024, 11, 10, tzinfo=timezone.utc))
+    )
+    await db_session.execute(delete_stmt)
+    await db_session.commit()
+
+    # Step 3: Reset provider mock and wrap to capture call args
+    original_fetch = mock_provider.fetch_price_data
+    mock_provider.fetch_price_data = AsyncMock(wraps=original_fetch)
+
+    # Clear lock so we don't get a stale double-check
+    cache_key = f"{symbol}:{interval}:{start_date.date()}:{end_date.date()}"
+    DataService._fetch_locks.pop(cache_key, None)
+
+    # Mock market calendar to make the freshness check return stale
+    # Last complete day = Nov 19 (a trading day), current status = "closed"
+    with patch("app.services.cache_service.trading_calendar_service.get_market_status", return_value="closed"), \
+         patch("app.services.cache_service.trading_calendar_service.get_last_complete_trading_day", return_value=date(2024, 11, 19)), \
+         patch("app.services.cache_service.trading_calendar_service.get_next_trading_day", return_value=date(2024, 11, 11)):
+
+        # Step 4: Request data — should detect gap and do incremental fetch
+        result2 = await data_service.get_price_data(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval,
+        )
+
+    # Verify provider was called
+    assert mock_provider.fetch_price_data.call_count == 1, "Should call provider for missing data"
+
+    # Verify the fetch request used an incremental start date (not Nov 1)
+    call_args = mock_provider.fetch_price_data.call_args
+    fetch_request = call_args[0][0]  # First positional arg is PriceDataRequest
+    # The fetch_start should be around Nov 9 (last_data_date from cache)
+    # not Nov 1 (the original start_date)
+    assert fetch_request.start_date.date() >= date(2024, 11, 5), (
+        f"Incremental fetch should start near the gap, not from {start_date.date()}. "
+        f"Got start_date={fetch_request.start_date.date()}"
+    )
+    assert fetch_request.start_date.date() < date(2024, 11, 15), (
+        f"Incremental fetch should start before Nov 15. Got {fetch_request.start_date.date()}"
+    )
+
+
+# ============================================================================
+# Test 13: Market-hours 5-minute TTL
+# ============================================================================
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_market_hours_ttl_freshness(
+    data_service: DataService,
+    mock_provider: MockMarketDataProvider,
+    db_session: AsyncSession,
+):
+    """Verify market-hours TTL: fresh within 5 min, stale after 5 min.
+
+    Tests cache_service.py:188-230 — during market_open, cache is fresh if
+    last_fetched_at is within 5 minutes, stale if older.
+
+    Flow:
+    1. Populate cache for today's symbol
+    2. Mock market status as market_open with today as a trading day
+    3. Verify cache hit when last_fetched_at is recent (< 5 min)
+    4. Backdate last_fetched_at to 6 min ago
+    5. Verify cache miss (provider called)
+    """
+    symbol = "TTLTEST"
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    start_date = now - timedelta(days=5)
+    end_date = now
+    interval = "1d"
+
+    # Step 1: Populate cache
+    result1 = await data_service.get_price_data(
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        interval=interval,
+    )
+    assert len(result1) > 0, "First request should return data"
+    assert mock_provider.fetch_price_data.call_count == 1
+
+    # Reset provider mock
+    mock_provider.fetch_price_data.reset_mock()
+
+    # Clear lock to avoid stale state
+    cache_key = f"{symbol}:{interval}:{start_date.date()}:{end_date.date()}"
+    DataService._fetch_locks.pop(cache_key, None)
+
+    # Step 2: Mock market as open with today as a trading day
+    market_patches = {
+        "app.services.cache_service.trading_calendar_service.get_market_status": "market_open",
+        "app.services.cache_service.trading_calendar_service.get_last_complete_trading_day": today - timedelta(days=1),
+        "app.services.cache_service.trading_calendar_service.is_trading_day": lambda d: True,
+        "app.services.cache_service.trading_calendar_service.get_first_trading_day_on_or_after": lambda d: d,
+    }
+
+    with patch(
+        "app.services.cache_service.trading_calendar_service.get_market_status",
+        return_value="market_open",
+    ), patch(
+        "app.services.cache_service.trading_calendar_service.get_last_complete_trading_day",
+        return_value=today - timedelta(days=1),
+    ), patch(
+        "app.services.cache_service.trading_calendar_service.is_trading_day",
+        return_value=True,
+    ), patch(
+        "app.services.cache_service.trading_calendar_service.get_first_trading_day_on_or_after",
+        side_effect=lambda d: d,
+    ):
+        # Step 3: Cache should be fresh — last_fetched_at is very recent (just populated)
+        result2 = await data_service.get_price_data(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval,
+        )
+        mock_provider.fetch_price_data.assert_not_called()
+        assert len(result2) > 0, "Should return cached data (fresh TTL)"
+
+        # Step 4: Backdate last_fetched_at to 6 minutes ago (outside 5-min TTL)
+        six_minutes_ago = now - timedelta(minutes=6)
+        update_stmt = (
+            update(StockPrice)
+            .where(StockPrice.symbol == symbol.upper())
+            .where(StockPrice.interval == interval)
+            .values(last_fetched_at=six_minutes_ago)
+        )
+        await db_session.execute(update_stmt)
+        await db_session.commit()
+
+        # Clear lock again
+        DataService._fetch_locks.pop(cache_key, None)
+
+        # Step 5: Cache should be stale — TTL expired
+        result3 = await data_service.get_price_data(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval,
+        )
+        assert mock_provider.fetch_price_data.call_count == 1, (
+            "Should call provider after TTL expired during market hours"
+        )
+        assert len(result3) > 0, "Should return fresh data after TTL expiry"

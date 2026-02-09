@@ -4,9 +4,12 @@ Tests that the response source field correctly reflects the configured provider
 and prevents regression of hardcoded source values.
 """
 import pytest
-from unittest.mock import MagicMock
+from datetime import datetime, timezone
+from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock
 from httpx import AsyncClient
 
+from app.providers.base import PriceDataPoint
 from app.providers.yahoo import YahooFinanceProvider
 from app.providers.ib_data import IBDataProvider
 from app.providers.mock import MockMarketDataProvider
@@ -17,27 +20,39 @@ from app.services.data_service import DataService
 class TestStockPricesSourceField:
     """Tests for stock prices API source field with different providers."""
 
-    async def _create_mock_data_service(
-        self, provider: YahooFinanceProvider | IBDataProvider | MockMarketDataProvider, test_session_factory
-    ) -> DataService:
-        """Create a mock DataService with the specified provider.
+    async def _create_mock_data_service(self, provider) -> DataService:
+        """Create a DataService with mocked get_price_data.
+
+        The provider stays real (so provider.provider_name works for source field),
+        but get_price_data is mocked to avoid real API/DB calls.
 
         Args:
             provider: Market data provider instance
-            test_session_factory: Test session factory from conftest
 
         Returns:
-            DataService: DataService with provider
+            DataService: DataService with mocked get_price_data
         """
-        # Create DataService with the provider and test session factory
         data_service = DataService(
-            session_factory=test_session_factory,
+            session_factory=None,  # Not needed - get_price_data is mocked
             provider=provider,
         )
-
+        # Mock get_price_data to avoid real API/DB calls.
+        # These tests only verify the source field, not data fetching.
+        fake_points = [
+            PriceDataPoint(
+                symbol="AAPL",
+                timestamp=datetime.now(timezone.utc),
+                open_price=Decimal("150.00"),
+                high_price=Decimal("155.00"),
+                low_price=Decimal("149.00"),
+                close_price=Decimal("152.00"),
+                volume=1000000,
+            )
+        ]
+        data_service.get_price_data = AsyncMock(return_value=fake_points)
         return data_service
 
-    async def test_yahoo_provider_source_field(self, app, test_session_factory):
+    async def test_yahoo_provider_source_field(self, app):
         """Test that response source field is 'yahoo_finance' when using Yahoo provider.
 
         Verifies that when DataService uses YahooFinanceProvider,
@@ -45,7 +60,7 @@ class TestStockPricesSourceField:
         """
         # Arrange
         yahoo_provider = YahooFinanceProvider()
-        mock_data_service = await self._create_mock_data_service(yahoo_provider, test_session_factory)
+        mock_data_service = await self._create_mock_data_service(yahoo_provider)
 
         # Override the get_data_service dependency
         from app.core.deps import get_data_service
@@ -79,7 +94,7 @@ class TestStockPricesSourceField:
         # Clean up
         app.dependency_overrides.clear()
 
-    async def test_ib_provider_source_field(self, app, test_session_factory):
+    async def test_ib_provider_source_field(self, app):
         """Test that response source field is 'ib' when using IB provider.
 
         Verifies that when DataService uses IBDataProvider,
@@ -91,7 +106,7 @@ class TestStockPricesSourceField:
         mock_ib_provider.provider_name = "ib"
         mock_ib_provider.supported_intervals = ["1m", "5m", "15m", "30m", "1h", "1d"]
 
-        mock_data_service = await self._create_mock_data_service(mock_ib_provider, test_session_factory)
+        mock_data_service = await self._create_mock_data_service(mock_ib_provider)
 
         # Override the get_data_service dependency
         from app.core.deps import get_data_service
@@ -125,7 +140,7 @@ class TestStockPricesSourceField:
         # Clean up
         app.dependency_overrides.clear()
 
-    async def test_mock_provider_source_field(self, app, test_session_factory):
+    async def test_mock_provider_source_field(self, app):
         """Test that response source field is 'mock' when using Mock provider.
 
         Verifies that when DataService uses MockMarketDataProvider,
@@ -133,7 +148,7 @@ class TestStockPricesSourceField:
         """
         # Arrange
         mock_provider = MockMarketDataProvider()
-        mock_data_service = await self._create_mock_data_service(mock_provider, test_session_factory)
+        mock_data_service = await self._create_mock_data_service(mock_provider)
 
         # Override the get_data_service dependency
         from app.core.deps import get_data_service
@@ -167,7 +182,7 @@ class TestStockPricesSourceField:
         # Clean up
         app.dependency_overrides.clear()
 
-    async def test_source_field_not_hardcoded(self, app, test_session_factory):
+    async def test_source_field_not_hardcoded(self, app):
         """Test that source field is not hardcoded and changes with provider.
 
         This test creates a custom provider with the name 'mock' (which is valid
@@ -191,7 +206,7 @@ class TestStockPricesSourceField:
         # Verify it's using the name we set
         assert custom_provider.provider_name == "mock"
 
-        mock_data_service = await self._create_mock_data_service(custom_provider, test_session_factory)
+        mock_data_service = await self._create_mock_data_service(custom_provider)
 
         # Override the get_data_service dependency
         from app.core.deps import get_data_service
