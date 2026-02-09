@@ -56,17 +56,13 @@ async def cache_service(stock_repository: StockPriceRepository):
 
 @pytest_asyncio.fixture
 async def data_service(
-    db_session: AsyncSession,
+    test_session_factory,
     mock_provider: MockMarketDataProvider,
-    cache_service: MarketDataCache,
-    stock_repository: StockPriceRepository,
 ):
-    """Create data service with cache enabled."""
+    """Create data service with session factory."""
     return DataService(
-        session=db_session,
+        session_factory=test_session_factory,
         provider=mock_provider,
-        cache=cache_service,
-        repository=stock_repository,
     )
 
 

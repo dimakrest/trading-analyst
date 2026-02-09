@@ -12,18 +12,17 @@ from fastapi import Depends
 from fastapi import HTTPException
 from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.brokers.base import BrokerInterface
 from app.brokers.ib import IBBroker
 from app.brokers.mock import MockBroker
 from app.core.config import Settings, get_settings
-from app.core.database import get_db_session
+from app.core.database import get_db_session, get_session_factory
 from app.providers.base import MarketDataProviderInterface
 from app.providers.ib_data import IBDataProvider
 from app.providers.mock import MockMarketDataProvider
 from app.providers.yahoo import YahooFinanceProvider
-from app.repositories.stock_price import StockPriceRepository
-from app.services.cache_service import CacheTTLConfig, MarketDataCache
 from app.services.data_service import DataService
 from app.utils.validation import is_valid_symbol, normalize_symbol
 
@@ -177,27 +176,22 @@ async def get_market_data_provider() -> MarketDataProviderInterface:
         )
 
 
-
 async def get_data_service(
-    session: AsyncSession = Depends(get_database_session),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory),
     provider: MarketDataProviderInterface = Depends(get_market_data_provider),
 ) -> DataService:
     """Get DataService with injected dependencies.
 
     Dependencies:
-    - session: Database session for persistence
+    - session_factory: Factory for creating short-lived database sessions
     - provider: Market data provider (Yahoo, Mock, etc.)
 
-    The cache is created internally using default configuration.
+    Sessions are created internally by DataService for each DB operation,
+    ensuring connections are not held during external API calls.
     """
-    repository = StockPriceRepository(session)
-    cache = MarketDataCache(repository, CacheTTLConfig())
-
     return DataService(
-        session=session,
+        session_factory=session_factory,
         provider=provider,
-        cache=cache,
-        repository=repository,
     )
 
 

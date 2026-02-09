@@ -6,11 +6,8 @@ and processes them with resume capability and cancellation support.
 
 import logging
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-from app.models.arena import ArenaSimulation, SimulationStatus
+from app.models.arena import ArenaSimulation
 from app.services.arena.simulation_engine import SimulationEngine
-from app.services.job_queue_service import JobQueueService
 from app.services.job_worker import JobWorker
 
 logger = logging.getLogger(__name__)
@@ -45,7 +42,7 @@ class ArenaWorker(JobWorker[ArenaSimulation]):
         # We need a fresh session because the simulation object came from
         # a different session (the queue service session)
         async with self.session_factory() as session:
-            engine = SimulationEngine(session)
+            engine = SimulationEngine(session, self.session_factory)
 
             # Load simulation in this session
             sim = await session.get(ArenaSimulation, simulation_id)
