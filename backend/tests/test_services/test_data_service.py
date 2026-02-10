@@ -60,7 +60,6 @@ class TestDataServiceConfig:
         assert config.max_retries == 3
         assert config.retry_delay == 1.0
         assert config.request_timeout == 30.0
-        assert config.max_concurrent_requests == 5
         assert config.validate_data is True
         assert config.default_interval == "1d"
         assert config.max_history_years == 10
@@ -71,7 +70,6 @@ class TestDataServiceConfig:
             max_retries=5,
             retry_delay=2.0,
             request_timeout=60.0,
-            max_concurrent_requests=10,
             validate_data=False,
             default_interval="1h",
             max_history_years=5,
@@ -80,7 +78,6 @@ class TestDataServiceConfig:
         assert config.max_retries == 5
         assert config.retry_delay == 2.0
         assert config.request_timeout == 60.0
-        assert config.max_concurrent_requests == 10
         assert config.validate_data is False
         assert config.default_interval == "1h"
         assert config.max_history_years == 5
@@ -129,7 +126,6 @@ class TestDataService:
         assert service._session_factory == mock_session_factory
         assert service.config == config
         assert service.provider == mock_provider
-        assert service._semaphore._value == config.max_concurrent_requests
 
     async def test_init_default_config(self, mock_session_factory):
         """Test DataService initialization with default config."""
@@ -265,21 +261,6 @@ class TestDataServiceErrorHandling:
             provider=mock_provider,
             config=config,
         )
-
-    async def test_concurrent_request_limiting(self, mock_session_factory):
-        """Test concurrent request limiting."""
-        config = DataServiceConfig(max_concurrent_requests=2)
-        service = DataService(session_factory=mock_session_factory, config=config)
-
-        # Check semaphore limit
-        assert service._semaphore._value == 2
-
-        # Test semaphore acquisition
-        await service._semaphore.acquire()
-        await service._semaphore.acquire()
-
-        # Should not be able to acquire more
-        assert service._semaphore.locked()
 
 
 class TestDataServiceAdditionalCoverage:
