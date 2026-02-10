@@ -27,6 +27,7 @@ def upgrade() -> None:
 
     Only converts rows where both live20_atr and entry_price are non-null
     and entry_price > 0 to avoid division by zero.
+    Nulls out ATR values that can't be converted to prevent data inconsistency.
     """
     # Convert existing ATR values from dollars to percentage
     op.execute("""
@@ -35,6 +36,15 @@ def upgrade() -> None:
         WHERE live20_atr IS NOT NULL
           AND entry_price IS NOT NULL
           AND entry_price > 0
+    """)
+
+    # Null out ATR values that can't be converted (entry_price is null or zero)
+    # This prevents orphaned dollar-denominated values in a percentage column
+    op.execute("""
+        UPDATE recommendations
+        SET live20_atr = NULL
+        WHERE live20_atr IS NOT NULL
+          AND (entry_price IS NULL OR entry_price <= 0)
     """)
 
 
@@ -46,6 +56,7 @@ def downgrade() -> None:
 
     Only converts rows where both live20_atr and entry_price are non-null
     and entry_price > 0.
+    Nulls out ATR values that can't be converted to prevent data inconsistency.
     """
     # Convert ATR values back from percentage to dollars
     op.execute("""
@@ -54,4 +65,13 @@ def downgrade() -> None:
         WHERE live20_atr IS NOT NULL
           AND entry_price IS NOT NULL
           AND entry_price > 0
+    """)
+
+    # Null out ATR values that can't be converted (entry_price is null or zero)
+    # This prevents orphaned percentage values in a dollar-denominated column
+    op.execute("""
+        UPDATE recommendations
+        SET live20_atr = NULL
+        WHERE live20_atr IS NOT NULL
+          AND (entry_price IS NULL OR entry_price <= 0)
     """)
