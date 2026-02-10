@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Sequence
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.arena import (
     ArenaPosition,
@@ -50,14 +50,19 @@ class SimulationEngine:
         ...     print(f"Day {snapshot.day_number}: ${snapshot.total_equity}")
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
         """Initialize the simulation engine.
 
         Args:
             session: Database session for persistence operations.
+            session_factory: Factory for creating async database sessions for DataService.
         """
         self.session = session
-        self.data_service = DataService(session=session)
+        self.data_service = DataService(session_factory=session_factory)
 
     async def initialize_simulation(
         self,

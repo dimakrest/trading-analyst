@@ -12,9 +12,10 @@ and persisting financial market data. It handles:
 """
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, AsyncContextManager
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,11 +55,11 @@ class DataService:
     - Uses injected MarketDataProviderInterface (not hardcoded Yahoo)
     - Uses MarketDataCache for market-aware freshness checking
     - Orchestrates: cache check → provider fetch → repository store
-    - Maintains backward-compatible API
+    - Short-lived sessions: DB connections released during external API calls
 
     Two operational modes:
-    1. Full mode (session provided): Uses cache and persistence
-    2. API-only mode (session=None): Direct provider access only
+    1. Full mode (session_factory provided): Uses cache and persistence
+    2. API-only mode (session_factory=None): Direct provider access only
     """
 
     # Valid intervals (inherited from providers, kept for backward compatibility)
@@ -87,41 +88,28 @@ class DataService:
 
     def __init__(
         self,
-        session: AsyncSession | None = None,
+        session_factory: Callable[[], AsyncContextManager[AsyncSession]] | None = None,
         provider: MarketDataProviderInterface | None = None,
-        cache: MarketDataCache | None = None,
-        repository: StockPriceRepository | None = None,
         config: DataServiceConfig | None = None,
     ):
         """
         Initialize DataService with dependencies.
 
         Args:
-            session: Database session (optional for API-only mode)
+            session_factory: Callable that returns an async context manager yielding
+                a database session. Use async_sessionmaker or a custom factory.
+                None for API-only mode (no caching/persistence).
             provider: Market data provider (defaults to Yahoo if None)
-            cache: Cache service (created if session provided)
-            repository: Repository (created if session provided)
             config: Service configuration (uses defaults if None)
         """
-        self.session = session
+        self._session_factory = session_factory
         self.provider = provider or YahooFinanceProvider()
         self.config = config or DataServiceConfig()
         self.logger = logger
-
-        # Set up repository and cache if session provided
-        if session:
-            self.repository = repository or StockPriceRepository(session)
-            self.cache = cache or self._create_default_cache()
-        else:
-            self.repository = None
-            self.cache = None
+        self._ttl_config = CacheTTLConfig()
 
         # Semaphore to limit concurrent requests
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent_requests)
-
-    def _create_default_cache(self) -> MarketDataCache:
-        """Create cache with default configuration."""
-        return MarketDataCache(self.repository, CacheTTLConfig())
 
     @staticmethod
     async def _get_fetch_lock(cache_key: str) -> asyncio.Lock:
@@ -141,21 +129,17 @@ class DataService:
                 DataService._fetch_locks[cache_key] = asyncio.Lock()
             return DataService._fetch_locks[cache_key]
 
-    def _require_repository(self) -> StockPriceRepository:
-        """Ensure repository is available for database operations.
+    def _require_session_factory(self) -> None:
+        """Ensure session_factory is available for database operations.
 
         Raises:
-            RuntimeError: If session was not provided during initialization
-
-        Returns:
-            StockPriceRepository instance
+            RuntimeError: If session_factory was not provided during initialization
         """
-        if self.repository is None:
+        if self._session_factory is None:
             raise RuntimeError(
-                "Database session required for this operation. "
-                "Initialize DataService with a session to use persistence features."
+                "Session factory required for this operation. "
+                "Initialize DataService with a session_factory to use persistence features."
             )
-        return self.repository
 
     async def validate_symbol(self, symbol: str) -> dict[str, Any]:
         """
@@ -188,6 +172,8 @@ class DataService:
         """
         Get price data with cache-first logic.
 
+        Sessions are opened only for DB operations and closed before external API calls.
+
         Flow:
         1. Check freshness (market-aware) — returns cached data if fresh
         2. If stale: acquire lock, double-check, fetch from provider, store in DB
@@ -208,11 +194,13 @@ class DataService:
             List of PriceDataPoint objects sorted by timestamp
 
         Raises:
-            RuntimeError: If session not provided during initialization
+            RuntimeError: If session_factory not provided during initialization
             SymbolNotFoundError: If symbol not found
             DataValidationError: If data validation fails
         """
-        self._require_repository()
+        self._require_session_factory()
+        # Type assertion: After _require_session_factory(), we know it's not None
+        assert self._session_factory is not None
 
         # Normalize inputs
         symbol = symbol.upper().strip()
@@ -223,15 +211,19 @@ class DataService:
 
         cache_key = f"{symbol}:{interval}:{start_date.date()}:{end_date.date()}"
 
-        # Smart cache check (no lock needed)
+        # --- Phase 1: Cache check (short-lived session) ---
         fetch_start = start_date
-        if not force_refresh and self.cache:
-            freshness = await self.cache.check_freshness_smart(
-                symbol=symbol,
-                start_date=start_date,
-                end_date=end_date,
-                interval=interval,
-            )
+        if not force_refresh:
+            async with self._session_factory() as session:
+                repo = StockPriceRepository(session)
+                cache = MarketDataCache(repo, self._ttl_config)
+                freshness = await cache.check_freshness_smart(
+                    symbol=symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    interval=interval,
+                )
+            # Session closed here — objects detached but scalar attrs accessible
 
             if freshness.is_fresh and freshness.cached_records is not None:
                 self.logger.debug(
@@ -251,17 +243,21 @@ class DataService:
                     f"Incremental fetch for {symbol}: {freshness.fetch_start_date} to {end_date.date()}"
                 )
 
-        # Cache miss — acquire lock for this cache key
+        # --- Phase 2: Lock + double-check + fetch + store ---
         fetch_lock = await self._get_fetch_lock(cache_key)
         async with fetch_lock:
-            # Double-check after lock (race condition protection)
-            if not force_refresh and self.cache:
-                freshness = await self.cache.check_freshness_smart(
-                    symbol=symbol,
-                    start_date=start_date,
-                    end_date=end_date,
-                    interval=interval,
-                )
+            # Double-check after lock (short-lived session)
+            if not force_refresh:
+                async with self._session_factory() as session:
+                    repo = StockPriceRepository(session)
+                    cache = MarketDataCache(repo, self._ttl_config)
+                    freshness = await cache.check_freshness_smart(
+                        symbol=symbol,
+                        start_date=start_date,
+                        end_date=end_date,
+                        interval=interval,
+                    )
+                # Session closed here
 
                 if freshness.is_fresh and freshness.cached_records is not None:
                     self.logger.debug(
@@ -278,7 +274,7 @@ class DataService:
                         tzinfo=timezone.utc,
                     )
 
-            # Fetch from provider
+            # --- Yahoo fetch (NO session open!) ---
             request = PriceDataRequest(
                 symbol=symbol,
                 start_date=fetch_start,
@@ -287,24 +283,30 @@ class DataService:
             )
             price_points = await self.provider.fetch_price_data(request)
 
-            # Store in database (sync_price_data already sets last_fetched_at)
+            # --- Phase 3: Store + read (short-lived session) ---
             price_dicts = [self._point_to_dict(point, interval) for point in price_points]
-            await self.repository.sync_price_data(
-                symbol=symbol,
-                new_data=price_dicts,
-                interval=interval,
-            )
+            async with self._session_factory() as session:
+                repo = StockPriceRepository(session)
+                await repo.sync_price_data(
+                    symbol=symbol,
+                    new_data=price_dicts,
+                    interval=interval,
+                )
+                await session.commit()
 
-            self.logger.info(f"Fetched and stored {len(price_points)} points for {symbol}")
+                self.logger.info(f"Fetched and stored {len(price_points)} points for {symbol}")
 
-        # Read full merged range from DB (includes both old + new data)
-        price_records = await self.repository.get_price_data_by_date_range(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval,
-        )
-        return [self._record_to_point(r) for r in price_records]
+                # Read full merged range from DB (includes both old + new data)
+                price_records = await repo.get_price_data_by_date_range(
+                    symbol=symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    interval=interval,
+                )
+                result = [self._record_to_point(r) for r in price_records]
+            # Session closed here
+
+        return result
 
     @staticmethod
     def _record_to_point(record) -> PriceDataPoint:
