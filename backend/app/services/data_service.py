@@ -40,7 +40,6 @@ class DataServiceConfig:
     max_retries: int = 3
     retry_delay: float = 1.0
     request_timeout: float = 30.0
-    max_concurrent_requests: int = 5
     validate_data: bool = True
     default_interval: str = "1d"
     default_history_days: int = field(default_factory=lambda: get_settings().default_history_days)
@@ -107,9 +106,6 @@ class DataService:
         self.config = config or DataServiceConfig()
         self.logger = logger
         self._ttl_config = CacheTTLConfig()
-
-        # Semaphore to limit concurrent requests
-        self._semaphore = asyncio.Semaphore(self.config.max_concurrent_requests)
 
     @staticmethod
     async def _get_fetch_lock(cache_key: str) -> asyncio.Lock:
