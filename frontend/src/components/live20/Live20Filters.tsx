@@ -18,6 +18,10 @@ interface Live20FiltersProps {
   minScore: number;
   /** Callback when minimum score changes */
   onMinScoreChange: (score: number) => void;
+  /** Current minimum rvol filter */
+  minRvol: number;
+  /** Callback when minimum rvol changes */
+  onMinRvolChange: (rvol: number) => void;
 }
 
 /**
@@ -69,8 +73,9 @@ function FilterButton({
 /**
  * Filters for Live 20 results
  *
- * Provides direction filter buttons, symbol search, and minimum score slider.
- * Direction buttons show counts for each category (All, Long, Short, No Setup).
+ * Provides direction filter buttons, symbol search, minimum score slider,
+ * and minimum rvol filter. Direction buttons show counts for each category
+ * (All, Long, Short, No Setup).
  *
  * @param props - Component props
  */
@@ -82,6 +87,8 @@ export function Live20Filters({
   onSearchChange,
   minScore,
   onMinScoreChange,
+  minRvol,
+  onMinRvolChange,
 }: Live20FiltersProps) {
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -142,6 +149,33 @@ export function Live20Filters({
         <span className="font-mono text-xs font-semibold text-text-primary min-w-[28px]">
           {minScore}
         </span>
+      </div>
+
+      {/* Min Rvol Slider */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-text-muted whitespace-nowrap">Min Rvol:</span>
+        <Slider
+          value={[minRvol]}
+          onValueChange={([value]) => onMinRvolChange(value)}
+          min={0}
+          max={3}
+          step={0.1}
+          className="w-[120px]"
+        />
+        <Input
+          type="number"
+          min={0}
+          max={3}
+          step={0.1}
+          value={minRvol === 0 ? '0' : minRvol.toFixed(1)}
+          onChange={(e) => {
+            const value = parseFloat(e.target.value);
+            if (!isNaN(value) && value >= 0 && value <= 3) {
+              onMinRvolChange(value);
+            }
+          }}
+          className="w-[60px] h-7 px-2 py-1 bg-bg-secondary border-default font-mono text-xs text-center"
+        />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 """Live 20 service for mean reversion stock analysis."""
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -143,12 +144,13 @@ class Live20Service:
                     or (direction == Live20Direction.SHORT and criteria[2].aligned_for_short)
                 ),
                 live20_candle_explanation=candle_explanation,
-                live20_volume_trend=criteria[3].value,
                 live20_volume_aligned=(
                     (direction == Live20Direction.LONG and criteria[3].aligned_for_long)
                     or (direction == Live20Direction.SHORT and criteria[3].aligned_for_short)
                 ),
                 live20_volume_approach=volume_signal.approach.value,
+                live20_atr=pricing_result.atr if pricing_result else None,
+                live20_rvol=Decimal(str(volume_signal.rvol)) if math.isfinite(volume_signal.rvol) else None,
                 live20_cci_direction=cci_analysis.direction.value,
                 live20_cci_value=Decimal(str(cci_analysis.value)),
                 live20_cci_zone=cci_analysis.zone.value,

@@ -60,10 +60,11 @@ class PricingCalculator:
         atr = self._get_latest_atr(highs, lows, closes)
         if atr is None or atr <= 0:
             # Don't guess - let human define risk if ATR unavailable
-            logger.warning("ATR calculation failed - returning None for stop_loss")
+            logger.warning("ATR calculation failed - returning None for stop_loss and atr")
             return PricingResult(
                 entry_price=Decimal(str(round(entry_price, 4))),
                 stop_loss=None,
+                atr=None,
                 entry_strategy=self.config.entry_strategy,
                 exit_strategy=self.config.exit_strategy,
             )
@@ -74,6 +75,7 @@ class PricingCalculator:
         return PricingResult(
             entry_price=Decimal(str(round(entry_price, 4))),
             stop_loss=Decimal(str(round(stop_loss, 4))),
+            atr=Decimal(str(round(atr, 4))),
             entry_strategy=self.config.entry_strategy,
             exit_strategy=self.config.exit_strategy,
         )

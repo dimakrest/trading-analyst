@@ -35,6 +35,7 @@ export function Live20Dashboard() {
   const [directionFilter, setDirectionFilter] = useState<Live20Direction | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [minScore, setMinScore] = useState(0);
+  const [minRvol, setMinRvol] = useState(0);
   const [symbolCount, setSymbolCount] = useState(0);
   const [wasCancelled, setWasCancelled] = useState(false);
   const { isMobile } = useResponsive();
@@ -87,8 +88,12 @@ export function Live20Dashboard() {
       filtered = filtered.filter((r) => r.confidence_score >= minScore);
     }
 
+    if (minRvol > 0) {
+      filtered = filtered.filter((r) => (r.rvol ?? 0) >= minRvol);
+    }
+
     return filtered;
-  }, [results, directionFilter, searchQuery, minScore]);
+  }, [results, directionFilter, searchQuery, minScore, minRvol]);
 
   const analyzeContent = (
     <div className="space-y-6">
@@ -163,6 +168,8 @@ export function Live20Dashboard() {
             onSearchChange={setSearchQuery}
             minScore={minScore}
             onMinScoreChange={setMinScore}
+            minRvol={minRvol}
+            onMinRvolChange={setMinRvol}
           />
 
           <Live20Table results={filteredResults} />

@@ -121,9 +121,6 @@ class Recommendation(Base):
     live20_candle_explanation: Mapped[str | None] = mapped_column(
         String(255), nullable=True, doc="Explanation of candle pattern in context (for tooltip)"
     )
-    live20_volume_trend: Mapped[str | None] = mapped_column(
-        String(15), nullable=True, doc="Volume trend: 'increasing', 'decreasing', 'stable'"
-    )
     live20_volume_aligned: Mapped[bool | None] = mapped_column(
         Boolean, nullable=True, doc="Whether volume pattern aligns with direction"
     )
@@ -131,6 +128,12 @@ class Recommendation(Base):
         String(15),
         nullable=True,
         doc="Volume approach: 'exhaustion', 'accumulation', 'distribution', or null",
+    )
+    live20_atr: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True, doc="Average True Range (14-period) for volatility context"
+    )
+    live20_rvol: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2), nullable=True, doc="Relative volume ratio (today/yesterday) for conviction assessment"
     )
     live20_cci_direction: Mapped[str | None] = mapped_column(
         String(10), nullable=True, doc="CCI direction: 'rising', 'falling', 'flat'"

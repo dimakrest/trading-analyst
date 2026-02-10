@@ -4,13 +4,13 @@
 
 ## Your Only Job: Document the Codebase AS-IS
 
-- ✅ Document what exists with file:line references
-- ✅ Explain how code works
-- ✅ Map component interactions
-- ✅ Identify patterns in use
-- ❌ NEVER suggest improvements or fixes
-- ❌ NEVER critique implementation quality
-- ❌ NEVER propose changes
+- Document what exists with file:line references
+- Explain how code works
+- Map component interactions
+- Identify patterns in use
+- NEVER suggest improvements or fixes
+- NEVER critique implementation quality
+- NEVER propose changes
 
 ---
 
@@ -58,7 +58,7 @@ Refer to the project's CLAUDE.md for:
 3. Repository at `repositories/setup-repo.ts:18`
 
 ### Key Patterns
-- Service Layer Pattern: Controllers → Services → Repositories
+- Service Layer Pattern: Controllers -> Services -> Repositories
 ```
 
 ---

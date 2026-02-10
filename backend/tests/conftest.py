@@ -115,9 +115,9 @@ async def test_engine(test_settings: Settings):
 
     yield engine
 
-    # Cleanup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    # Cleanup - just dispose the engine pool.
+    # Avoid drop_all here: it deadlocks against leaked sessions from failed tests.
+    # create_all (above) is idempotent and will handle schema on next run.
     await engine.dispose()
 
 
@@ -140,7 +140,7 @@ def test_session_factory(test_engine):
     )
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(autouse=True)
 async def db_session(test_session_factory) -> AsyncGenerator[AsyncSession, None]:
     """Create isolated database session for each test.
 
@@ -159,7 +159,7 @@ async def db_session(test_session_factory) -> AsyncGenerator[AsyncSession, None]
         # Clean database before test
         try:
             await session.execute(
-                text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, symbols, sector_etf_mappings, stock_lists RESTART IDENTITY CASCADE")
+                text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, stock_lists RESTART IDENTITY CASCADE")
             )
             await session.commit()
         except Exception:
@@ -182,7 +182,7 @@ async def db_session(test_session_factory) -> AsyncGenerator[AsyncSession, None]
             # Clean database after test to prevent data leakage
             try:
                 await session.execute(
-                    text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, symbols, sector_etf_mappings, stock_lists RESTART IDENTITY CASCADE")
+                    text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, stock_lists RESTART IDENTITY CASCADE")
                 )
                 await session.commit()
             except Exception:
@@ -324,41 +324,9 @@ def mock_yahoo_finance():
     return mock
 
 
-# Database test helpers
-@pytest_asyncio.fixture(autouse=True)
-async def clean_db(db_session: AsyncSession):
-    """Clean database before and after test.
-
-    Automatically runs for all tests that use db_session.
-
-    Args:
-        db_session: Database session
-    """
-    from sqlalchemy import text
-
-    # Clean before test - ensure clean state
-    try:
-        await db_session.rollback()  # Rollback any pending transactions
-    except Exception:
-        pass
-
-    await db_session.execute(
-        text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, stock_lists RESTART IDENTITY CASCADE")
-    )
-    await db_session.commit()
-
-    yield
-
-    # Clean after test - ensure clean state
-    try:
-        await db_session.rollback()  # Rollback any pending transactions from test
-    except Exception:
-        pass
-
-    await db_session.execute(
-        text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, stock_lists RESTART IDENTITY CASCADE")
-    )
-    await db_session.commit()
+# Note: The old clean_db autouse fixture was merged into db_session (now autouse).
+# Having two separate fixtures both doing TRUNCATE on the same tables caused
+# deadlocks from concurrent AccessExclusiveLock acquisition.
 
 
 # Pytest configuration

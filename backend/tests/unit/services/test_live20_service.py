@@ -90,6 +90,32 @@ class TestLive20Service:
             assert result.recommendation.stock == "AAPL"
 
     @pytest.mark.asyncio
+    async def test_analyze_symbol_persists_atr_and_rvol(self, service, mock_session_factory, sample_price_data):
+        """Test that ATR and rvol are persisted in the recommendation."""
+        with patch(
+            "app.services.live20_service.DataService.get_price_data",
+            new_callable=AsyncMock,
+        ) as mock_get_data:
+            mock_get_data.return_value = sample_price_data
+
+            result = await service._analyze_symbol("AAPL", PricingConfig())
+
+            assert result.status == "success"
+            rec = result.recommendation
+
+            # Verify ATR is persisted
+            assert rec.live20_atr is not None
+            assert isinstance(rec.live20_atr, Decimal)
+            assert rec.live20_atr > Decimal("0")
+
+            # Verify rvol is persisted
+            assert rec.live20_rvol is not None
+            assert isinstance(rec.live20_rvol, Decimal)
+            # rvol should be a ratio (typically 0.x to 3.x)
+            assert rec.live20_rvol >= Decimal("0")
+            assert rec.live20_rvol < Decimal("100")
+
+    @pytest.mark.asyncio
     async def test_analyze_symbol_invalid_symbol(self, service):
         """Test analysis with invalid symbol."""
         result = await service._analyze_symbol("", PricingConfig())

@@ -36,6 +36,7 @@ export function Live20RunDetail() {
   const [directionFilter, setDirectionFilter] = useState<Live20Direction | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [minScore, setMinScore] = useState(0);
+  const [minRvol, setMinRvol] = useState(0);
 
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -74,9 +75,12 @@ export function Live20RunDetail() {
     if (minScore > 0) {
       filtered = filtered.filter((r) => r.confidence_score >= minScore);
     }
+    if (minRvol > 0) {
+      filtered = filtered.filter((r) => (r.rvol ?? 0) >= minRvol);
+    }
 
     return filtered;
-  }, [run, directionFilter, searchQuery, minScore]);
+  }, [run, directionFilter, searchQuery, minScore, minRvol]);
 
   const counts: Live20Counts = useMemo(() => {
     if (!run) return { long: 0, short: 0, no_setup: 0, total: 0 };
@@ -315,6 +319,8 @@ export function Live20RunDetail() {
               onSearchChange={setSearchQuery}
               minScore={minScore}
               onMinScoreChange={setMinScore}
+              minRvol={minRvol}
+              onMinRvolChange={setMinRvol}
             />
 
             <Live20Table results={filteredResults} />

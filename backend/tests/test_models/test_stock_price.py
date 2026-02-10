@@ -34,7 +34,7 @@ def valid_stock_data():
     }
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestStockPriceModel:
     """Test StockPrice model validation and functionality."""
 
@@ -522,7 +522,7 @@ class TestStockPriceModel:
         # This depends on SQLAlchemy configuration, but typically would be truncated
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestStockPriceIndexes:
     """Test StockPrice model indexes and query performance."""
 
@@ -583,7 +583,7 @@ class TestStockPriceIndexes:
         assert stock_price3.interval == "1h"
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestStockPriceEdgeCases:
     """Test edge cases and error conditions for StockPrice model."""
 

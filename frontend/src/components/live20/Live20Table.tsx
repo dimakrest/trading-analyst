@@ -218,6 +218,23 @@ export function Live20Table({ results }: Live20TableProps) {
         },
       },
       {
+        accessorKey: 'atr',
+        header: ({ column }) => (
+          <button
+            className="flex items-center gap-1 hover:text-foreground"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            ATR
+            <ArrowUpDown className="h-4 w-4" />
+          </button>
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono">
+            {row.original.atr != null ? `$${row.original.atr.toFixed(2)}` : '-'}
+          </span>
+        ),
+      },
+      {
         accessorKey: 'trend_aligned',
         header: 'Trend',
         cell: ({ row }) => (
@@ -269,7 +286,16 @@ export function Live20Table({ results }: Live20TableProps) {
       },
       {
         accessorKey: 'volume_aligned',
-        header: 'Volume',
+        header: ({ column }) => (
+          <button
+            className="flex items-center gap-1 hover:text-foreground"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            Volume
+            <ArrowUpDown className="h-4 w-4" />
+          </button>
+        ),
+        sortingFn: (rowA, rowB) => (rowA.original.rvol ?? 0) - (rowB.original.rvol ?? 0),
         cell: ({ row }) => {
           const approachInfo = getVolumeApproachInfo(row.original.volume_approach);
 
@@ -277,7 +303,7 @@ export function Live20Table({ results }: Live20TableProps) {
             <div className="flex items-center gap-1">
               <AlignmentIcon aligned={row.original.volume_aligned} />
               <span className="text-xs text-muted-foreground">
-                {row.original.volume_trend}
+                {row.original.rvol != null ? `${row.original.rvol.toFixed(1)}x` : '-'}
               </span>
               {approachInfo && (
                 <Tooltip>

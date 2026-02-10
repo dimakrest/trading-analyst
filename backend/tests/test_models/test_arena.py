@@ -67,7 +67,7 @@ def valid_snapshot_data():
 # =============================================================================
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaSimulationModel:
     """Test ArenaSimulation model validation and functionality."""
 
@@ -272,7 +272,7 @@ class TestArenaSimulationModel:
 # =============================================================================
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaPositionModel:
     """Test ArenaPosition model validation and functionality."""
 
@@ -551,7 +551,7 @@ class TestArenaPositionModel:
 # =============================================================================
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaSnapshotModel:
     """Test ArenaSnapshot model validation and functionality."""
 
@@ -688,7 +688,7 @@ class TestArenaSnapshotModel:
 # =============================================================================
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaRelationships:
     """Test relationships between Arena models."""
 
@@ -802,7 +802,7 @@ class TestArenaRelationships:
 # =============================================================================
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaEdgeCases:
     """Test edge cases and error conditions."""
 

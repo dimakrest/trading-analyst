@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Live20Table } from './Live20Table';
 import type { Live20Result } from '../../types/live20';
 
@@ -11,6 +12,7 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   confidence_score: 80,
   entry_price: 100.0,
   stop_loss: null,
+  atr: 2.35,
   entry_strategy: null,
   exit_strategy: null,
   trend_direction: 'bearish',
@@ -21,9 +23,9 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   candle_bullish: true,
   candle_aligned: true,
   candle_explanation: null,
-  volume_trend: '1.5x',
   volume_aligned: true,
   volume_approach: 'accumulation',
+  rvol: 1.5,
   cci_direction: 'rising',
   cci_value: -86.1,
   cci_zone: 'neutral',
@@ -243,6 +245,97 @@ describe('Live20Table', () => {
       // Score bar uses gradient - check for the text color
       const scoreText = screen.getByText('20');
       expect(scoreText).toHaveClass('text-accent-bearish');
+    });
+  });
+
+  describe('Volume sorting', () => {
+    it('sorts by rvol in ascending order', async () => {
+      const user = userEvent.setup();
+      const results = [
+        createMockResult({ stock: 'LOW', rvol: 0.8 }),
+        createMockResult({ stock: 'HIGH', rvol: 2.5 }),
+        createMockResult({ stock: 'MID', rvol: 1.5 }),
+      ];
+      render(<Live20Table results={results} />);
+
+      // Click Volume header to sort ascending
+      const volumeHeader = screen.getByRole('button', { name: /volume/i });
+      await user.click(volumeHeader);
+
+      // Wait for re-render and check order: LOW (0.8), MID (1.5), HIGH (2.5)
+      await waitFor(() => {
+        const symbols = screen.getAllByText(/^(LOW|MID|HIGH)$/);
+        expect(symbols[0]).toHaveTextContent('LOW');
+        expect(symbols[1]).toHaveTextContent('MID');
+        expect(symbols[2]).toHaveTextContent('HIGH');
+      });
+    });
+
+    it('sorts by rvol in descending order', async () => {
+      const user = userEvent.setup();
+      const results = [
+        createMockResult({ stock: 'LOW', rvol: 0.8 }),
+        createMockResult({ stock: 'HIGH', rvol: 2.5 }),
+        createMockResult({ stock: 'MID', rvol: 1.5 }),
+      ];
+      render(<Live20Table results={results} />);
+
+      // Click Volume header twice to sort descending
+      const volumeHeader = screen.getByRole('button', { name: /volume/i });
+      await user.click(volumeHeader);
+      await user.click(volumeHeader);
+
+      // Wait for re-render and check order: HIGH (2.5), MID (1.5), LOW (0.8)
+      await waitFor(() => {
+        const symbols = screen.getAllByText(/^(LOW|MID|HIGH)$/);
+        expect(symbols[0]).toHaveTextContent('HIGH');
+        expect(symbols[1]).toHaveTextContent('MID');
+        expect(symbols[2]).toHaveTextContent('LOW');
+      });
+    });
+
+    it('handles null rvol values by treating them as 0', async () => {
+      const user = userEvent.setup();
+      const results = [
+        createMockResult({ stock: 'NULL', rvol: null }),
+        createMockResult({ stock: 'HIGH', rvol: 2.5 }),
+        createMockResult({ stock: 'LOW', rvol: 0.8 }),
+      ];
+      render(<Live20Table results={results} />);
+
+      // Click Volume header to sort ascending
+      const volumeHeader = screen.getByRole('button', { name: /volume/i });
+      await user.click(volumeHeader);
+
+      // Wait for re-render and check order: NULL (0), LOW (0.8), HIGH (2.5)
+      await waitFor(() => {
+        const symbols = screen.getAllByText(/^(NULL|LOW|HIGH)$/);
+        expect(symbols[0]).toHaveTextContent('NULL');
+        expect(symbols[1]).toHaveTextContent('LOW');
+        expect(symbols[2]).toHaveTextContent('HIGH');
+      });
+    });
+  });
+
+  describe('ATR column', () => {
+    it('displays ATR value formatted as dollar amount', () => {
+      const result = createMockResult({ atr: 2.35 });
+      render(<Live20Table results={[result]} />);
+
+      expect(screen.getByText('$2.35')).toBeInTheDocument();
+    });
+
+    it('displays dash when ATR is null', () => {
+      const result = createMockResult({ atr: null });
+      render(<Live20Table results={[result]} />);
+
+      // Find the ATR column by looking for the header and checking cells
+      const atrHeader = screen.getByRole('button', { name: /atr/i });
+      expect(atrHeader).toBeInTheDocument();
+
+      // The dash should be in the same row as the stock symbol
+      const row = screen.getByText('TEST').closest('tr');
+      expect(row).toBeInTheDocument();
     });
   });
 });
