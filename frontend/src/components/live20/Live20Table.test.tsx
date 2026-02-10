@@ -318,24 +318,87 @@ describe('Live20Table', () => {
   });
 
   describe('ATR column', () => {
-    it('displays ATR value formatted as dollar amount', () => {
+    it('displays ATR value formatted as percentage', () => {
       const result = createMockResult({ atr: 2.35 });
       render(<Live20Table results={[result]} />);
 
-      expect(screen.getByText('$2.35')).toBeInTheDocument();
+      expect(screen.getByText('2.35%')).toBeInTheDocument();
     });
 
     it('displays dash when ATR is null', () => {
       const result = createMockResult({ atr: null });
       render(<Live20Table results={[result]} />);
 
-      // Find the ATR column by looking for the header and checking cells
-      const atrHeader = screen.getByRole('button', { name: /atr/i });
-      expect(atrHeader).toBeInTheDocument();
-
-      // The dash should be in the same row as the stock symbol
+      // Find the ATR cell (5th column) and verify it displays a dash
       const row = screen.getByText('TEST').closest('tr');
       expect(row).toBeInTheDocument();
+      const atrCell = row?.querySelector('td:nth-child(5) span');
+      expect(atrCell).toBeInTheDocument();
+      expect(atrCell).toHaveTextContent('-');
+    });
+
+    describe('color coding', () => {
+      it('displays green for low volatility (< 3%)', () => {
+        const result = createMockResult({ atr: 2.5 });
+        render(<Live20Table results={[result]} />);
+
+        const atrCell = screen.getByText('2.50%');
+        expect(atrCell).toHaveClass('text-accent-bullish');
+      });
+
+      it('displays orange for moderate volatility (3-6%)', () => {
+        const result = createMockResult({ atr: 4.5 });
+        render(<Live20Table results={[result]} />);
+
+        const atrCell = screen.getByText('4.50%');
+        expect(atrCell).toHaveClass('text-score-medium');
+      });
+
+      it('displays red for high volatility (>= 6%)', () => {
+        const result = createMockResult({ atr: 7.2 });
+        render(<Live20Table results={[result]} />);
+
+        const atrCell = screen.getByText('7.20%');
+        expect(atrCell).toHaveClass('text-accent-bearish');
+      });
+
+      it('displays no color for null ATR', () => {
+        const result = createMockResult({ atr: null });
+        render(<Live20Table results={[result]} />);
+
+        // Find the ATR cell in the row
+        const row = screen.getByText('TEST').closest('tr');
+        const atrCell = row?.querySelector('td:nth-child(5) span'); // ATR is 5th column
+
+        expect(atrCell).toBeInTheDocument();
+        expect(atrCell).not.toHaveClass('text-accent-bullish');
+        expect(atrCell).not.toHaveClass('text-score-medium');
+        expect(atrCell).not.toHaveClass('text-accent-bearish');
+      });
+
+      it('applies font-semibold for better color visibility', () => {
+        const result = createMockResult({ atr: 4.5 });
+        render(<Live20Table results={[result]} />);
+
+        const atrCell = screen.getByText('4.50%');
+        expect(atrCell).toHaveClass('font-semibold');
+      });
+
+      it('handles edge case at 3% threshold (should be orange)', () => {
+        const result = createMockResult({ atr: 3.0 });
+        render(<Live20Table results={[result]} />);
+
+        const atrCell = screen.getByText('3.00%');
+        expect(atrCell).toHaveClass('text-score-medium');
+      });
+
+      it('handles edge case at 6% threshold (should be red)', () => {
+        const result = createMockResult({ atr: 6.0 });
+        render(<Live20Table results={[result]} />);
+
+        const atrCell = screen.getByText('6.00%');
+        expect(atrCell).toHaveClass('text-accent-bearish');
+      });
     });
   });
 });

@@ -70,7 +70,10 @@ class Live20ResultResponse(StrictBaseModel):
     volume_aligned: bool | None = None
     volume_approach: str | None = None
     atr: Decimal | None = Field(
-        None, description="Average True Range (14-period) for volatility context"
+        None,
+        description="Average True Range as percentage (e.g., 4.25 for 4.25%)",
+        ge=0,
+        le=100,
     )
     rvol: Decimal | None = Field(
         None, description="Relative volume ratio (today/yesterday) for conviction assessment"
@@ -106,7 +109,7 @@ class Live20ResultResponse(StrictBaseModel):
                     "candle_explanation": "Strong bullish engulfing pattern indicating potential reversal",
                     "volume_aligned": True,
                     "volume_approach": "volume_confirmation",
-                    "atr": 4.25,
+                    "atr": 4.25,  # 4.25% of price
                     "rvol": 1.5,
                     "cci_direction": "rising",
                     "cci_value": "-125.50",

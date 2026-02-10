@@ -130,7 +130,7 @@ class Recommendation(Base):
         doc="Volume approach: 'exhaustion', 'accumulation', 'distribution', or null",
     )
     live20_atr: Mapped[Decimal | None] = mapped_column(
-        Numeric(12, 4), nullable=True, doc="Average True Range (14-period) for volatility context"
+        Numeric(12, 4), nullable=True, doc="Average True Range as percentage of price (e.g., 4.2500 = 4.25%)"
     )
     live20_rvol: Mapped[Decimal | None] = mapped_column(
         Numeric(8, 2), nullable=True, doc="Relative volume ratio (today/yesterday) for conviction assessment"

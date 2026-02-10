@@ -21,6 +21,7 @@ import { CheckCircle, XCircle, MinusCircle, ArrowUpDown, TrendingUp, TrendingDow
 import type { Live20Result, Live20Direction, VolumeApproach } from '../../types/live20';
 import { CandlestickIcon } from './CandlestickIcon';
 import { getCandlePatternLabel } from './candlestickUtils';
+import { cn } from '@/lib/utils';
 
 interface Live20TableProps {
   /** Results to display in the table */
@@ -69,6 +70,22 @@ function AlignmentIcon({ aligned }: { aligned: boolean | null }) {
   ) : (
     <XCircle className="h-4 w-4 text-muted-foreground" />
   );
+}
+
+/**
+ * Get color class for ATR percentage based on volatility thresholds
+ */
+function getAtrColorClass(atr: number | null): string {
+  if (atr === null) return '';
+
+  // Low volatility: < 3%
+  if (atr < 3) return 'text-accent-bullish';
+
+  // Moderate volatility: 3-6%
+  if (atr < 6) return 'text-score-medium';
+
+  // High volatility: >= 6%
+  return 'text-accent-bearish';
 }
 
 /**
@@ -183,41 +200,6 @@ export function Live20Table({ results }: Live20TableProps) {
         ),
       },
       {
-        accessorKey: 'stop_loss',
-        header: 'Stop',
-        cell: ({ row }) => (
-          <span className="font-mono">
-            {row.original.stop_loss != null
-              ? `$${row.original.stop_loss.toFixed(2)}`
-              : '-'}
-          </span>
-        ),
-      },
-      {
-        id: 'risk',
-        header: 'Risk',
-        cell: ({ row }) => {
-          const entry = row.original.entry_price;
-          const stop = row.original.stop_loss;
-          const direction = row.original.direction;
-
-          if (entry == null || stop == null || direction === 'NO_SETUP') {
-            return <span className="font-mono text-muted-foreground">-</span>;
-          }
-
-          // Risk is always positive (distance from entry to stop)
-          const risk = direction === 'LONG'
-            ? entry - stop
-            : stop - entry;
-
-          return (
-            <span className="font-mono text-amber-500">
-              ${risk.toFixed(2)}
-            </span>
-          );
-        },
-      },
-      {
         accessorKey: 'atr',
         header: ({ column }) => (
           <button
@@ -228,11 +210,16 @@ export function Live20Table({ results }: Live20TableProps) {
             <ArrowUpDown className="h-4 w-4" />
           </button>
         ),
-        cell: ({ row }) => (
-          <span className="font-mono">
-            {row.original.atr != null ? `$${row.original.atr.toFixed(2)}` : '-'}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const atr = row.original.atr;
+          const colorClass = getAtrColorClass(atr);
+
+          return (
+            <span className={cn('font-mono font-semibold', colorClass)}>
+              {atr != null ? `${atr.toFixed(2)}%` : '-'}
+            </span>
+          );
+        },
       },
       {
         accessorKey: 'trend_aligned',

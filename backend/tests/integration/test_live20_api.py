@@ -36,7 +36,7 @@ async def sample_live20_results(db_session: AsyncSession):
             live20_candle_pattern="hammer",
             live20_candle_aligned=True,
             live20_volume_aligned=True,
-            live20_atr=Decimal("4.5000"),
+            live20_atr=Decimal("3.0000"),  # 3% of price
             live20_rvol=Decimal("1.25"),
             live20_cci_value=Decimal("-110.0"),
             live20_cci_zone="oversold",
@@ -59,7 +59,7 @@ async def sample_live20_results(db_session: AsyncSession):
             live20_candle_pattern="shooting_star",
             live20_candle_aligned=True,
             live20_volume_aligned=False,
-            live20_atr=Decimal("10.5000"),
+            live20_atr=Decimal("5.2000"),  # 5.2% of price
             live20_rvol=Decimal("0.85"),
             live20_cci_value=Decimal("105.0"),
             live20_cci_zone="overbought",
@@ -81,7 +81,7 @@ async def sample_live20_results(db_session: AsyncSession):
             live20_candle_pattern="doji",
             live20_candle_aligned=True,
             live20_volume_aligned=False,
-            live20_atr=Decimal("7.2500"),
+            live20_atr=Decimal("2.1000"),  # 2.1% of price
             live20_rvol=Decimal("1.00"),
             live20_cci_value=Decimal("10.0"),
             live20_cci_zone="neutral",
@@ -327,15 +327,15 @@ async def test_results_include_atr_and_rvol(async_client: AsyncClient, sample_li
         assert "atr" in result
         assert "rvol" in result
 
-        # Verify values match expected fixture data
+        # Verify values match expected fixture data (ATR is now percentage)
         if result["stock"] == "AAPL":
-            assert result["atr"] == 4.5
+            assert result["atr"] == 3.0  # 3% of price
             assert result["rvol"] == 1.25
         elif result["stock"] == "TSLA":
-            assert result["atr"] == 10.5
+            assert result["atr"] == 5.2  # 5.2% of price
             assert result["rvol"] == 0.85
         elif result["stock"] == "MSFT":
-            assert result["atr"] == 7.25
+            assert result["atr"] == 2.1  # 2.1% of price
             assert result["rvol"] == 1.0
 
 

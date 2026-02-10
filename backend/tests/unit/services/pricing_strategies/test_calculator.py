@@ -113,7 +113,7 @@ class TestPricingCalculator:
         assert result is None
 
     def test_atr_stop_loss_calculation(self):
-        """Test ATR-based stop loss with known ATR value."""
+        """Test ATR-based stop loss with known ATR percentage."""
         # Create data with consistent $2 daily range (ATR should be ~2)
         closes = [100.0] * 20
         highs = [101.0] * 20
@@ -125,8 +125,11 @@ class TestPricingCalculator:
         result = calculator.calculate("LONG", closes, highs, lows)
 
         assert result is not None
-        # Stop should be entry - (0.5 * ATR)
-        # ATR ~ 2.0, so stop ~ 100 - 1.0 = 99.0
+        # ATR should be returned as percentage: ~2.0% for $2 ATR on $100 stock
+        assert result.atr is not None
+        assert float(result.atr) == pytest.approx(2.0, rel=0.1)
+        # Stop should be entry - (0.5 * ATR_dollars)
+        # ATR_dollars = 2% of 100 = 2, so stop ~ 100 - 1.0 = 99.0
         assert result.stop_loss is not None
         assert float(result.stop_loss) == pytest.approx(99.0, rel=0.1)
 
@@ -229,6 +232,48 @@ class TestPricingCalculator:
         # For SHORT, stop should be ABOVE entry
         assert result.stop_loss > result.entry_price
 
+    def test_atr_percentage_different_price_ranges(self):
+        """Test ATR percentage is accurate across different price ranges."""
+        config = PricingConfig()
+        calculator = PricingCalculator(config)
+
+        # Test penny stock ($5): $0.25 ATR = 5%
+        penny_closes = [5.0] * 20
+        penny_highs = [5.125] * 20
+        penny_lows = [4.875] * 20
+        penny_result = calculator.calculate("LONG", penny_closes, penny_highs, penny_lows)
+        assert penny_result is not None
+        assert penny_result.atr is not None
+        assert float(penny_result.atr) == pytest.approx(5.0, rel=0.1)
+
+        # Test high-priced stock ($500): $5 ATR = 1%
+        high_closes = [500.0] * 20
+        high_highs = [502.5] * 20
+        high_lows = [497.5] * 20
+        high_result = calculator.calculate("LONG", high_closes, high_highs, high_lows)
+        assert high_result is not None
+        assert high_result.atr is not None
+        assert float(high_result.atr) == pytest.approx(1.0, rel=0.1)
+
+    def test_atr_percentage_stop_loss_consistency(self):
+        """Test that stop loss calculation works correctly with ATR percentage."""
+        closes = [150.0] * 20
+        highs = [153.0] * 20  # $6 range (153-147)
+        lows = [147.0] * 20
+
+        config = PricingConfig(atr_multiplier=0.5)
+        calculator = PricingCalculator(config)
+
+        result = calculator.calculate("LONG", closes, highs, lows)
+
+        assert result is not None
+        # ATR should be 4% (6/150 * 100)
+        assert result.atr is not None
+        assert float(result.atr) == pytest.approx(4.0, rel=0.1)
+        # Stop loss: entry - (0.5 * 4% of 150) = 150 - 3.0 = 147.0
+        assert result.stop_loss is not None
+        assert float(result.stop_loss) == pytest.approx(147.0, rel=0.1)
+
     def test_breakout_confirmation_custom_percentage(self, sample_prices):
         """Test BREAKOUT_CONFIRMATION with custom percentage."""
         config = PricingConfig(
@@ -254,13 +299,16 @@ class TestPricingCalculator:
         highs = [101.0] * 20
         lows = [99.0] * 20
 
-        # ATR ~ 2.0, with multiplier 1.0, stop distance ~ 2.0
+        # ATR ~ 2.0% of 100 = 2.0, with multiplier 1.0, stop distance ~ 2.0
         config = PricingConfig(atr_multiplier=1.0)
         calculator = PricingCalculator(config)
 
         result = calculator.calculate("LONG", closes, highs, lows)
 
         assert result is not None
+        # ATR should be percentage: ~2.0%
+        assert result.atr is not None
+        assert float(result.atr) == pytest.approx(2.0, rel=0.1)
         assert result.stop_loss is not None
-        # Stop should be entry - (1.0 * ATR) ~ 100 - 2 = 98
+        # Stop should be entry - (1.0 * ATR_dollars) ~ 100 - 2 = 98
         assert float(result.stop_loss) == pytest.approx(98.0, rel=0.1)
