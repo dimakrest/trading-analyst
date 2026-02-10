@@ -43,15 +43,17 @@ const mockResults: Live20Result[] = [
     candle_bullish: true,
     candle_aligned: true,
     candle_explanation: 'Bullish hammer pattern',
-    volume_trend: 'increasing',
+    volume_trend: '1.5x',
     volume_aligned: true,
     volume_approach: 'accumulation',
+    rvol: 1.8,
     cci_direction: 'rising',
     cci_value: -120,
     cci_zone: 'oversold',
     cci_aligned: true,
     criteria_aligned: 5,
     direction: 'LONG',
+    atr: 3.45,
     stop_loss: 170.50,
     entry_strategy: 'current_price',
     exit_strategy: 'atr_based',
@@ -71,15 +73,17 @@ const mockResults: Live20Result[] = [
     candle_bullish: false,
     candle_aligned: true,
     candle_explanation: 'Bearish shooting star',
-    volume_trend: 'increasing',
+    volume_trend: '1.5x',
     volume_aligned: false,
     volume_approach: 'distribution',
+    rvol: 2.5,
     cci_direction: 'falling',
     cci_value: 150,
     cci_zone: 'overbought',
     cci_aligned: true,
     criteria_aligned: 4,
     direction: 'SHORT',
+    atr: 5.80,
     stop_loss: 430.25,
     entry_strategy: 'breakout_confirmation',
     exit_strategy: 'atr_based',
@@ -99,15 +103,17 @@ const mockResults: Live20Result[] = [
     candle_bullish: true,
     candle_aligned: false,
     candle_explanation: 'Neutral doji',
-    volume_trend: 'increasing',
+    volume_trend: '1.5x',
     volume_aligned: true,
     volume_approach: 'accumulation',
+    rvol: 1.2,
     cci_direction: 'rising',
     cci_value: -80,
     cci_zone: 'neutral',
     cci_aligned: true,
     criteria_aligned: 4,
     direction: 'LONG',
+    atr: 12.50,
     stop_loss: 865.00,
     entry_strategy: 'current_price',
     exit_strategy: 'atr_based',
@@ -716,6 +722,128 @@ describe('Live20Dashboard progressive results', () => {
       renderDashboard();
 
       expect(screen.queryByText(/failed to analyze/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Min Rvol filter', () => {
+    it('should filter results by minimum rvol threshold', async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(useLive20).mockReturnValue({
+        results: mockResults, // AAPL: 1.8, MSFT: 2.5, NVDA: 1.2
+        counts: mockCounts,
+        isLoading: false,
+        isAnalyzing: false,
+        error: null,
+        analyzeSymbols: vi.fn(),
+        fetchResults: vi.fn(),
+        progress: null,
+        cancelAnalysis: vi.fn(),
+        isCancelling: false,
+        failedSymbols: {},
+      });
+
+      renderDashboard();
+
+      // All three symbols should be visible initially
+      expect(screen.getByText('AAPL')).toBeInTheDocument();
+      expect(screen.getByText('MSFT')).toBeInTheDocument();
+      expect(screen.getByText('NVDA')).toBeInTheDocument();
+
+      // Find the Min Rvol slider
+      const sliders = screen.getAllByRole('slider');
+      const rvolSlider = sliders.find((slider) => {
+        const label = slider.closest('div')?.querySelector('span');
+        return label?.textContent?.includes('Min Rvol');
+      });
+      expect(rvolSlider).toBeDefined();
+
+      // Set min rvol to 1.5 (should exclude NVDA with 1.2)
+      // The slider has min=0, max=5, step=0.25
+      // We need to set it to 1.5, which is 6 steps from 0 (1.5 / 0.25 = 6)
+      await user.click(rvolSlider!);
+      await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}');
+
+      // Wait for filtering to apply
+      await waitFor(() => {
+        expect(screen.getByText('AAPL')).toBeInTheDocument();
+        expect(screen.getByText('MSFT')).toBeInTheDocument();
+        expect(screen.queryByText('NVDA')).not.toBeInTheDocument();
+      });
+    });
+
+    it('should display "Off" when minRvol is 0', () => {
+      vi.mocked(useLive20).mockReturnValue({
+        results: mockResults,
+        counts: mockCounts,
+        isLoading: false,
+        isAnalyzing: false,
+        error: null,
+        analyzeSymbols: vi.fn(),
+        fetchResults: vi.fn(),
+        progress: null,
+        cancelAnalysis: vi.fn(),
+        isCancelling: false,
+        failedSymbols: {},
+      });
+
+      renderDashboard();
+
+      // Find the Min Rvol display value
+      const rvolValue = screen.getByText('Off');
+      expect(rvolValue).toBeInTheDocument();
+    });
+
+    it('should exclude results with null rvol when filter is applied', async () => {
+      const user = userEvent.setup();
+
+      const resultsWithNull = [
+        ...mockResults,
+        {
+          ...mockResults[0],
+          id: 4,
+          stock: 'NULLRVOL',
+          rvol: null,
+        },
+      ];
+
+      vi.mocked(useLive20).mockReturnValue({
+        results: resultsWithNull,
+        counts: { ...mockCounts, long: 3, total: 4 },
+        isLoading: false,
+        isAnalyzing: false,
+        error: null,
+        analyzeSymbols: vi.fn(),
+        fetchResults: vi.fn(),
+        progress: null,
+        cancelAnalysis: vi.fn(),
+        isCancelling: false,
+        failedSymbols: {},
+      });
+
+      renderDashboard();
+
+      // All symbols should be visible initially
+      expect(screen.getByText('AAPL')).toBeInTheDocument();
+      expect(screen.getByText('NULLRVOL')).toBeInTheDocument();
+
+      // Find the Min Rvol slider
+      const sliders = screen.getAllByRole('slider');
+      const rvolSlider = sliders.find((slider) => {
+        const label = slider.closest('div')?.querySelector('span');
+        return label?.textContent?.includes('Min Rvol');
+      });
+      expect(rvolSlider).toBeDefined();
+
+      // Set min rvol to 0.25 (should exclude NULLRVOL with null)
+      await user.click(rvolSlider!);
+      await user.keyboard('{ArrowRight}');
+
+      // Wait for filtering to apply
+      await waitFor(() => {
+        expect(screen.getByText('AAPL')).toBeInTheDocument();
+        expect(screen.queryByText('NULLRVOL')).not.toBeInTheDocument();
+      });
     });
   });
 });

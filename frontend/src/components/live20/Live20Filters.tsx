@@ -18,6 +18,10 @@ interface Live20FiltersProps {
   minScore: number;
   /** Callback when minimum score changes */
   onMinScoreChange: (score: number) => void;
+  /** Current minimum rvol filter */
+  minRvol: number;
+  /** Callback when minimum rvol changes */
+  onMinRvolChange: (rvol: number) => void;
 }
 
 /**
@@ -69,8 +73,9 @@ function FilterButton({
 /**
  * Filters for Live 20 results
  *
- * Provides direction filter buttons, symbol search, and minimum score slider.
- * Direction buttons show counts for each category (All, Long, Short, No Setup).
+ * Provides direction filter buttons, symbol search, minimum score slider,
+ * and minimum rvol filter. Direction buttons show counts for each category
+ * (All, Long, Short, No Setup).
  *
  * @param props - Component props
  */
@@ -82,6 +87,8 @@ export function Live20Filters({
   onSearchChange,
   minScore,
   onMinScoreChange,
+  minRvol,
+  onMinRvolChange,
 }: Live20FiltersProps) {
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -141,6 +148,22 @@ export function Live20Filters({
         />
         <span className="font-mono text-xs font-semibold text-text-primary min-w-[28px]">
           {minScore}
+        </span>
+      </div>
+
+      {/* Min Rvol Slider */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-text-muted whitespace-nowrap">Min Rvol:</span>
+        <Slider
+          value={[minRvol]}
+          onValueChange={([value]) => onMinRvolChange(value)}
+          min={0}
+          max={5}
+          step={0.25}
+          className="w-[120px]"
+        />
+        <span className="font-mono text-xs font-semibold text-text-primary min-w-[36px]">
+          {minRvol === 0 ? 'Off' : `${minRvol.toFixed(2)}x`}
         </span>
       </div>
     </div>

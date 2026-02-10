@@ -70,6 +70,12 @@ class Live20ResultResponse(StrictBaseModel):
     volume_trend: str | None = None
     volume_aligned: bool | None = None
     volume_approach: str | None = None
+    atr: Decimal | None = Field(
+        None, description="Average True Range (14-period) for volatility context"
+    )
+    rvol: Decimal | None = Field(
+        None, description="Relative volume ratio (today/yesterday) for conviction assessment"
+    )
     cci_direction: str | None = None  # "rising", "falling", "flat"
     cci_value: Decimal | None = None
     cci_zone: str | None = None
@@ -99,9 +105,11 @@ class Live20ResultResponse(StrictBaseModel):
                     "candle_bullish": True,
                     "candle_aligned": True,
                     "candle_explanation": "Strong bullish engulfing pattern indicating potential reversal",
-                    "volume_trend": "increasing",
+                    "volume_trend": "1.5x",
                     "volume_aligned": True,
                     "volume_approach": "volume_confirmation",
+                    "atr": 4.25,
+                    "rvol": 1.5,
                     "cci_direction": "rising",
                     "cci_value": "-125.50",
                     "cci_zone": "oversold",
@@ -137,6 +145,8 @@ class Live20ResultResponse(StrictBaseModel):
             volume_trend=rec.live20_volume_trend,
             volume_aligned=rec.live20_volume_aligned,
             volume_approach=rec.live20_volume_approach,
+            atr=rec.live20_atr,
+            rvol=rec.live20_rvol,
             cci_direction=rec.live20_cci_direction,
             cci_value=rec.live20_cci_value,
             cci_zone=rec.live20_cci_zone,
@@ -148,7 +158,7 @@ class Live20ResultResponse(StrictBaseModel):
         )
 
     @field_serializer(
-        "entry_price", "stop_loss", "ma20_distance_pct", "cci_value", when_used="json"
+        "entry_price", "stop_loss", "ma20_distance_pct", "atr", "rvol", "cci_value", when_used="json"
     )
     def serialize_decimal_as_float(self, value: Decimal | None) -> float | None:
         """Serialize decimal fields as float for JSON."""

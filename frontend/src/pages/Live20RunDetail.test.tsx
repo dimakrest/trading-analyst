@@ -52,15 +52,17 @@ const mockRunDetail: Live20RunDetailType = {
       candle_bullish: true,
       candle_aligned: true,
       candle_explanation: 'Bullish hammer pattern',
-      volume_trend: 'increasing',
+      volume_trend: '1.8x',
       volume_aligned: true,
       volume_approach: 'accumulation',
+      rvol: 1.8,
       cci_direction: 'rising',
       cci_value: -120,
       cci_zone: 'oversold',
       cci_aligned: true,
       criteria_aligned: 5,
       direction: 'LONG',
+      atr: 3.45,
       stop_loss: 170.50,
       entry_strategy: 'current_price',
       exit_strategy: 'atr_based',
@@ -80,15 +82,17 @@ const mockRunDetail: Live20RunDetailType = {
       candle_bullish: false,
       candle_aligned: true,
       candle_explanation: 'Bearish shooting star',
-      volume_trend: 'increasing',
+      volume_trend: '2.5x',
       volume_aligned: false,
       volume_approach: 'distribution',
+      rvol: 2.5,
       cci_direction: 'falling',
       cci_value: 150,
       cci_zone: 'overbought',
       cci_aligned: true,
       criteria_aligned: 4,
       direction: 'SHORT',
+      atr: 5.80,
       stop_loss: 430.25,
       entry_strategy: 'breakout_confirmation',
       exit_strategy: 'atr_based',
@@ -108,15 +112,17 @@ const mockRunDetail: Live20RunDetailType = {
       candle_bullish: true,
       candle_aligned: false,
       candle_explanation: 'Neutral doji',
-      volume_trend: 'increasing',
+      volume_trend: '1.2x',
       volume_aligned: true,
       volume_approach: 'accumulation',
+      rvol: 1.2,
       cci_direction: 'rising',
       cci_value: -80,
       cci_zone: 'neutral',
       cci_aligned: true,
       criteria_aligned: 4,
       direction: 'LONG',
+      atr: 12.50,
       stop_loss: 865.00,
       entry_strategy: 'current_price',
       exit_strategy: 'atr_based',
@@ -136,15 +142,17 @@ const mockRunDetail: Live20RunDetailType = {
       candle_bullish: null,
       candle_aligned: null,
       candle_explanation: null,
-      volume_trend: 'decreasing',
+      volume_trend: '0.8x',
       volume_aligned: false,
       volume_approach: null,
+      rvol: 0.8,
       cci_direction: 'flat',
       cci_value: 10,
       cci_zone: 'neutral',
       cci_aligned: false,
       criteria_aligned: 1,
       direction: 'NO_SETUP',
+      atr: null,
       stop_loss: null,
       entry_strategy: null,
       exit_strategy: null,
@@ -164,15 +172,17 @@ const mockRunDetail: Live20RunDetailType = {
       candle_bullish: null,
       candle_aligned: null,
       candle_explanation: null,
-      volume_trend: 'decreasing',
+      volume_trend: '0.5x',
       volume_aligned: false,
       volume_approach: null,
+      rvol: 0.5,
       cci_direction: 'flat',
       cci_value: 5,
       cci_zone: 'neutral',
       cci_aligned: false,
       criteria_aligned: 0,
       direction: 'NO_SETUP',
+      atr: null,
       stop_loss: null,
       entry_strategy: null,
       exit_strategy: null,
@@ -318,14 +328,20 @@ describe('Live20RunDetail', () => {
         expect(screen.getByText('AAPL')).toBeInTheDocument();
       });
 
-      // The slider component is present
-      const slider = screen.getByRole('slider');
-      expect(slider).toBeInTheDocument();
-      expect(slider).toHaveAttribute('aria-valuemin', '0');
-      expect(slider).toHaveAttribute('aria-valuemax', '100');
+      // The slider components are present (Min Score and Min Rvol)
+      const sliders = screen.getAllByRole('slider');
+      expect(sliders).toHaveLength(2);
+
+      // Min Score slider (first)
+      expect(sliders[0]).toHaveAttribute('aria-valuemin', '0');
+      expect(sliders[0]).toHaveAttribute('aria-valuemax', '100');
+
+      // Min Rvol slider (second)
+      expect(sliders[1]).toHaveAttribute('aria-valuemin', '0');
+      expect(sliders[1]).toHaveAttribute('aria-valuemax', '5');
 
       // Note: Testing slider interaction with Radix UI has known issues in JSDOM
-      // In a real browser, users can adjust the slider to filter by minimum score
+      // In a real browser, users can adjust the sliders to filter by minimum score and rvol
       // The filtering logic is tested through the useMemo in the component
       // and the Live20Filters component is already tested separately
     });

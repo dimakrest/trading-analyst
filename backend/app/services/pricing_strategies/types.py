@@ -61,11 +61,13 @@ class PricingResult:
     Attributes:
         entry_price: Calculated entry price
         stop_loss: Calculated stop loss price (None if ATR unavailable)
+        atr: Average True Range value used for stop loss calculation (None if unavailable)
         entry_strategy: Strategy used for entry
         exit_strategy: Strategy used for exit
     """
 
     entry_price: Decimal
     stop_loss: Decimal | None  # None if ATR calculation fails
+    atr: Decimal | None  # None if ATR calculation fails
     entry_strategy: EntryStrategy
     exit_strategy: ExitStrategy

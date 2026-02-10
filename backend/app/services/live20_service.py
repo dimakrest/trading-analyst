@@ -149,6 +149,8 @@ class Live20Service:
                     or (direction == Live20Direction.SHORT and criteria[3].aligned_for_short)
                 ),
                 live20_volume_approach=volume_signal.approach.value,
+                live20_atr=pricing_result.atr if pricing_result else None,
+                live20_rvol=Decimal(str(volume_signal.rvol)),
                 live20_cci_direction=cci_analysis.direction.value,
                 live20_cci_value=Decimal(str(cci_analysis.value)),
                 live20_cci_zone=cci_analysis.zone.value,

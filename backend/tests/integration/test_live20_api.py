@@ -28,7 +28,8 @@ async def sample_live20_results(db_session: AsyncSession):
             confidence_score=80,
             reasoning="Live 20 mean reversion analysis",
             entry_price=Decimal("150.50"),
-                        live20_trend_direction="bearish",
+            stop_loss=Decimal("148.25"),
+            live20_trend_direction="bearish",
             live20_trend_aligned=True,
             live20_ma20_distance_pct=Decimal("-6.5"),
             live20_ma20_aligned=True,
@@ -36,6 +37,8 @@ async def sample_live20_results(db_session: AsyncSession):
             live20_candle_aligned=True,
             live20_volume_trend="decreasing",
             live20_volume_aligned=True,
+            live20_atr=Decimal("4.5000"),
+            live20_rvol=Decimal("1.25"),
             live20_cci_value=Decimal("-110.0"),
             live20_cci_zone="oversold",
             live20_cci_aligned=True,
@@ -49,7 +52,8 @@ async def sample_live20_results(db_session: AsyncSession):
             confidence_score=60,
             reasoning="Live 20 mean reversion analysis",
             entry_price=Decimal("200.25"),
-                        live20_trend_direction="bullish",
+            stop_loss=Decimal("205.50"),
+            live20_trend_direction="bullish",
             live20_trend_aligned=True,
             live20_ma20_distance_pct=Decimal("7.2"),
             live20_ma20_aligned=True,
@@ -57,6 +61,8 @@ async def sample_live20_results(db_session: AsyncSession):
             live20_candle_aligned=True,
             live20_volume_trend="decreasing",
             live20_volume_aligned=False,
+            live20_atr=Decimal("10.5000"),
+            live20_rvol=Decimal("0.85"),
             live20_cci_value=Decimal("105.0"),
             live20_cci_zone="overbought",
             live20_cci_aligned=True,
@@ -70,7 +76,7 @@ async def sample_live20_results(db_session: AsyncSession):
             confidence_score=40,
             reasoning="Live 20 mean reversion analysis",
             entry_price=Decimal("350.00"),
-                        live20_trend_direction="neutral",
+            live20_trend_direction="neutral",
             live20_trend_aligned=False,
             live20_ma20_distance_pct=Decimal("2.0"),
             live20_ma20_aligned=False,
@@ -78,6 +84,8 @@ async def sample_live20_results(db_session: AsyncSession):
             live20_candle_aligned=True,
             live20_volume_trend="stable",
             live20_volume_aligned=False,
+            live20_atr=Decimal("7.2500"),
+            live20_rvol=Decimal("1.00"),
             live20_cci_value=Decimal("10.0"),
             live20_cci_zone="neutral",
             live20_cci_aligned=False,
@@ -305,6 +313,33 @@ async def test_results_decimal_serialization(async_client: AsyncClient, sample_l
     assert isinstance(result["entry_price"], float)
     assert isinstance(result["ma20_distance_pct"], float)
     assert isinstance(result["cci_value"], float)
+    assert isinstance(result["atr"], float)
+    assert isinstance(result["rvol"], float)
+
+
+@pytest.mark.asyncio
+async def test_results_include_atr_and_rvol(async_client: AsyncClient, sample_live20_results):
+    """Test that API responses include ATR and rvol fields."""
+    response = await async_client.get("/api/v1/live-20/results")
+
+    assert response.status_code == 200
+    data = response.json()
+
+    # Verify all results have ATR and rvol fields
+    for result in data["results"]:
+        assert "atr" in result
+        assert "rvol" in result
+
+        # Verify values match expected fixture data
+        if result["stock"] == "AAPL":
+            assert result["atr"] == 4.5
+            assert result["rvol"] == 1.25
+        elif result["stock"] == "TSLA":
+            assert result["atr"] == 10.5
+            assert result["rvol"] == 0.85
+        elif result["stock"] == "MSFT":
+            assert result["atr"] == 7.25
+            assert result["rvol"] == 1.0
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ export interface Live20Result {
   confidence_score: number;
   entry_price: number | null;
   stop_loss: number | null;
+  atr: number | null;
 
   // Criteria details
   trend_direction: string | null;
@@ -31,6 +32,7 @@ export interface Live20Result {
   volume_trend: string | null;
   volume_aligned: boolean | null;
   volume_approach: VolumeApproach;
+  rvol: number | null;
   cci_direction: string | null;  // "rising", "falling", "flat"
   cci_value: number | null;
   cci_zone: string | null;
