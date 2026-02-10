@@ -333,7 +333,7 @@ describe('Live20RunDetail', () => {
 
       // Min Rvol slider (second)
       expect(sliders[1]).toHaveAttribute('aria-valuemin', '0');
-      expect(sliders[1]).toHaveAttribute('aria-valuemax', '5');
+      expect(sliders[1]).toHaveAttribute('aria-valuemax', '3');
 
       // Note: Testing slider interaction with Radix UI has known issues in JSDOM
       // In a real browser, users can adjust the sliders to filter by minimum score and rvol

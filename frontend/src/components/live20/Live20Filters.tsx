@@ -158,13 +158,24 @@ export function Live20Filters({
           value={[minRvol]}
           onValueChange={([value]) => onMinRvolChange(value)}
           min={0}
-          max={5}
-          step={0.25}
+          max={3}
+          step={0.1}
           className="w-[120px]"
         />
-        <span className="font-mono text-xs font-semibold text-text-primary min-w-[36px]">
-          {minRvol === 0 ? 'Off' : `${minRvol.toFixed(2)}x`}
-        </span>
+        <Input
+          type="number"
+          min={0}
+          max={3}
+          step={0.1}
+          value={minRvol === 0 ? '0' : minRvol.toFixed(1)}
+          onChange={(e) => {
+            const value = parseFloat(e.target.value);
+            if (!isNaN(value) && value >= 0 && value <= 3) {
+              onMinRvolChange(value);
+            }
+          }}
+          className="w-[60px] h-7 px-2 py-1 bg-bg-secondary border-default font-mono text-xs text-center"
+        />
       </div>
     </div>
   );

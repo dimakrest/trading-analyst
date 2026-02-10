@@ -756,10 +756,11 @@ describe('Live20Dashboard progressive results', () => {
       expect(rvolSlider).toBeDefined();
 
       // Set min rvol to 1.5 (should exclude NVDA with 1.2)
-      // The slider has min=0, max=5, step=0.25
-      // We need to set it to 1.5, which is 6 steps from 0 (1.5 / 0.25 = 6)
+      // The slider has min=0, max=3, step=0.1
+      // We need to set it to 1.5, which is 15 steps from 0 (1.5 / 0.1 = 15)
       await user.click(rvolSlider!);
-      await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}');
+      const steps = '{ArrowRight}'.repeat(15);
+      await user.keyboard(steps);
 
       // Wait for filtering to apply
       await waitFor(() => {
@@ -769,7 +770,7 @@ describe('Live20Dashboard progressive results', () => {
       });
     });
 
-    it('should display "Off" when minRvol is 0', () => {
+    it('should display default minRvol value of 0', () => {
       vi.mocked(useLive20).mockReturnValue({
         results: mockResults,
         counts: mockCounts,
@@ -786,26 +787,26 @@ describe('Live20Dashboard progressive results', () => {
 
       renderDashboard();
 
-      // Find the Min Rvol display value
-      const rvolValue = screen.getByText('Off');
-      expect(rvolValue).toBeInTheDocument();
+      // Find the Min Rvol input field with default value of 0
+      const rvolInput = screen.getByDisplayValue('0');
+      expect(rvolInput).toBeInTheDocument();
     });
 
-    it('should exclude results with null rvol when filter is applied', async () => {
+    it('should exclude results below minRvol threshold when filter is applied', async () => {
       const user = userEvent.setup();
 
-      const resultsWithNull = [
+      const resultsWithLowRvol = [
         ...mockResults,
         {
           ...mockResults[0],
           id: 4,
-          stock: 'NULLRVOL',
-          rvol: null,
+          stock: 'LOWRVOL',
+          rvol: 0.8,
         },
       ];
 
       vi.mocked(useLive20).mockReturnValue({
-        results: resultsWithNull,
+        results: resultsWithLowRvol,
         counts: { ...mockCounts, long: 3, total: 4 },
         isLoading: false,
         isAnalyzing: false,
@@ -820,26 +821,22 @@ describe('Live20Dashboard progressive results', () => {
 
       renderDashboard();
 
-      // All symbols should be visible initially
+      // With default minRvol=0 (Off), all symbols should be visible
       expect(screen.getByText('AAPL')).toBeInTheDocument();
-      expect(screen.getByText('NULLRVOL')).toBeInTheDocument();
+      expect(screen.getByText('LOWRVOL')).toBeInTheDocument();
 
-      // Find the Min Rvol slider
-      const sliders = screen.getAllByRole('slider');
-      const rvolSlider = sliders.find((slider) => {
-        const label = slider.closest('div')?.querySelector('span');
-        return label?.textContent?.includes('Min Rvol');
-      });
-      expect(rvolSlider).toBeDefined();
+      // Find the Min Rvol input field and set threshold
+      const rvolInput = screen.getByDisplayValue('0');
+      expect(rvolInput).toBeInTheDocument();
 
-      // Set min rvol to 0.25 (should exclude NULLRVOL with null)
-      await user.click(rvolSlider!);
-      await user.keyboard('{ArrowRight}');
+      // Clear and set to 1.0 (should exclude LOWRVOL with 0.8)
+      await user.clear(rvolInput);
+      await user.type(rvolInput, '1.0');
 
-      // Wait for filtering to apply
+      // LOWRVOL should be filtered out since it's below 1.0
       await waitFor(() => {
         expect(screen.getByText('AAPL')).toBeInTheDocument();
-        expect(screen.queryByText('NULLRVOL')).not.toBeInTheDocument();
+        expect(screen.queryByText('LOWRVOL')).not.toBeInTheDocument();
       });
     });
   });
