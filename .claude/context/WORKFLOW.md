@@ -1,7 +1,7 @@
 # Complete Development Workflow
 
 ```
-Ticket → Research → Plan → Implement → Test → Commit → PR → Merge
+Ticket -> Research -> Plan -> Implement -> Test -> Commit -> PR -> Merge
 ```
 
 ---
@@ -60,12 +60,10 @@ Ticket → Research → Plan → Implement → Test → Commit → PR → Merge
 
 ## Stage 5: Test
 
-**Commands**: See project's testing documentation for specific commands.
-
 **Requirements**:
 - All tests: 100% pass rate
-- Coverage: >= 80%
-- E2E: 100% pass (MANDATORY if applicable)
+- Coverage: >= 80% (configurable per project)
+- E2E: 100% pass (if applicable)
 - Type checks: 0 errors
 
 ---
@@ -73,15 +71,6 @@ Ticket → Research → Plan → Implement → Test → Commit → PR → Merge
 ## Stage 6: Commit
 
 **Command**: `/commit`
-
-```bash
-git add .
-git commit -m "type: description
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
-```
 
 **Types**: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
@@ -92,11 +81,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Stage 7: Pull Request
 
 **Command**: `/describe_pr`
-
-```bash
-git push -u origin feature/name
-gh pr create --title "Title" --body "Description"
-```
 
 ---
 

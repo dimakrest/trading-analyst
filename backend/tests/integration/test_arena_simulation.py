@@ -65,7 +65,7 @@ def create_mock_price_data(
     return data
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaSimulationIntegration:
     """Integration tests for full simulation workflow."""
 
@@ -401,7 +401,7 @@ class TestArenaSimulationIntegration:
         assert completed_sim.status == SimulationStatus.COMPLETED.value
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaPositionLifecycle:
     """Integration tests for position lifecycle management."""
 
@@ -694,7 +694,7 @@ class TestArenaPositionLifecycle:
                 assert pos.highest_price >= Decimal("100.0")
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaSimulationMetrics:
     """Integration tests for simulation performance metrics."""
 
@@ -788,7 +788,7 @@ class TestArenaSimulationMetrics:
         assert simulation.win_rate == Decimal("60")
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestArenaWorkerIntegration:
     """Integration tests for ArenaWorker resume and cancellation.
 

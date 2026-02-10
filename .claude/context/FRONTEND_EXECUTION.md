@@ -5,22 +5,22 @@
 ## Task Completion Definition
 
 A task is ONLY complete when ALL are true:
-- ✅ Unit tests passing (100%)
-- ✅ E2E tests passing (100%)
-- ✅ Coverage >= 80%
-- ✅ TypeScript: 0 errors
-- ✅ Feature branch + PR created
-- ✅ No known bugs
+- Unit tests passing (100%)
+- E2E tests passing (100%) - if applicable
+- Coverage >= 80% (adjust per project)
+- TypeScript: 0 errors
+- Feature branch + PR created
+- No known bugs
 
-**NEVER** mark complete with failing tests or < 80% coverage.
+**NEVER** mark complete with failing tests or type errors.
 
 ---
 
 ## Testing Requirements
 
-When running tests, read `docs/guides/testing.md`.
+Check your project's testing documentation for specific commands.
 
-**E2E tests are NOT optional** - 100% pass rate required.
+**E2E tests are NOT optional** - 100% pass rate required (if applicable).
 
 ---
 
@@ -30,7 +30,7 @@ When running tests, read `docs/guides/testing.md`.
 # 1. Create feature branch
 git checkout -b feature/descriptive-name
 
-# 2. Run ALL tests before committing (see docs/guides/testing.md)
+# 2. Run ALL tests before committing
 
 # 3. Commit
 git add . && git commit -m "type: description"
@@ -46,58 +46,38 @@ gh pr create --title "Title" --body "Description"
 
 ## Bug Fixing Rules
 
-- ❌ NEVER use mock data to make E2E tests pass
-- ❌ NEVER accept partial pass rates (43%, 80%, 95%)
-- ✅ Investigate with DevTools and React DevTools
-- ✅ Test different inputs and edge cases
-- ✅ Delegate complex issues to specialized agents
+- NEVER use mock data to make E2E tests pass
+- NEVER accept partial pass rates (43%, 80%, 95%)
+- Investigate with DevTools and React DevTools
+- Test different inputs and edge cases
+- Delegate complex issues to specialized agents
 
 ---
 
-## Design System
+## Design System (if applicable)
 
-**MANDATORY**: Follow `docs/frontend/DESIGN_SYSTEM.md` for all styling decisions.
-
-**Key rules**:
-- Use semantic color tokens, never hardcoded Tailwind colors
-- `text-accent-bullish`/`text-accent-bearish` for P&L values
-- `text-signal-long`/`text-signal-short` for screener signals
-- `text-up-indicator`/`text-down-indicator` for technical indicators
-- `font-mono` for all numeric values
-- `font-display` for headers and symbols
-
-**Forbidden patterns** (pre-commit hook blocks these):
-```tsx
-// ❌ BLOCKED - hardcoded colors
-<span className="text-green-500">+$100</span>
-<span className="text-red-500">-$50</span>
-
-// ✅ CORRECT - semantic tokens
-<span className="text-accent-bullish">+$100</span>
-<span className="text-accent-bearish">-$50</span>
-```
+If your project has a design system:
+- Use semantic color tokens, never hardcoded colors
+- Use proper font families for different contexts
+- Follow the project's design documentation
 
 ---
 
 ## Code Patterns
 
-When writing components or hooks, read `docs/guides/engineering-standards.md` section 6.
-
----
-
-## API Conventions
-
-When calling backend APIs, read `docs/guides/engineering-standards.md` section 8.
+Follow your project's engineering standards documentation for:
+- Component patterns
+- Hook patterns
+- State management patterns
 
 ---
 
 ## Completion Checklist
 
 - [ ] Unit tests: 100% passing
-- [ ] E2E tests: 100% passing
-- [ ] Coverage: >= 80%
+- [ ] E2E tests: 100% passing (if applicable)
+- [ ] Coverage: >= threshold
 - [ ] TypeScript: 0 errors
-- [ ] Smoke tests: passing
 - [ ] Feature branch + PR: created
 
 ---
@@ -106,8 +86,9 @@ When calling backend APIs, read `docs/guides/engineering-standards.md` section 8
 
 **Before starting dev server**:
 ```bash
-lsof -ti:5174 | xargs kill -9 2>/dev/null
-cd frontend && npm run dev
+# Kill any existing process on dev port
+lsof -ti:5173 | xargs kill -9 2>/dev/null
+npm run dev
 ```
 
 **Cleanup after task**:

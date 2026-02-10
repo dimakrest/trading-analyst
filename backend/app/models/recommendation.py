@@ -121,9 +121,6 @@ class Recommendation(Base):
     live20_candle_explanation: Mapped[str | None] = mapped_column(
         String(255), nullable=True, doc="Explanation of candle pattern in context (for tooltip)"
     )
-    live20_volume_trend: Mapped[str | None] = mapped_column(
-        String(15), nullable=True, doc="Relative volume ratio as display string, e.g. '1.5x'"
-    )
     live20_volume_aligned: Mapped[bool | None] = mapped_column(
         Boolean, nullable=True, doc="Whether volume pattern aligns with direction"
     )

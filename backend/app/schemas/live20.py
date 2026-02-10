@@ -67,7 +67,6 @@ class Live20ResultResponse(StrictBaseModel):
     candle_bullish: bool | None = None  # True if close > open (green candle)
     candle_aligned: bool | None = None
     candle_explanation: str | None = None
-    volume_trend: str | None = None
     volume_aligned: bool | None = None
     volume_approach: str | None = None
     atr: Decimal | None = Field(
@@ -105,7 +104,6 @@ class Live20ResultResponse(StrictBaseModel):
                     "candle_bullish": True,
                     "candle_aligned": True,
                     "candle_explanation": "Strong bullish engulfing pattern indicating potential reversal",
-                    "volume_trend": "1.5x",
                     "volume_aligned": True,
                     "volume_approach": "volume_confirmation",
                     "atr": 4.25,
@@ -142,7 +140,6 @@ class Live20ResultResponse(StrictBaseModel):
             candle_bullish=rec.live20_candle_bullish,
             candle_aligned=rec.live20_candle_aligned,
             candle_explanation=rec.live20_candle_explanation,
-            volume_trend=rec.live20_volume_trend,
             volume_aligned=rec.live20_volume_aligned,
             volume_approach=rec.live20_volume_approach,
             atr=rec.live20_atr,

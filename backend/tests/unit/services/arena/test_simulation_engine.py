@@ -38,7 +38,7 @@ class TestSimulationEngineInit:
         assert engine.data_service is not None
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestSimulationEngineInitializeSimulation:
     """Tests for SimulationEngine.initialize_simulation() method."""
 
@@ -197,7 +197,7 @@ class TestSimulationEngineInitializeSimulation:
         assert result.total_days > 0
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestSimulationEngineStepDay:
     """Tests for SimulationEngine.step_day() method."""
 
@@ -398,7 +398,7 @@ class TestSimulationEngineStepDay:
         assert snapshot.decisions["AAPL"]["action"] == "NO_DATA"
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestSimulationEnginePositionManagement:
     """Tests for position management in SimulationEngine."""
 
@@ -692,7 +692,7 @@ class TestSimulationEnginePositionManagement:
         assert positions[0].signal_date == date(2024, 1, 15)
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestSimulationEngineTrailingStop:
     """Tests for trailing stop management in SimulationEngine."""
 
@@ -926,7 +926,7 @@ class TestSimulationEngineTrailingStop:
         assert position.return_pct == Decimal("-10")
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestSimulationEngineRunToCompletion:
     """Tests for SimulationEngine.run_to_completion() method."""
 
@@ -989,7 +989,7 @@ class TestSimulationEngineRunToCompletion:
         assert result.current_day == 3
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestSimulationEngineHelpers:
     """Tests for SimulationEngine helper methods."""
 
@@ -1197,7 +1197,7 @@ class TestSimulationEngineHelpers:
         assert result is None
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestSimulationEngineMaxDrawdown:
     """Tests for max drawdown calculation."""
 
@@ -1283,7 +1283,7 @@ class TestSimulationEngineMaxDrawdown:
         assert abs(simulation.max_drawdown_pct - Decimal("9.0909")) < Decimal("0.01")
 
 
-@pytest.mark.usefixtures("clean_db")
+@pytest.mark.usefixtures("db_session")
 class TestSimulationEngineCloseAllPositions:
     """Tests for closing all positions at simulation end."""
 

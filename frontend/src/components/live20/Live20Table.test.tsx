@@ -23,7 +23,6 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   candle_bullish: true,
   candle_aligned: true,
   candle_explanation: null,
-  volume_trend: '1.5x',
   volume_aligned: true,
   volume_approach: 'accumulation',
   rvol: 1.5,

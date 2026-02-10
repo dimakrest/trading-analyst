@@ -29,7 +29,6 @@ export interface Live20Result {
   candle_bullish: boolean | null;  // true if close > open (green candle)
   candle_aligned: boolean | null;
   candle_explanation: string | null;
-  volume_trend: string | null;
   volume_aligned: boolean | null;
   volume_approach: VolumeApproach;
   rvol: number | null;

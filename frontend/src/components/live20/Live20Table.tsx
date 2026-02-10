@@ -303,7 +303,7 @@ export function Live20Table({ results }: Live20TableProps) {
             <div className="flex items-center gap-1">
               <AlignmentIcon aligned={row.original.volume_aligned} />
               <span className="text-xs text-muted-foreground">
-                {row.original.volume_trend}
+                {row.original.rvol != null ? `${row.original.rvol.toFixed(1)}x` : '-'}
               </span>
               {approachInfo && (
                 <Tooltip>
