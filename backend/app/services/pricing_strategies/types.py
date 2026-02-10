@@ -61,7 +61,7 @@ class PricingResult:
     Attributes:
         entry_price: Calculated entry price
         stop_loss: Calculated stop loss price (None if ATR unavailable)
-        atr: Average True Range value used for stop loss calculation (None if unavailable)
+        atr: Average True Range as percentage of price (e.g., 4.25 = 4.25%). None if unavailable.
         entry_strategy: Strategy used for entry
         exit_strategy: Strategy used for exit
     """

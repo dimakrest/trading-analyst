@@ -179,13 +179,15 @@ class TestPricingCalculator:
         assert isinstance(result.atr, Decimal)
         assert result.atr > Decimal("0")
 
-        # With our test data (high-low range of 4), ATR should be approximately 4.0
+        # ATR is now a percentage. With test data (high-low range of 4 on ~129 price),
+        # ATR should be approximately 3.1% (4/129 * 100)
         # Allow some variance due to True Range calculation including gaps
-        assert Decimal("3.0") < result.atr < Decimal("5.0")
+        assert Decimal("2.0") < result.atr < Decimal("5.0")
 
         # Verify stop loss calculation uses the ATR correctly
-        # For LONG: stop_loss = entry - (atr * multiplier)
-        expected_stop_loss = result.entry_price - (result.atr * Decimal(str(config.atr_multiplier)))
+        # For LONG: stop_loss = entry - ((atr_percentage / 100) * entry * multiplier)
+        atr_dollars = (result.atr / Decimal("100")) * result.entry_price
+        expected_stop_loss = result.entry_price - (atr_dollars * Decimal(str(config.atr_multiplier)))
         assert abs(result.stop_loss - expected_stop_loss) < Decimal("0.01")
 
     def test_calculate_different_atr_multipliers(self, sample_price_data):

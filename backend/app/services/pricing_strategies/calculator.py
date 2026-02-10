@@ -56,9 +56,9 @@ class PricingCalculator:
         # Calculate entry price
         entry_price = self._calculate_entry(direction, current_price)
 
-        # Calculate ATR for stop loss using shared utility
-        atr = self._get_latest_atr(highs, lows, closes)
-        if atr is None or atr <= 0:
+        # Calculate ATR as percentage using shared utility
+        atr_percentage = self._get_latest_atr(highs, lows, closes, entry_price)
+        if atr_percentage is None or atr_percentage <= 0:
             # Don't guess - let human define risk if ATR unavailable
             logger.warning("ATR calculation failed - returning None for stop_loss and atr")
             return PricingResult(
@@ -69,13 +69,13 @@ class PricingCalculator:
                 exit_strategy=self.config.exit_strategy,
             )
 
-        # Calculate stop loss
-        stop_loss = self._calculate_stop_loss(direction, entry_price, atr)
+        # Calculate stop loss using ATR percentage
+        stop_loss = self._calculate_stop_loss(direction, entry_price, atr_percentage)
 
         return PricingResult(
             entry_price=Decimal(str(round(entry_price, 4))),
             stop_loss=Decimal(str(round(stop_loss, 4))),
-            atr=Decimal(str(round(atr, 4))),
+            atr=Decimal(str(round(atr_percentage, 4))),
             entry_strategy=self.config.entry_strategy,
             exit_strategy=self.config.exit_strategy,
         )
@@ -104,19 +104,21 @@ class PricingCalculator:
             return current_price * (1 - offset_multiplier)
 
     def _calculate_stop_loss(
-        self, direction: str, entry_price: float, atr: float
+        self, direction: str, entry_price: float, atr_percentage: float
     ) -> float:
-        """Calculate stop loss based on ATR.
+        """Calculate stop loss based on ATR percentage.
 
         Args:
             direction: Trade direction ("LONG" or "SHORT")
             entry_price: Calculated entry price
-            atr: Average True Range value
+            atr_percentage: Average True Range as percentage (e.g., 4.25 for 4.25%)
 
         Returns:
             Calculated stop loss price
         """
-        stop_distance = atr * self.config.atr_multiplier
+        # Convert ATR percentage back to dollars for stop distance calculation
+        atr_dollars = (atr_percentage / 100.0) * entry_price
+        stop_distance = atr_dollars * self.config.atr_multiplier
 
         if direction == "LONG":
             # Stop below entry for long positions
@@ -130,24 +132,30 @@ class PricingCalculator:
         highs: list[float],
         lows: list[float],
         closes: list[float],
+        current_price: float,
         period: int = 14,
     ) -> float | None:
-        """Get latest ATR value using shared utility.
+        """Get latest ATR value as percentage of current price.
 
         Uses calculate_atr from app.utils.technical_indicators to ensure
-        consistent calculation across the system.
+        consistent calculation across the system, then converts to percentage.
 
         Args:
             highs: List of high prices
             lows: List of low prices
             closes: List of closing prices
+            current_price: Current/entry price for percentage calculation
             period: ATR period (default 14)
 
         Returns:
-            Latest ATR value or None if calculation fails
+            Latest ATR as percentage (e.g., 4.25 for 4.25%), or None if calculation fails
         """
         try:
             if len(closes) < period + 1:
+                return None
+
+            if current_price <= 0:
+                logger.warning("Invalid current_price for ATR percentage calculation")
                 return None
 
             # Create DataFrame for the shared utility
@@ -159,15 +167,18 @@ class PricingCalculator:
                 }
             )
 
-            # Use shared ATR calculation
+            # Use shared ATR calculation (returns dollar value)
             atr_series = calculate_atr(df, period=period)
 
             # Get latest value
-            latest_atr = atr_series.iloc[-1]
-            if pd.isna(latest_atr):
+            latest_atr_dollars = atr_series.iloc[-1]
+            if pd.isna(latest_atr_dollars):
                 return None
 
-            return float(latest_atr)
+            # Convert to percentage: (atr_dollars / current_price) * 100
+            atr_percentage = (float(latest_atr_dollars) / current_price) * 100
+
+            return atr_percentage
 
         except Exception as e:
             logger.error(f"ATR calculation error: {e}")
