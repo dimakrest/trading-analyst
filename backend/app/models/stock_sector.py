@@ -1,7 +1,7 @@
-"""Stock sector cache model.
+"""Stock metadata cache model.
 
-Caches the stock→sector ETF mapping from Yahoo Finance.
-Sector info rarely changes, so this avoids repeated Yahoo API calls.
+Caches stock metadata (sector, name, exchange) from Yahoo Finance.
+This info rarely changes, so caching avoids repeated Yahoo API calls.
 """
 from sqlalchemy import String, Index
 from sqlalchemy.orm import Mapped, mapped_column
@@ -29,6 +29,14 @@ class StockSector(Base):
     industry: Mapped[str | None] = mapped_column(
         String(100), nullable=True,
         doc="Yahoo Finance industry (e.g., 'Consumer Electronics')"
+    )
+    name: Mapped[str | None] = mapped_column(
+        String(200), nullable=True,
+        doc="Company name (e.g., 'Apple Inc.')"
+    )
+    exchange: Mapped[str | None] = mapped_column(
+        String(50), nullable=True,
+        doc="Stock exchange (e.g., 'NASDAQ', 'NYSE')"
     )
 
     __table_args__ = (

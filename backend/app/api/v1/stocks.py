@@ -20,7 +20,7 @@ from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.deps import get_data_service
 from app.models.stock_sector import StockSector
-from app.constants.sectors import get_sector_etf, SECTOR_TO_ETF
+from app.constants.sectors import SECTOR_TO_ETF
 from app.schemas.base import StrictBaseModel
 from app.services.data_service import APIError
 from app.services.data_service import DataService
@@ -373,60 +373,52 @@ async def get_stock_info(
                 detail=f"Invalid symbol format: {symbol}"
             )
 
-        # Try cache first for sector info
-        async with session_factory() as session:
-            result = await session.execute(
-                select(StockSector).where(StockSector.symbol == symbol)
-            )
-            cached = result.scalar_one_or_none()
+        # Try cache first for complete stock info (name + exchange + sector)
+        try:
+            async with session_factory() as session:
+                result = await session.execute(
+                    select(StockSector).where(StockSector.symbol == symbol)
+                )
+                cached = result.scalar_one_or_none()
 
-        if cached:
-            # Still need name/exchange from provider
-            try:
-                info = await data_service.get_symbol_info(symbol)
+                if cached and cached.name is not None:
+                    # Full cache hit - no provider call needed
+                    return StockInfoResponse(
+                        symbol=symbol,
+                        name=cached.name,
+                        sector=cached.sector,
+                        sector_etf=cached.sector_etf,
+                        industry=cached.industry,
+                        exchange=cached.exchange,
+                    )
+
+                # Cache miss or partial hit - delegate to service which handles:
+                # 1. Checking cache for sector info
+                # 2. Calling provider if needed (get_symbol_info)
+                # 3. Storing complete data (name, exchange, sector, industry, sector_etf)
+                # 4. Handling race conditions with ON CONFLICT DO UPDATE
+                sector_etf_val = await data_service.get_sector_etf(symbol, session)
+                await session.commit()
+
+                # After get_sector_etf(), the complete data is in cache - refresh and re-query
+                session.expire_all()  # Clear identity map to fetch fresh data
+                result = await session.execute(
+                    select(StockSector).where(StockSector.symbol == symbol)
+                )
+                cached = result.scalar_one_or_none()
+
+                if not cached:
+                    # Should never happen, but handle gracefully
+                    raise RuntimeError(f"Cache write failed for {symbol}")
+
                 return StockInfoResponse(
                     symbol=symbol,
-                    name=info.get("name", symbol),
+                    name=cached.name or symbol,
                     sector=cached.sector,
                     sector_etf=cached.sector_etf,
                     industry=cached.industry,
-                    exchange=info.get("exchange"),
+                    exchange=cached.exchange,
                 )
-            except SymbolNotFoundError:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Symbol '{symbol}' not found"
-                )
-            except APIError:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Data provider unavailable"
-                )
-
-        # No cache - fetch everything and cache sector
-        try:
-            info = await data_service.get_symbol_info(symbol)
-            sector_etf_val = get_sector_etf(info.get("sector"))
-
-            # Cache sector mapping
-            async with session_factory() as session:
-                stock_sector = StockSector(
-                    symbol=symbol,
-                    sector=info.get("sector"),
-                    sector_etf=sector_etf_val,
-                    industry=info.get("industry"),
-                )
-                session.add(stock_sector)
-                await session.commit()
-
-            return StockInfoResponse(
-                symbol=symbol,
-                name=info.get("name", symbol),
-                sector=info.get("sector"),
-                sector_etf=sector_etf_val,
-                industry=info.get("industry"),
-                exchange=info.get("exchange"),
-            )
         except SymbolNotFoundError:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

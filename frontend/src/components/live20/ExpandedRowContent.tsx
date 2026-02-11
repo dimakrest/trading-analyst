@@ -44,6 +44,7 @@ export function ExpandedRowContent({ result }: ExpandedRowContentProps) {
   const [stockData, setStockData] = useState<StockPrice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const fetchData = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
@@ -122,7 +123,7 @@ export function ExpandedRowContent({ result }: ExpandedRowContentProps) {
     return () => {
       abortController.abort();
     };
-  }, [fetchData]);
+  }, [fetchData, retryCount]);
 
   // Loading state
   if (loading) {
@@ -148,10 +149,7 @@ export function ExpandedRowContent({ result }: ExpandedRowContentProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              const abortController = new AbortController();
-              fetchData(abortController.signal);
-            }}
+            onClick={() => setRetryCount((c) => c + 1)}
           >
             Retry
           </Button>

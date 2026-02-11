@@ -174,8 +174,11 @@ test.describe('Live20 Pricing Strategies', () => {
       // Click analyze
       await page.getByRole('button', { name: /analyze/i }).click();
 
-      // Wait for request to be made
-      await page.waitForTimeout(1000);
+      // Wait for request to be made - race with timeout fallback
+      await Promise.race([
+        page.waitForResponse((resp) => resp.url().includes('/api/v1/live-20/analyze')),
+        page.waitForSelector('table', { timeout: 30000 }).catch(() => {}),
+      ]);
 
       // Verify the strategy config was included in the request
       expect(capturedRequest).not.toBeNull();
@@ -201,8 +204,11 @@ test.describe('Live20 Pricing Strategies', () => {
       // Click analyze
       await page.getByRole('button', { name: /analyze/i }).click();
 
-      // Wait for request
-      await page.waitForTimeout(1000);
+      // Wait for request to be made
+      await Promise.race([
+        page.waitForResponse((resp) => resp.url().includes('/api/v1/live-20/analyze')),
+        page.waitForSelector('table', { timeout: 30000 }).catch(() => {}),
+      ]);
 
       // Verify default strategy config
       expect(capturedRequest).not.toBeNull();

@@ -59,13 +59,12 @@ test.describe('Live20 Sector Analysis', () => {
 
       // Click to expand
       await expandButton.click();
-      await page.waitForTimeout(500); // Wait for animation
 
-      // Verify expanded
-      await expect(expandButton).toHaveAttribute('aria-expanded', 'true');
-
-      // Verify expanded content visible
+      // Wait for expanded content to be visible (combines animation + state update)
       await expect(page.getByText('Sector Trend Analysis')).toBeVisible();
+
+      // Verify expanded attribute changed
+      await expect(expandButton).toHaveAttribute('aria-expanded', 'true');
     });
 
     test('can collapse expanded row', async ({ page }) => {
@@ -76,18 +75,18 @@ test.describe('Live20 Sector Analysis', () => {
 
       const expandButton = page.getByLabel('Expand details for AAPL');
       await expandButton.click();
-      await page.waitForTimeout(500);
 
-      // Verify expanded
+      // Wait for expanded content
       await expect(page.getByText('Sector Trend Analysis')).toBeVisible();
 
       // Click again to collapse
       await expandButton.click();
-      await page.waitForTimeout(500);
 
-      // Verify collapsed
-      await expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+      // Wait for content to be hidden (verifies collapse animation completed)
       await expect(page.getByText('Sector Trend Analysis')).not.toBeVisible();
+
+      // Verify collapsed attribute
+      await expect(expandButton).toHaveAttribute('aria-expanded', 'false');
     });
 
     test('can expand multiple rows simultaneously', async ({ page }) => {
@@ -101,15 +100,14 @@ test.describe('Live20 Sector Analysis', () => {
       const msftButton = page.getByLabel('Expand details for MSFT');
 
       await aaaplButton.click();
-      await page.waitForTimeout(1000); // Wait for first expansion
-      await msftButton.click();
-      await page.waitForTimeout(1000); // Wait for second expansion
-
-      // Both should be expanded
       await expect(aaaplButton).toHaveAttribute('aria-expanded', 'true');
+
+      await msftButton.click();
       await expect(msftButton).toHaveAttribute('aria-expanded', 'true');
 
       // Both should show content (multiple "Sector Trend Analysis" headers)
+      // Wait for at least 2 headers to be visible
+      await expect(page.getByText('Sector Trend Analysis')).toHaveCount(2);
       const headers = await page.getByText('Sector Trend Analysis').all();
       expect(headers.length).toBeGreaterThanOrEqual(2);
     });
@@ -124,15 +122,12 @@ test.describe('Live20 Sector Analysis', () => {
       // Expand row
       const expandButton = page.getByLabel('Expand details for AAPL');
       await expandButton.click();
-      await page.waitForTimeout(1000); // Wait for API + animation
 
       // Verify sector trend section exists
       await expect(page.getByText('Sector Trend Analysis')).toBeVisible();
 
-      // Wait a bit longer for data to load
-      await page.waitForTimeout(1000);
-
-      // Verify key indicators visible (use first() for elements that appear multiple times)
+      // Wait for data to load by checking for specific indicators
+      // These only appear after API response completes
       await expect(page.getByText('Sector ETF').first()).toBeVisible();
       await expect(page.getByText('MA20').first()).toBeVisible();
       await expect(page.getByText('MA50').first()).toBeVisible();
@@ -144,13 +139,12 @@ test.describe('Live20 Sector Analysis', () => {
       await page.waitForSelector('table', { timeout: 30000 });
 
       await page.getByLabel('Expand details for AAPL').click();
-      await page.waitForTimeout(1500);
+
+      // Wait for sector trend section to be visible
+      await expect(page.getByText('Sector Trend Analysis')).toBeVisible();
 
       // Should show sector ETF (e.g., XLK) - use first() since it appears in table AND expanded row
       await expect(page.getByText(/XLK|XLF|XLE/i).first()).toBeVisible();
-
-      // Verify expanded content has sector info
-      await expect(page.getByText('Sector Trend Analysis')).toBeVisible();
     });
 
     test('shows MA position badges and percentages', async ({ page }) => {
@@ -159,7 +153,6 @@ test.describe('Live20 Sector Analysis', () => {
       await page.waitForSelector('table', { timeout: 30000 });
 
       await page.getByLabel('Expand details for AAPL').click();
-      await page.waitForTimeout(1500);
 
       // Verify sector trend section is visible
       await expect(page.getByText('Sector Trend Analysis')).toBeVisible();
@@ -169,7 +162,7 @@ test.describe('Live20 Sector Analysis', () => {
       const expandedContent = page.locator('.bg-bg-tertiary.border-t');
       await expect(expandedContent.getByText(/above|below/i).first()).toBeVisible();
 
-      // Verify percentage formats are shown
+      // Verify percentage formats are shown (wait for API data to load)
       await expect(expandedContent.getByText(/[+-]\d+\.\d+%/).first()).toBeVisible();
     });
   });
@@ -181,13 +174,12 @@ test.describe('Live20 Sector Analysis', () => {
       await page.waitForSelector('table', { timeout: 30000 });
 
       await page.getByLabel('Expand details for AAPL').click();
-      await page.waitForTimeout(1000);
 
-      // Verify chart header
+      // Verify chart header is visible (indicates content loaded)
       await expect(page.getByText(/AAPL Chart \(3 Months\)/i)).toBeVisible();
 
       // Chart canvas should be present (TradingView chart)
-      // Note: Actual chart rendering is hard to test in E2E, verify container exists
+      // Wait for canvas to render after data loads
       const chartContainer = page.locator('canvas').first();
       await expect(chartContainer).toBeVisible();
     });
@@ -198,9 +190,8 @@ test.describe('Live20 Sector Analysis', () => {
       await page.waitForSelector('table', { timeout: 30000 });
 
       await page.getByLabel('Expand details for MSFT').click();
-      await page.waitForTimeout(1000);
 
-      // Verify MSFT chart header (not AAPL)
+      // Wait for MSFT chart header to be visible (not AAPL)
       await expect(page.getByText(/MSFT Chart \(3 Months\)/i)).toBeVisible();
     });
   });
@@ -221,9 +212,8 @@ test.describe('Live20 Sector Analysis', () => {
       // Expand row
       const expandButton = page.getByLabel('Expand details for AAPL');
       await expandButton.click();
-      await page.waitForTimeout(1000);
 
-      // Verify sector and chart sections visible on mobile
+      // Wait for sector and chart sections to be visible on mobile
       await expect(page.getByText('Sector Trend Analysis')).toBeVisible();
       await expect(page.getByText(/AAPL Chart/i)).toBeVisible();
     });
