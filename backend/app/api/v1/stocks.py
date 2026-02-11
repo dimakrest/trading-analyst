@@ -11,15 +11,24 @@ from fastapi import HTTPException
 from fastapi import Query
 from fastapi import status
 from pydantic import Field
+from typing import Literal
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
+from app.core.database import get_session_factory
 from app.core.deps import get_data_service
+from app.models.stock_sector import StockSector
+from app.constants.sectors import get_sector_etf, SECTOR_TO_ETF
 from app.schemas.base import StrictBaseModel
 from app.services.data_service import APIError
 from app.services.data_service import DataService
 from app.services.data_service import DataValidationError
 from app.services.data_service import SymbolNotFoundError
 from app.utils.validation import is_valid_symbol, normalize_symbol
+from app.indicators.ma_analysis import analyze_ma_distance, PricePosition
+from app.indicators.trend import detect_trend, TrendDirection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -293,4 +302,342 @@ async def get_stock_prices(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while fetching stock data",
+        )
+
+
+class StockInfoResponse(StrictBaseModel):
+    """Stock info response with sector data."""
+
+    symbol: str = Field(..., description="Stock symbol")
+    name: str = Field(..., description="Company name")
+    sector: str | None = Field(None, description="Yahoo Finance sector name (e.g., 'Technology')")
+    sector_etf: str | None = Field(None, description="Mapped SPDR ETF symbol (e.g., 'XLK')")
+    industry: str | None = Field(None, description="Industry classification")
+    exchange: str | None = Field(None, description="Stock exchange")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "symbol": "AAPL",
+                    "name": "Apple Inc.",
+                    "sector": "Technology",
+                    "sector_etf": "XLK",
+                    "industry": "Consumer Electronics",
+                    "exchange": "NASDAQ"
+                }
+            ]
+        }
+    }
+
+
+@router.get(
+    "/{symbol}/info",
+    response_model=StockInfoResponse,
+    summary="Get Stock Metadata",
+    description="Returns stock metadata including sector ETF mapping. Uses DB cache for sector info.",
+    operation_id="get_stock_info",
+    responses={
+        400: {"description": "Invalid symbol format"},
+        404: {"description": "Symbol not found"},
+        503: {"description": "Data provider unavailable"},
+    },
+)
+async def get_stock_info(
+    symbol: str,
+    data_service: DataService = Depends(get_data_service),
+    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory),
+) -> StockInfoResponse:
+    """Get stock metadata including sector information.
+
+    Reads from stock_sectors cache when available.
+    Falls back to Yahoo Finance on cache miss and caches the result.
+
+    Args:
+        symbol: Stock symbol (e.g., AAPL, MSFT)
+        data_service: Data service for fetching stock info
+        session_factory: Database session factory
+
+    Returns:
+        StockInfoResponse: Stock metadata with sector information
+
+    Raises:
+        HTTPException: If symbol is invalid or data retrieval fails
+    """
+    try:
+        # Validate and clean symbol
+        symbol = normalize_symbol(symbol)
+        if not is_valid_symbol(symbol):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid symbol format: {symbol}"
+            )
+
+        # Try cache first for sector info
+        async with session_factory() as session:
+            result = await session.execute(
+                select(StockSector).where(StockSector.symbol == symbol)
+            )
+            cached = result.scalar_one_or_none()
+
+        if cached:
+            # Still need name/exchange from provider
+            try:
+                info = await data_service.get_symbol_info(symbol)
+                return StockInfoResponse(
+                    symbol=symbol,
+                    name=info.get("name", symbol),
+                    sector=cached.sector,
+                    sector_etf=cached.sector_etf,
+                    industry=cached.industry,
+                    exchange=info.get("exchange"),
+                )
+            except SymbolNotFoundError:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Symbol '{symbol}' not found"
+                )
+            except APIError:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Data provider unavailable"
+                )
+
+        # No cache - fetch everything and cache sector
+        try:
+            info = await data_service.get_symbol_info(symbol)
+            sector_etf_val = get_sector_etf(info.get("sector"))
+
+            # Cache sector mapping
+            async with session_factory() as session:
+                stock_sector = StockSector(
+                    symbol=symbol,
+                    sector=info.get("sector"),
+                    sector_etf=sector_etf_val,
+                    industry=info.get("industry"),
+                )
+                session.add(stock_sector)
+                await session.commit()
+
+            return StockInfoResponse(
+                symbol=symbol,
+                name=info.get("name", symbol),
+                sector=info.get("sector"),
+                sector_etf=sector_etf_val,
+                industry=info.get("industry"),
+                exchange=info.get("exchange"),
+            )
+        except SymbolNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Symbol '{symbol}' not found"
+            )
+        except APIError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Data provider unavailable"
+            )
+    except HTTPException:
+        # Re-raise HTTPException as-is
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error fetching stock info for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while fetching stock info",
+        )
+
+
+class SectorTrendResponse(StrictBaseModel):
+    """Sector trend analysis response."""
+
+    sector_etf: str = Field(..., description="Sector ETF symbol (e.g., 'XLK', 'XLE')")
+    trend_direction: Literal["up", "down", "sideways"] = Field(
+        ..., description="Trend direction over 20-day period"
+    )
+    ma20_position: Literal["above", "below"] = Field(
+        ..., description="Current price position relative to MA20"
+    )
+    ma20_distance_pct: float = Field(
+        ..., description="Percentage distance from MA20 (positive = above, negative = below)"
+    )
+    ma50_position: Literal["above", "below"] = Field(
+        ..., description="Current price position relative to MA50"
+    )
+    ma50_distance_pct: float = Field(
+        ..., description="Percentage distance from MA50 (positive = above, negative = below)"
+    )
+    price_change_5d_pct: float = Field(..., description="5-day price change percentage")
+    price_change_20d_pct: float = Field(..., description="20-day price change percentage")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "sector_etf": "XLK",
+                    "trend_direction": "up",
+                    "ma20_position": "above",
+                    "ma20_distance_pct": 2.5,
+                    "ma50_position": "above",
+                    "ma50_distance_pct": 5.2,
+                    "price_change_5d_pct": 1.8,
+                    "price_change_20d_pct": 4.3,
+                }
+            ]
+        }
+    }
+
+
+@router.get(
+    "/{symbol}/sector-trend",
+    response_model=SectorTrendResponse,
+    summary="Get Sector Trend Analysis",
+    description=(
+        "Returns trend analysis for a sector ETF including MA positions and price changes. "
+        "Fetches 60 days of price data which is cached in stock_prices table. "
+        "Multiple stocks in the same sector share one cached price fetch."
+    ),
+    operation_id="get_sector_trend",
+    responses={
+        400: {"description": "Invalid sector ETF symbol"},
+        404: {"description": "Symbol not found"},
+        503: {"description": "Data provider unavailable"},
+    },
+)
+async def get_sector_trend(
+    symbol: str,
+    data_service: DataService = Depends(get_data_service),
+) -> SectorTrendResponse:
+    """Get sector trend analysis for a sector ETF.
+
+    Fetches 60 days of price data via DataService (which caches in stock_prices).
+    If multiple stocks share the same sector, the ETF prices are fetched once
+    and served from cache on subsequent requests.
+
+    Uses existing indicator modules for consistency:
+    - analyze_ma_distance() for MA20/MA50 position and distance
+    - detect_trend() for trend direction
+
+    Args:
+        symbol: Sector ETF symbol (must be in SECTOR_TO_ETF values)
+        data_service: Data service for fetching price data
+
+    Returns:
+        SectorTrendResponse: Sector trend analysis data
+
+    Raises:
+        HTTPException: If symbol is invalid or data retrieval fails
+    """
+    try:
+        # Validate and clean symbol
+        symbol = normalize_symbol(symbol)
+        if not is_valid_symbol(symbol):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid symbol format: {symbol}"
+            )
+
+        # Validate it's a known sector ETF
+        valid_sector_etfs = set(SECTOR_TO_ETF.values())
+        if symbol not in valid_sector_etfs:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Symbol '{symbol}' is not a valid sector ETF. "
+                       f"Valid sector ETFs: {', '.join(sorted(valid_sector_etfs))}"
+            )
+
+        # Fetch 60 days of price data (auto-cached in stock_prices)
+        end_date = datetime.now(UTC)
+        start_date = end_date - timedelta(days=60)
+
+        logger.info(f"Fetching sector trend data for {symbol}")
+        price_records = await data_service.get_price_data(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            interval="1d",
+            force_refresh=False,  # Use cache for efficiency
+        )
+
+        if len(price_records) < 25:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient price data for {symbol}. Need at least 25 days, got {len(price_records)}"
+            )
+
+        # Extract closing prices
+        closes = [float(record.close_price) for record in price_records]
+
+        # Calculate MA20 analysis
+        ma20_analysis = analyze_ma_distance(closes, period=20)
+
+        # Calculate MA50 analysis
+        ma50_analysis = analyze_ma_distance(closes, period=50)
+
+        # Detect 20-day trend
+        trend = detect_trend(closes, period=20, threshold_pct=1.0)
+
+        # Calculate price changes
+        if len(closes) >= 6:
+            price_5d_ago = closes[-6]  # -6 because -1 is current, -6 is 5 days ago
+            price_change_5d_pct = ((closes[-1] - price_5d_ago) / price_5d_ago) * 100
+        else:
+            price_change_5d_pct = 0.0
+
+        if len(closes) >= 21:
+            price_20d_ago = closes[-21]  # -21 because -1 is current, -21 is 20 days ago
+            price_change_20d_pct = ((closes[-1] - price_20d_ago) / price_20d_ago) * 100
+        else:
+            price_change_20d_pct = 0.0
+
+        # Map indicator results to Literal types
+        # TrendDirection -> "up"/"down"/"sideways"
+        if trend == TrendDirection.BULLISH:
+            trend_direction = "up"
+        elif trend == TrendDirection.BEARISH:
+            trend_direction = "down"
+        else:
+            trend_direction = "sideways"
+
+        # PricePosition -> "above"/"below" (AT is treated as "above" for simplicity)
+        ma20_position = "above" if ma20_analysis.price_position in (PricePosition.ABOVE, PricePosition.AT) else "below"
+        ma50_position = "above" if ma50_analysis.price_position in (PricePosition.ABOVE, PricePosition.AT) else "below"
+
+        return SectorTrendResponse(
+            sector_etf=symbol,
+            trend_direction=trend_direction,
+            ma20_position=ma20_position,
+            ma20_distance_pct=round(ma20_analysis.distance_pct, 2),
+            ma50_position=ma50_position,
+            ma50_distance_pct=round(ma50_analysis.distance_pct, 2),
+            price_change_5d_pct=round(price_change_5d_pct, 2),
+            price_change_20d_pct=round(price_change_20d_pct, 2),
+        )
+
+    except HTTPException:
+        # Re-raise HTTPException as-is
+        raise
+    except SymbolNotFoundError:
+        logger.warning(f"Sector ETF not found: {symbol}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Sector ETF '{symbol}' not found"
+        )
+    except DataValidationError as e:
+        logger.warning(f"Data validation error for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except APIError as e:
+        logger.error(f"Data provider error for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Data provider unavailable"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error fetching sector trend for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while fetching sector trend",
         )

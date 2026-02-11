@@ -109,6 +109,15 @@ class Live20Service:
             calculator = PricingCalculator(pricing_config)
             pricing_result = calculator.calculate(direction, closes, highs, lows)
 
+            # Lookup sector ETF (cheap DB cache hit, non-blocking)
+            sector_etf = None
+            try:
+                async with self.session_factory() as session:
+                    sector_etf = await data_service.get_sector_etf(symbol, session)
+            except Exception as e:
+                # Non-critical - don't fail analysis if sector lookup fails
+                logger.warning(f"Failed to fetch sector ETF for {symbol}: {e}")
+
             # Create recommendation with pricing
             recommendation = Recommendation(
                 stock=symbol,
@@ -165,6 +174,7 @@ class Live20Service:
                     or (direction == Live20Direction.SHORT and c.aligned_for_short)
                 ),
                 live20_direction=direction,
+                live20_sector_etf=sector_etf,
             )
 
             # Save to database using separate short-lived session

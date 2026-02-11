@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { List } from 'lucide-react';
 import { useStockData } from '../../hooks/useStockData';
+import { useStockInfo } from '../../hooks/useStockInfo';
 import { useStockSearch } from '../../hooks/useStockSearch';
 import { useStockLists } from '../../hooks/useStockLists';
 import { SearchBar } from '../../components/molecules/SearchBar/SearchBar';
@@ -43,6 +44,7 @@ export const StockAnalysis = () => {
   const { symbol, setSymbol, handleSearch } = useStockSearch(urlSymbol);
   const [interval, setInterval] = useState<Interval>('1d');
   const { data, loading, error } = useStockData(symbol, interval);
+  const { stockInfo } = useStockInfo(symbol);
 
   // Stock lists state
   const { lists, isLoading: listsLoading } = useStockLists();
@@ -167,6 +169,7 @@ export const StockAnalysis = () => {
               changePercent={data.price_change_percent}
               direction={data.price_change >= 0 ? 'bullish' : 'bearish'}
               stats={getStatsFromData(data)}
+              sectorEtf={stockInfo?.sector_etf}
             />
 
             {/* Chart section */}

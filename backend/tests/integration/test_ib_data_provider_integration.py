@@ -73,8 +73,8 @@ class TestIBDataProviderIntegration:
         finally:
             await provider.disconnect()
 
-    async def test_validate_symbol(self) -> None:
-        """Test symbol validation and market data retrieval from IB.
+    async def test_get_symbol_info(self) -> None:
+        """Test symbol info retrieval and market data from IB.
 
         This test verifies:
         - Connection to IB Gateway succeeds
@@ -90,8 +90,8 @@ class TestIBDataProviderIntegration:
         try:
             await provider.connect()
 
-            # Validate known symbol
-            info = await provider.validate_symbol("AAPL")
+            # Get info for known symbol
+            info = await provider.get_symbol_info("AAPL")
 
             # Verify symbol info structure
             assert info is not None

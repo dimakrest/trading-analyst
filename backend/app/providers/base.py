@@ -109,15 +109,18 @@ class MarketDataProviderInterface(ABC):
             raise DataValidationError("Volume cannot be negative")
 
     @abstractmethod
-    async def validate_symbol(self, symbol: str) -> SymbolInfo:
+    async def get_symbol_info(self, symbol: str) -> SymbolInfo:
         """
-        Validate a stock symbol and retrieve basic information.
+        Get comprehensive information about a stock symbol.
+
+        Fetches symbol metadata including name, sector, industry, and exchange.
+        Raises SymbolNotFoundError for invalid symbols (validation is a side effect).
 
         Args:
-            symbol: Stock symbol to validate (e.g., 'AAPL')
+            symbol: Stock symbol to query (e.g., 'AAPL')
 
         Returns:
-            SymbolInfo with basic stock information
+            SymbolInfo with stock metadata
 
         Raises:
             SymbolNotFoundError: If symbol doesn't exist

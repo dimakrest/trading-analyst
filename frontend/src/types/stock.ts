@@ -29,6 +29,15 @@ export interface IndicatorsResponse {
   indicators: string[];
 }
 
+export interface StockInfo {
+  symbol: string;
+  name: string;
+  sector: string | null;
+  sector_etf: string | null;
+  industry: string | null;
+  exchange: string | null;
+}
+
 export interface StockData {
   symbol: string;
   company_name: string;

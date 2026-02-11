@@ -146,12 +146,12 @@ async def get_market_data_provider() -> MarketDataProviderInterface:
 
     Example:
         ```python
-        @router.get("/stocks/{symbol}/validate")
-        async def validate_symbol(
+        @router.get("/stocks/{symbol}/info")
+        async def get_symbol_info(
             symbol: str,
             provider: MarketDataProviderInterface = Depends(get_market_data_provider)
         ):
-            symbol_info = await provider.validate_symbol(symbol)
+            symbol_info = await provider.get_symbol_info(symbol)
             return symbol_info
         ```
     """

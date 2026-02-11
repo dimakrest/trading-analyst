@@ -31,6 +31,7 @@ const createMockResult = (id: number, stock: string, direction: 'LONG' | 'SHORT'
   recommendation: direction,
   confidence_score: 75,
   entry_price: 100,
+  sector_etf: 'XLK',
   trend_direction: 'UP',
   trend_aligned: true,
   ma20_distance_pct: -2,

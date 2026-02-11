@@ -137,10 +137,10 @@ class TestDataService:
         # Provider should default to Yahoo
         assert service.provider.provider_name == "yahoo_finance"
 
-    async def test_validate_symbol_success(self, data_service, mock_provider):
-        """Test successful symbol validation."""
+    async def test_get_symbol_info_success(self, data_service, mock_provider):
+        """Test successful symbol info retrieval."""
         # Setup mock provider response
-        mock_provider.validate_symbol.return_value = SymbolInfo(
+        mock_provider.get_symbol_info.return_value = SymbolInfo(
             symbol="AAPL",
             name="Apple Inc.",
             currency="USD",
@@ -150,8 +150,8 @@ class TestDataService:
             industry="Consumer Electronics",
         )
 
-        # Test validation
-        result = await data_service.validate_symbol("AAPL")
+        # Test symbol info retrieval
+        result = await data_service.get_symbol_info("AAPL")
 
         # Verify result (converted to dict by DataService)
         assert result["symbol"] == "AAPL"
@@ -160,29 +160,29 @@ class TestDataService:
         assert result["exchange"] == "NASDAQ"
 
         # Verify provider was called
-        mock_provider.validate_symbol.assert_called_once_with("AAPL")
+        mock_provider.get_symbol_info.assert_called_once_with("AAPL")
 
-    async def test_validate_symbol_not_found(self, data_service, mock_provider):
-        """Test symbol validation with invalid symbol."""
+    async def test_get_symbol_info_not_found(self, data_service, mock_provider):
+        """Test symbol info retrieval with invalid symbol."""
         # Setup mock to raise SymbolNotFoundError
-        mock_provider.validate_symbol.side_effect = SymbolNotFoundError(
+        mock_provider.get_symbol_info.side_effect = SymbolNotFoundError(
             "Symbol 'INVALID' not found"
         )
 
-        # Test validation
+        # Test symbol info retrieval
         with pytest.raises(SymbolNotFoundError) as exc_info:
-            await data_service.validate_symbol("INVALID")
+            await data_service.get_symbol_info("INVALID")
 
         assert "Symbol 'INVALID' not found" in str(exc_info.value)
 
-    async def test_validate_symbol_api_error(self, data_service, mock_provider):
-        """Test symbol validation with API error."""
+    async def test_get_symbol_info_api_error(self, data_service, mock_provider):
+        """Test symbol info retrieval with API error."""
         # Setup mock to raise APIError
-        mock_provider.validate_symbol.side_effect = APIError("API Error")
+        mock_provider.get_symbol_info.side_effect = APIError("API Error")
 
-        # Test validation
+        # Test symbol info retrieval
         with pytest.raises(APIError) as exc_info:
-            await data_service.validate_symbol("AAPL")
+            await data_service.get_symbol_info("AAPL")
 
         assert "API Error" in str(exc_info.value)
 
@@ -218,7 +218,7 @@ class TestDataService:
         # Create service without session factory (uses real Yahoo provider)
         config = DataServiceConfig(max_retries=1, validate_data=True)
         mock_provider = AsyncMock(spec=MockMarketDataProvider)
-        mock_provider.validate_symbol.return_value = SymbolInfo(
+        mock_provider.get_symbol_info.return_value = SymbolInfo(
             symbol="AAPL",
             name="Apple Inc.",
             currency="USD",
@@ -228,7 +228,7 @@ class TestDataService:
         service = DataService(session_factory=None, provider=mock_provider, config=config)
 
         # API operations should work fine
-        result = await service.validate_symbol("AAPL")
+        result = await service.get_symbol_info("AAPL")
         assert result["symbol"] == "AAPL"
 
 
@@ -314,10 +314,10 @@ class TestDataServiceIntegration:
         return DataService(session_factory=None, config=config)
 
     @pytest.mark.skip(reason="Requires internet access and valid Yahoo Finance API")
-    async def test_real_symbol_validation(self, real_data_service):
-        """Test symbol validation with real Yahoo Finance API."""
+    async def test_real_symbol_info_retrieval(self, real_data_service):
+        """Test symbol info retrieval with real Yahoo Finance API."""
         # Test with well-known symbol
-        result = await real_data_service.validate_symbol("AAPL")
+        result = await real_data_service.get_symbol_info("AAPL")
 
         assert result["symbol"] == "AAPL"
         assert result["name"] is not None

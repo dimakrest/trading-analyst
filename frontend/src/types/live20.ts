@@ -40,6 +40,7 @@ export interface Live20Result {
   direction: Live20Direction | null;
   entry_strategy: EntryStrategy | null;
   exit_strategy: ExitStrategy | null;
+  sector_etf: string | null;
 }
 
 /**

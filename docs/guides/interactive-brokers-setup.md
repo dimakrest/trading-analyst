@@ -177,7 +177,7 @@ Tests are in `backend/tests/integration/` and skipped by default (require live I
 
 **Data Provider** (`test_ib_data_provider_integration.py`):
 - `test_fetch_15min_data_for_aapl` - Fetches intraday data
-- `test_validate_symbol` - Validates symbol exists
+- `test_get_symbol_info` - Retrieves symbol information and validates it exists
 
 **Broker** (`test_ib_broker_integration.py`):
 - `test_connection` - Verifies connection

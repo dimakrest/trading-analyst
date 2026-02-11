@@ -37,8 +37,8 @@ class MockMarketDataProvider(MarketDataProviderInterface):
     def supported_intervals(self) -> list[str]:
         return ["1m", "5m", "15m", "1h", "1d", "1wk"]
 
-    async def validate_symbol(self, symbol: str) -> SymbolInfo:
-        """Return mock symbol info."""
+    async def get_symbol_info(self, symbol: str) -> SymbolInfo:
+        """Get mock symbol information for testing."""
         return SymbolInfo(
             symbol=symbol.upper(),
             name=f"{symbol.upper()} Corporation",

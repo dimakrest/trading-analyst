@@ -137,14 +137,31 @@ class DataService:
                 "Initialize DataService with a session_factory to use persistence features."
             )
 
-    async def validate_symbol(self, symbol: str) -> dict[str, Any]:
+    async def get_symbol_info(self, symbol: str) -> dict[str, Any]:
         """
-        Validate stock symbol via provider.
+        Get comprehensive information about a stock symbol.
 
-        This is a pass-through to the provider, maintaining backward
-        compatibility with existing code.
+        Fetches symbol metadata including name, sector, industry, and exchange
+        from the configured provider.
+
+        Args:
+            symbol: Stock symbol to query (e.g., 'AAPL')
+
+        Returns:
+            Dictionary with symbol information:
+                - symbol: Normalized stock symbol
+                - name: Company name
+                - currency: Trading currency
+                - exchange: Stock exchange
+                - market_cap: Market capitalization (optional)
+                - sector: Business sector (optional)
+                - industry: Industry classification (optional)
+
+        Raises:
+            SymbolNotFoundError: If symbol doesn't exist
+            APIError: If provider API fails
         """
-        symbol_info = await self.provider.validate_symbol(symbol)
+        symbol_info = await self.provider.get_symbol_info(symbol)
 
         # Convert to dict for backward compatibility
         return {
@@ -156,6 +173,56 @@ class DataService:
             "sector": symbol_info.sector,
             "industry": symbol_info.industry,
         }
+
+    async def get_sector_etf(self, symbol: str, session: AsyncSession) -> str | None:
+        """Get sector ETF for a symbol, using DB cache.
+
+        Checks stock_sectors table first. On cache miss, fetches from Yahoo
+        via get_symbol_info(), stores in cache, and returns.
+
+        This is a non-critical operation - returns None on any failure
+        to avoid blocking the main flow.
+
+        Args:
+            symbol: Stock symbol (e.g., 'AAPL')
+            session: Active database session
+
+        Returns:
+            SPDR ETF symbol (e.g., 'XLK') or None if not mapped
+        """
+        from sqlalchemy import select
+        from app.models.stock_sector import StockSector
+        from app.constants.sectors import get_sector_etf as map_sector_to_etf
+
+        symbol = symbol.upper().strip()
+
+        # Check cache
+        result = await session.execute(
+            select(StockSector).where(StockSector.symbol == symbol)
+        )
+        cached = result.scalar_one_or_none()
+        if cached:
+            return cached.sector_etf
+
+        # Cache miss - fetch from provider
+        try:
+            info = await self.provider.get_symbol_info(symbol)
+            sector_etf = map_sector_to_etf(info.sector)
+
+            # Store in cache
+            stock_sector = StockSector(
+                symbol=symbol,
+                sector=info.sector,
+                sector_etf=sector_etf,
+                industry=info.industry,
+            )
+            session.add(stock_sector)
+            await session.flush()
+
+            return sector_etf
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch sector info for {symbol}: {e}")
+            return None
 
     async def get_price_data(
         self,
