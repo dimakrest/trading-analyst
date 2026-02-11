@@ -20,7 +20,7 @@ from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.deps import get_data_service
 from app.models.stock_sector import StockSector
-from app.constants.sectors import SECTOR_TO_ETF
+from app.constants.sectors import VALID_SECTOR_ETFS
 from app.schemas.base import StrictBaseModel
 from app.services.data_service import APIError
 from app.services.data_service import DataService
@@ -116,9 +116,6 @@ class StockDataResponse(StrictBaseModel):
             ]
         }
     }
-
-
-# Mock function removed - using real Yahoo Finance data
 
 
 @router.get(
@@ -397,7 +394,7 @@ async def get_stock_info(
                 # 2. Calling provider if needed (get_symbol_info)
                 # 3. Storing complete data (name, exchange, sector, industry, sector_etf)
                 # 4. Handling race conditions with ON CONFLICT DO UPDATE
-                sector_etf_val = await data_service.get_sector_etf(symbol, session)
+                await data_service.get_sector_etf(symbol, session)
                 await session.commit()
 
                 # After get_sector_etf(), the complete data is in cache - refresh and re-query
@@ -530,12 +527,11 @@ async def get_sector_trend(
             )
 
         # Validate it's a known sector ETF
-        valid_sector_etfs = set(SECTOR_TO_ETF.values())
-        if symbol not in valid_sector_etfs:
+        if symbol not in VALID_SECTOR_ETFS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Symbol '{symbol}' is not a valid sector ETF. "
-                       f"Valid sector ETFs: {', '.join(sorted(valid_sector_etfs))}"
+                       f"Valid sector ETFs: {', '.join(sorted(VALID_SECTOR_ETFS))}"
             )
 
         # Fetch 60 days of price data (auto-cached in stock_prices)
