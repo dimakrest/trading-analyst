@@ -95,7 +95,7 @@ test.describe('Live20 Pricing Strategies', () => {
   test.describe('Results Table Columns', () => {
     // These tests require analysis results which need real backend + market data
 
-    test('table headers include Stop and Risk columns when results displayed', async ({
+    test('table headers include Sector and core columns when results displayed', async ({
       page,
     }) => {
       // This test validates the table structure after analysis completes
@@ -111,16 +111,16 @@ test.describe('Live20 Pricing Strategies', () => {
       // The table appears within the results card after analysis completes
       await page.waitForSelector('table', { timeout: 30000 });
 
-      // Verify Stop column header exists (using th element selector)
+      // Verify new Sector column header exists (added in ticket #007)
       // ShadCN table uses <th> elements which may not always get columnheader role
       const tableHeader = page.locator('thead');
-      await expect(tableHeader.getByText('Stop', { exact: true })).toBeVisible();
+      await expect(tableHeader.getByText('Sector', { exact: true })).toBeVisible();
 
-      // Verify Risk column header exists
-      await expect(tableHeader.getByText('Risk', { exact: true })).toBeVisible();
-
-      // Verify Price column exists (existing functionality)
+      // Verify Price column exists (includes ATR info after ticket #006)
       await expect(tableHeader.getByText('Price', { exact: true })).toBeVisible();
+
+      // Verify Trend column exists
+      await expect(tableHeader.getByText('Trend', { exact: true })).toBeVisible();
     });
 
     test('table headers include all expected columns', async ({ page }) => {
@@ -136,15 +136,12 @@ test.describe('Live20 Pricing Strategies', () => {
       const tableHeader = page.locator('thead');
       const expectedHeaders = [
         'Symbol',
+        'Sector',
         'Direction',
-        'Score',
         'Price',
-        'Stop',
-        'Risk',
         'Trend',
         'MA20',
         'Candle',
-        'Volume',
         'CCI',
       ];
 
