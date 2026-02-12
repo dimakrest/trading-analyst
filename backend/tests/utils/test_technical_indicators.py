@@ -168,3 +168,24 @@ class TestCalculateAtrPercentage:
             highs=[0.0] * 20, lows=[0.0] * 20, closes=[0.0] * 20
         )
         assert result is None
+
+    def test_price_override_parameter(self):
+        """Test that price_override changes the denominator."""
+        closes = [100.0] * 20
+        highs = [101.0] * 20
+        lows = [99.0] * 20
+
+        # Default: uses closes[-1] = 100.0
+        result_default = calculate_atr_percentage(highs, lows, closes)
+        assert result_default is not None
+        assert result_default == pytest.approx(2.0, rel=0.1)  # $2 / $100 = 2%
+
+        # Override: uses custom price = 102.0 (e.g., entry price)
+        result_override = calculate_atr_percentage(
+            highs, lows, closes, price_override=102.0
+        )
+        assert result_override is not None
+        assert result_override == pytest.approx(1.96, rel=0.1)  # $2 / $102 ≈ 1.96%
+
+        # Results should differ when override is used
+        assert result_default != result_override

@@ -50,17 +50,19 @@ def calculate_atr_percentage(
     lows: list[float],
     closes: list[float],
     period: int = 14,
+    price_override: float | None = None,
 ) -> float | None:
-    """Calculate latest ATR as percentage of current market price.
+    """Calculate latest ATR as percentage of price.
 
     Standalone volatility metric independent of any pricing/entry strategy.
-    Uses the latest closing price as denominator for consistent results.
+    Uses the latest closing price as denominator by default, or a custom price.
 
     Args:
         highs: List of high prices (oldest to newest)
         lows: List of low prices (oldest to newest)
         closes: List of closing prices (oldest to newest)
         period: ATR period (default 14)
+        price_override: Optional price to use as denominator (defaults to closes[-1])
 
     Returns:
         Latest ATR as percentage (e.g., 4.25 for 4.25%), or None if insufficient data
@@ -68,8 +70,8 @@ def calculate_atr_percentage(
     if len(closes) < period + 1:
         return None
 
-    current_price = closes[-1]
-    if current_price <= 0:
+    denominator = price_override if price_override is not None else closes[-1]
+    if denominator <= 0:
         return None
 
     df = pd.DataFrame({"High": highs, "Low": lows, "Close": closes})
@@ -79,4 +81,4 @@ def calculate_atr_percentage(
     if pd.isna(latest_atr_dollars):
         return None
 
-    return (float(latest_atr_dollars) / current_price) * 100
+    return (float(latest_atr_dollars) / denominator) * 100
