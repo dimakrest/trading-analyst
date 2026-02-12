@@ -175,7 +175,7 @@ class TestStockInfoCache:
 
         app.dependency_overrides.pop(get_data_service, None)
 
-    async def test_concurrent_cache_miss_no_integrity_error(self, app, db_session):
+    async def test_concurrent_cache_miss_no_integrity_error(self, app, test_session_factory):
         """Two concurrent cache-miss requests for same symbol don't crash.
 
         Verifies Finding 3 fix: ON CONFLICT DO NOTHING makes the insert
@@ -195,7 +195,9 @@ class TestStockInfoCache:
         })
 
         from app.core.deps import get_data_service
+        from app.core.database import get_session_factory
         app.dependency_overrides[get_data_service] = lambda: mock_ds
+        app.dependency_overrides[get_session_factory] = lambda: test_session_factory
 
         async def make_request():
             async with AsyncClient(app=app, base_url="http://testserver") as client:
@@ -211,16 +213,18 @@ class TestStockInfoCache:
 
         # Only one row in DB
         from sqlalchemy import select, func
-        result = await db_session.execute(
-            select(func.count()).select_from(StockSector).where(
-                StockSector.symbol == "GOOG"
+        async with test_session_factory() as session:
+            result = await session.execute(
+                select(func.count()).select_from(StockSector).where(
+                    StockSector.symbol == "GOOG"
+                )
             )
-        )
-        assert result.scalar() == 1
+            assert result.scalar() == 1
 
         app.dependency_overrides.pop(get_data_service, None)
+        app.dependency_overrides.pop(get_session_factory, None)
 
-    async def test_data_service_get_sector_etf_stores_name_exchange(self, db_session, test_session_factory):
+    async def test_data_service_get_sector_etf_stores_name_exchange(self, db_session, rollback_session_factory):
         """DataService.get_sector_etf() stores name and exchange on cache miss."""
         mock_provider = AsyncMock()
         mock_provider.get_symbol_info.return_value = SymbolInfo(
@@ -234,11 +238,11 @@ class TestStockInfoCache:
         )
 
         data_service = DataService(
-            session_factory=test_session_factory,
+            session_factory=rollback_session_factory,
             provider=mock_provider,
         )
 
-        async with test_session_factory() as session:
+        async with rollback_session_factory() as session:
             sector_etf = await data_service.get_sector_etf("NVDA", session)
             await session.commit()
 
@@ -246,7 +250,7 @@ class TestStockInfoCache:
 
         # Verify DB row has name and exchange
         from sqlalchemy import select
-        async with test_session_factory() as session:
+        async with rollback_session_factory() as session:
             result = await session.execute(
                 select(StockSector).where(StockSector.symbol == "NVDA")
             )

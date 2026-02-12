@@ -34,6 +34,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
 from app.core.config import Settings
 from app.core.config import get_settings
 from app.core.database import Base
@@ -100,8 +101,9 @@ async def test_engine(test_settings: Settings):
     engine = create_async_engine(
         test_settings.database_url,
         echo=test_settings.database_echo,
-        pool_size=5,  # Allow concurrent operations for async tests
+        pool_size=5,
         max_overflow=10,
+        pool_timeout=10,  # Prevent indefinite wait for pool connections
         connect_args={
             "server_settings": {
                 "application_name": f"{test_settings.app_name}_test",
@@ -109,15 +111,18 @@ async def test_engine(test_settings: Settings):
         },
     )
 
-    # Create all tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    yield engine
+    # One-time cleanup at session start (safe - no concurrent tests yet)
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, "
+            "live20_runs, stock_prices, ib_orders, recommendations, stock_lists "
+            "RESTART IDENTITY CASCADE"
+        ))
 
-    # Cleanup - just dispose the engine pool.
-    # Avoid drop_all here: it deadlocks against leaked sessions from failed tests.
-    # create_all (above) is idempotent and will handle schema on next run.
+    yield engine
     await engine.dispose()
 
 
@@ -140,67 +145,60 @@ def test_session_factory(test_engine):
     )
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def db_session(request, test_session_factory) -> AsyncGenerator[AsyncSession, None]:
-    """Create isolated database session for each test.
+@pytest_asyncio.fixture
+async def db_connection(test_engine):
+    """Per-test connection with outer transaction for rollback isolation.
 
-    This fixture provides a clean database session for each test
-    and ensures proper cleanup after the test completes.
-
-    For synchronous tests, this fixture yields None and skips database setup.
-
-    Args:
-        request: Pytest request object to check if test is async
-        test_session_factory: Test session factory
-
-    Yields:
-        AsyncSession: Isolated database session for async tests, None for sync tests
+    The outer transaction is rolled back after each test, undoing all changes.
+    Pulled in automatically by db_session and override_get_session_factory.
+    Tests using test_session_factory directly (with their own TRUNCATE fixtures)
+    should NOT request this fixture to avoid AccessExclusiveLock conflicts.
     """
-    import inspect
-    from sqlalchemy import text
-
-    # Check if the test is async - if not, skip database setup
-    if not inspect.iscoroutinefunction(request.function):
-        yield None
-        return
-
-    async with test_session_factory() as session:
-        # Clean database before test
+    async with test_engine.connect() as connection:
+        transaction = await connection.begin()
         try:
-            await session.execute(
-                text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, stock_lists RESTART IDENTITY CASCADE")
-            )
-            await session.commit()
-        except Exception:
-            await session.rollback()
-
-        try:
-            yield session
+            yield connection
         finally:
-            # Ensure session is cleaned up properly, even if test fails
-            try:
-                await session.rollback()  # Rollback any pending transactions
-            except Exception:
-                pass  # Ignore errors during rollback
+            await transaction.rollback()
 
-            try:
-                session.expunge_all()  # Clear all objects from session
-            except Exception:
-                pass  # Ignore errors during expunge
 
-            # Clean database after test to prevent data leakage
-            try:
-                await session.execute(
-                    text("TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, live20_runs, stock_prices, ib_orders, recommendations, stock_lists RESTART IDENTITY CASCADE")
-                )
-                await session.commit()
-            except Exception:
-                await session.rollback()
+@pytest_asyncio.fixture
+async def db_session(db_connection) -> AsyncGenerator[AsyncSession, None]:
+    """Per-test session bound to the rollback connection.
 
-            try:
-                await session.close()  # Close the session
-            except Exception:
-                pass  # Ignore errors during close
+    join_transaction_mode="create_savepoint" means:
+    - session.commit() -> RELEASE SAVEPOINT (not actual COMMIT)
+    - session.rollback() -> ROLLBACK TO SAVEPOINT
+    The outer transaction in db_connection rolls back everything after the test.
+    """
+    session = AsyncSession(
+        bind=db_connection,
+        expire_on_commit=False,
+        autoflush=False,
+        join_transaction_mode="create_savepoint",
+    )
+    try:
+        yield session
+    finally:
+        await session.close()
+
+
+@pytest.fixture
+def rollback_session_factory(db_connection):
+    """Session factory creating sessions on the rollback connection.
+
+    Replacement for test_session_factory in tests that don't need separate DB
+    connections. Sessions use join_transaction_mode="create_savepoint", so
+    commits become savepoint releases (rolled back with the outer transaction).
+    """
+    def factory():
+        return AsyncSession(
+            bind=db_connection,
+            expire_on_commit=False,
+            autoflush=False,
+            join_transaction_mode="create_savepoint",
+        )
+    return factory
 
 
 @pytest.fixture
@@ -234,16 +232,22 @@ def override_get_db_session(db_session: AsyncSession):
 
 
 @pytest.fixture
-def override_get_session_factory(test_session_factory):
-    """Override the get_session_factory dependency for tests.
+def override_get_session_factory(db_connection):
+    """Override get_session_factory to create sessions bound to rollback connection.
 
-    Args:
-        test_session_factory: Test session factory
-
-    Returns:
-        async_sessionmaker: Test session factory
+    This ensures that endpoint code using `async with session_factory() as session:`
+    also participates in transaction rollback isolation.
     """
-    return lambda: test_session_factory
+    def bound_session_factory():
+        """Creates a session bound to the test's rollback connection."""
+        return AsyncSession(
+            bind=db_connection,
+            expire_on_commit=False,
+            autoflush=False,
+            join_transaction_mode="create_savepoint",
+        )
+
+    return lambda: bound_session_factory
 
 
 @pytest.fixture
@@ -333,9 +337,9 @@ def mock_yahoo_finance():
     return mock
 
 
-# Note: The old clean_db autouse fixture was merged into db_session (now autouse).
-# Having two separate fixtures both doing TRUNCATE on the same tables caused
-# deadlocks from concurrent AccessExclusiveLock acquisition.
+# Note: Test isolation uses transaction rollback (not TRUNCATE).
+# Each test runs inside an outer transaction that is rolled back after the test,
+# avoiding AccessExclusiveLock deadlocks from TRUNCATE operations.
 
 
 # Pytest configuration

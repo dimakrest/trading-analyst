@@ -18,9 +18,20 @@ from datetime import datetime, timezone
 from typing import Callable
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.stock_price import StockPriceRepository
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clean_stock_prices(test_session_factory):
+    """Clean stock_prices before each test to prevent data leakage."""
+    async with test_session_factory() as session:
+        await session.execute(text("DELETE FROM stock_prices"))
+        await session.commit()
+    yield
 
 
 @pytest.fixture

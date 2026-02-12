@@ -77,16 +77,16 @@ class TestSimulationEngineInitializeSimulation:
         ]
 
     @pytest.mark.unit
-    async def test_initialize_simulation_not_found(self, db_session, test_session_factory) -> None:
+    async def test_initialize_simulation_not_found(self, db_session, rollback_session_factory) -> None:
         """Test initialization fails when simulation not found."""
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with pytest.raises(ValueError, match="not found"):
             await engine.initialize_simulation(99999)
 
     @pytest.mark.unit
     async def test_initialize_simulation_cancelled(
-        self, db_session, test_session_factory, valid_simulation_data
+        self, db_session, rollback_session_factory, valid_simulation_data
     ) -> None:
         """Test initialization fails when simulation already cancelled."""
         valid_simulation_data["status"] = SimulationStatus.CANCELLED.value
@@ -95,14 +95,14 @@ class TestSimulationEngineInitializeSimulation:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with pytest.raises(ValueError, match="cannot be initialized"):
             await engine.initialize_simulation(simulation.id)
 
     @pytest.mark.unit
     async def test_initialize_simulation_already_completed(
-        self, db_session, test_session_factory, valid_simulation_data
+        self, db_session, rollback_session_factory, valid_simulation_data
     ) -> None:
         """Test initialization fails when simulation already completed."""
         valid_simulation_data["status"] = SimulationStatus.COMPLETED.value
@@ -111,14 +111,14 @@ class TestSimulationEngineInitializeSimulation:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with pytest.raises(ValueError, match="cannot be initialized"):
             await engine.initialize_simulation(simulation.id)
 
     @pytest.mark.unit
     async def test_initialize_simulation_failed(
-        self, db_session, test_session_factory, valid_simulation_data
+        self, db_session, rollback_session_factory, valid_simulation_data
     ) -> None:
         """Test initialization fails when simulation already failed."""
         valid_simulation_data["status"] = SimulationStatus.FAILED.value
@@ -127,14 +127,14 @@ class TestSimulationEngineInitializeSimulation:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with pytest.raises(ValueError, match="cannot be initialized"):
             await engine.initialize_simulation(simulation.id)
 
     @pytest.mark.unit
     async def test_initialize_simulation_idempotent(
-        self, db_session, test_session_factory, valid_simulation_data
+        self, db_session, rollback_session_factory, valid_simulation_data
     ) -> None:
         """Test initialization is idempotent - skips if already initialized."""
         # Create simulation that's already initialized (total_days > 0)
@@ -145,7 +145,7 @@ class TestSimulationEngineInitializeSimulation:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Should return without error, not reinitialize
         result = await engine.initialize_simulation(simulation.id)
@@ -155,7 +155,7 @@ class TestSimulationEngineInitializeSimulation:
 
     @pytest.mark.unit
     async def test_initialize_simulation_no_trading_days(
-        self, db_session, test_session_factory, valid_simulation_data, mock_price_data
+        self, db_session, rollback_session_factory, valid_simulation_data, mock_price_data
     ) -> None:
         """Test initialization fails when no trading days in range."""
         # Set dates with no data
@@ -167,7 +167,7 @@ class TestSimulationEngineInitializeSimulation:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with patch.object(
             engine.data_service, "get_price_data", return_value=[]
@@ -177,7 +177,7 @@ class TestSimulationEngineInitializeSimulation:
 
     @pytest.mark.unit
     async def test_initialize_simulation_success(
-        self, db_session, test_session_factory, valid_simulation_data, mock_price_data
+        self, db_session, rollback_session_factory, valid_simulation_data, mock_price_data
     ) -> None:
         """Test successful simulation initialization."""
         simulation = ArenaSimulation(**valid_simulation_data)
@@ -185,7 +185,7 @@ class TestSimulationEngineInitializeSimulation:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Mock data service to return price data
         with patch.object(
@@ -250,16 +250,16 @@ class TestSimulationEngineStepDay:
         ]
 
     @pytest.mark.unit
-    async def test_step_day_simulation_not_found(self, db_session, test_session_factory) -> None:
+    async def test_step_day_simulation_not_found(self, db_session, rollback_session_factory) -> None:
         """Test step_day fails when simulation not found."""
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with pytest.raises(ValueError, match="not found"):
             await engine.step_day(99999)
 
     @pytest.mark.unit
     async def test_step_day_simulation_completed(
-        self, db_session, test_session_factory, running_simulation_data
+        self, db_session, rollback_session_factory, running_simulation_data
     ) -> None:
         """Test step_day returns None when simulation completed."""
         running_simulation_data["status"] = SimulationStatus.COMPLETED.value
@@ -268,7 +268,7 @@ class TestSimulationEngineStepDay:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         result = await engine.step_day(simulation.id)
 
@@ -276,7 +276,7 @@ class TestSimulationEngineStepDay:
 
     @pytest.mark.unit
     async def test_step_day_simulation_not_running(
-        self, db_session, test_session_factory, running_simulation_data
+        self, db_session, rollback_session_factory, running_simulation_data
     ) -> None:
         """Test step_day fails when simulation not running."""
         running_simulation_data["status"] = SimulationStatus.PAUSED.value
@@ -285,14 +285,14 @@ class TestSimulationEngineStepDay:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with pytest.raises(ValueError, match="not running"):
             await engine.step_day(simulation.id)
 
     @pytest.mark.unit
     async def test_step_day_creates_snapshot(
-        self, db_session, test_session_factory, running_simulation_data, sample_price_bars, mock_agent
+        self, db_session, rollback_session_factory, running_simulation_data, sample_price_bars, mock_agent
     ) -> None:
         """Test step_day creates a daily snapshot."""
         simulation = ArenaSimulation(**running_simulation_data)
@@ -300,7 +300,7 @@ class TestSimulationEngineStepDay:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Mock dependencies
         with patch(
@@ -322,7 +322,7 @@ class TestSimulationEngineStepDay:
 
     @pytest.mark.unit
     async def test_step_day_increments_current_day(
-        self, db_session, test_session_factory, running_simulation_data, sample_price_bars, mock_agent
+        self, db_session, rollback_session_factory, running_simulation_data, sample_price_bars, mock_agent
     ) -> None:
         """Test step_day increments current_day."""
         simulation = ArenaSimulation(**running_simulation_data)
@@ -330,7 +330,7 @@ class TestSimulationEngineStepDay:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with patch(
             "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
@@ -348,7 +348,7 @@ class TestSimulationEngineStepDay:
 
     @pytest.mark.unit
     async def test_step_day_records_agent_decisions(
-        self, db_session, test_session_factory, running_simulation_data, sample_price_bars, mock_agent
+        self, db_session, rollback_session_factory, running_simulation_data, sample_price_bars, mock_agent
     ) -> None:
         """Test step_day records agent decisions in snapshot."""
         simulation = ArenaSimulation(**running_simulation_data)
@@ -356,7 +356,7 @@ class TestSimulationEngineStepDay:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with patch(
             "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
@@ -374,7 +374,7 @@ class TestSimulationEngineStepDay:
 
     @pytest.mark.unit
     async def test_step_day_handles_no_price_data(
-        self, db_session, test_session_factory, running_simulation_data, sample_price_bars, mock_agent
+        self, db_session, rollback_session_factory, running_simulation_data, sample_price_bars, mock_agent
     ) -> None:
         """Test step_day handles missing price data gracefully."""
         simulation = ArenaSimulation(**running_simulation_data)
@@ -382,7 +382,7 @@ class TestSimulationEngineStepDay:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with patch(
             "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
@@ -422,7 +422,7 @@ class TestSimulationEnginePositionManagement:
 
     @pytest.mark.unit
     async def test_pending_position_opens_at_open_price(
-        self, db_session, test_session_factory, simulation_with_pending_position
+        self, db_session, rollback_session_factory, simulation_with_pending_position
     ) -> None:
         """Test pending position opens at next day's open price."""
         simulation = simulation_with_pending_position
@@ -441,7 +441,7 @@ class TestSimulationEnginePositionManagement:
         db_session.add(pending)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Day 0 = Jan 16 where position will open
         trading_days = [date(2024, 1, 16), date(2024, 1, 17)]
@@ -484,7 +484,7 @@ class TestSimulationEnginePositionManagement:
 
     @pytest.mark.unit
     async def test_pending_position_cancelled_insufficient_capital(
-        self, db_session, test_session_factory, simulation_with_pending_position
+        self, db_session, rollback_session_factory, simulation_with_pending_position
     ) -> None:
         """Test pending position is cancelled when price too high."""
         simulation = simulation_with_pending_position
@@ -504,7 +504,7 @@ class TestSimulationEnginePositionManagement:
         db_session.add(pending)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         trading_days = [date(2024, 1, 16), date(2024, 1, 17)]
 
@@ -543,7 +543,7 @@ class TestSimulationEnginePositionManagement:
 
     @pytest.mark.unit
     async def test_pending_position_cancelled_insufficient_cash(
-        self, db_session, test_session_factory, simulation_with_pending_position
+        self, db_session, rollback_session_factory, simulation_with_pending_position
     ) -> None:
         """Test pending position is cancelled when not enough cash available."""
         simulation = simulation_with_pending_position
@@ -573,7 +573,7 @@ class TestSimulationEnginePositionManagement:
         db_session.add(pending2)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         trading_days = [date(2024, 1, 16), date(2024, 1, 17)]
 
@@ -641,7 +641,7 @@ class TestSimulationEnginePositionManagement:
 
     @pytest.mark.unit
     async def test_buy_signal_creates_pending_position(
-        self, db_session, test_session_factory, simulation_with_pending_position
+        self, db_session, rollback_session_factory, simulation_with_pending_position
     ) -> None:
         """Test BUY signal creates a pending position."""
         simulation = simulation_with_pending_position
@@ -650,7 +650,7 @@ class TestSimulationEnginePositionManagement:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         price_bars = [
             PriceBar(
@@ -716,7 +716,7 @@ class TestSimulationEngineTrailingStop:
 
     @pytest.mark.unit
     async def test_trailing_stop_triggers_on_price_drop(
-        self, db_session, test_session_factory, simulation_with_open_position
+        self, db_session, rollback_session_factory, simulation_with_open_position
     ) -> None:
         """Test trailing stop triggers when price drops below stop level."""
         simulation = simulation_with_open_position
@@ -740,7 +740,7 @@ class TestSimulationEngineTrailingStop:
         db_session.add(position)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Need multiple days so we don't end the simulation
         trading_days = [date(2024, 1, 17), date(2024, 1, 18), date(2024, 1, 19)]
@@ -781,7 +781,7 @@ class TestSimulationEngineTrailingStop:
 
     @pytest.mark.unit
     async def test_trailing_stop_moves_up_with_price(
-        self, db_session, test_session_factory, simulation_with_open_position
+        self, db_session, rollback_session_factory, simulation_with_open_position
     ) -> None:
         """Test trailing stop moves up when price makes new highs."""
         simulation = simulation_with_open_position
@@ -805,7 +805,7 @@ class TestSimulationEngineTrailingStop:
         db_session.add(position)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Need multiple days so we don't end the simulation
         trading_days = [date(2024, 1, 17), date(2024, 1, 18), date(2024, 1, 19)]
@@ -846,7 +846,7 @@ class TestSimulationEngineTrailingStop:
 
     @pytest.mark.unit
     async def test_gap_down_exits_at_open_not_stop(
-        self, db_session, test_session_factory, simulation_with_open_position
+        self, db_session, rollback_session_factory, simulation_with_open_position
     ) -> None:
         """Test gap-down exits at open price, not stop price.
 
@@ -881,7 +881,7 @@ class TestSimulationEngineTrailingStop:
         db_session.add(position)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Need multiple days so we don't end the simulation
         trading_days = [date(2024, 1, 17), date(2024, 1, 18), date(2024, 1, 19)]
@@ -931,7 +931,7 @@ class TestSimulationEngineRunToCompletion:
     """Tests for SimulationEngine.run_to_completion() method."""
 
     @pytest.mark.unit
-    async def test_run_to_completion_processes_all_days(self, db_session, test_session_factory) -> None:
+    async def test_run_to_completion_processes_all_days(self, db_session, rollback_session_factory) -> None:
         """Test run_to_completion processes all simulation days."""
         simulation = ArenaSimulation(
             name="Full Run Test",
@@ -950,7 +950,7 @@ class TestSimulationEngineRunToCompletion:
         await db_session.commit()
         await db_session.refresh(simulation)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         trading_days = [
             date(2024, 1, 15),
@@ -1010,20 +1010,20 @@ class TestSimulationEngineHelpers:
 
     @pytest.mark.unit
     async def test_get_latest_snapshot_returns_none_when_empty(
-        self, db_session, test_session_factory, simulation_for_helpers
+        self, db_session, rollback_session_factory, simulation_for_helpers
     ) -> None:
         """Test _get_latest_snapshot returns None when no snapshots."""
         db_session.add(simulation_for_helpers)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
         result = await engine._get_latest_snapshot(simulation_for_helpers.id)
 
         assert result is None
 
     @pytest.mark.unit
     async def test_get_latest_snapshot_returns_most_recent(
-        self, db_session, test_session_factory, simulation_for_helpers
+        self, db_session, rollback_session_factory, simulation_for_helpers
     ) -> None:
         """Test _get_latest_snapshot returns most recent snapshot."""
         db_session.add(simulation_for_helpers)
@@ -1043,14 +1043,14 @@ class TestSimulationEngineHelpers:
             db_session.add(snapshot)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
         result = await engine._get_latest_snapshot(simulation_for_helpers.id)
 
         assert result.day_number == 2
 
     @pytest.mark.unit
     async def test_get_open_positions_returns_only_open(
-        self, db_session, test_session_factory, simulation_for_helpers
+        self, db_session, rollback_session_factory, simulation_for_helpers
     ) -> None:
         """Test _get_open_positions returns only open positions."""
         db_session.add(simulation_for_helpers)
@@ -1085,7 +1085,7 @@ class TestSimulationEngineHelpers:
             db_session.add(pos)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
         result = await engine._get_open_positions(simulation_for_helpers.id)
 
         assert len(result) == 1
@@ -1093,7 +1093,7 @@ class TestSimulationEngineHelpers:
 
     @pytest.mark.unit
     async def test_get_pending_position_returns_pending(
-        self, db_session, test_session_factory, simulation_for_helpers
+        self, db_session, rollback_session_factory, simulation_for_helpers
     ) -> None:
         """Test _get_pending_position returns pending position for symbol."""
         db_session.add(simulation_for_helpers)
@@ -1110,7 +1110,7 @@ class TestSimulationEngineHelpers:
         db_session.add(pending)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
         result = await engine._get_pending_position(
             simulation_for_helpers.id, "AAPL"
         )
@@ -1120,7 +1120,7 @@ class TestSimulationEngineHelpers:
 
     @pytest.mark.unit
     async def test_get_pending_position_returns_none_for_other_symbol(
-        self, db_session, test_session_factory, simulation_for_helpers
+        self, db_session, rollback_session_factory, simulation_for_helpers
     ) -> None:
         """Test _get_pending_position returns None for non-pending symbol."""
         db_session.add(simulation_for_helpers)
@@ -1137,7 +1137,7 @@ class TestSimulationEngineHelpers:
         db_session.add(pending)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
         result = await engine._get_pending_position(
             simulation_for_helpers.id, "MSFT"
         )
@@ -1203,7 +1203,7 @@ class TestSimulationEngineMaxDrawdown:
 
     @pytest.mark.unit
     async def test_update_max_drawdown_with_single_snapshot(
-        self, db_session, test_session_factory
+        self, db_session, rollback_session_factory
     ) -> None:
         """Test max drawdown not updated with only one snapshot."""
         simulation = ArenaSimulation(
@@ -1232,14 +1232,14 @@ class TestSimulationEngineMaxDrawdown:
         db_session.add(snapshot)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
         await engine._update_max_drawdown(simulation)
 
         assert simulation.max_drawdown_pct is None
 
     @pytest.mark.unit
     async def test_update_max_drawdown_calculates_correctly(
-        self, db_session, test_session_factory
+        self, db_session, rollback_session_factory
     ) -> None:
         """Test max drawdown calculates correctly with equity curve."""
         simulation = ArenaSimulation(
@@ -1275,7 +1275,7 @@ class TestSimulationEngineMaxDrawdown:
             db_session.add(snapshot)
         await db_session.commit()
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
         await engine._update_max_drawdown(simulation)
 
         # Max drawdown: (11000 - 10000) / 11000 * 100 = 9.09%
@@ -1289,7 +1289,7 @@ class TestSimulationEngineCloseAllPositions:
 
     @pytest.mark.unit
     async def test_close_all_positions_at_simulation_end(
-        self, db_session, test_session_factory
+        self, db_session, rollback_session_factory
     ) -> None:
         """Test all open positions are closed at simulation end."""
         simulation = ArenaSimulation(
@@ -1338,7 +1338,7 @@ class TestSimulationEngineCloseAllPositions:
         await db_session.refresh(position1)
         await db_session.refresh(position2)
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Mock price bars for close - use coroutine mock
         async def mock_get_bar(symbol: str, target_date: date):

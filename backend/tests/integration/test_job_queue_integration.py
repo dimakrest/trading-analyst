@@ -13,8 +13,7 @@ under realistic conditions.
 from datetime import datetime, timedelta, timezone
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.models.live20_run import Live20Run
 from app.services.job_queue_service import (
@@ -24,27 +23,6 @@ from app.services.job_queue_service import (
 
 # Mark all tests in this module as integration tests
 pytestmark = pytest.mark.integration
-
-
-@pytest_asyncio.fixture
-async def clean_job_tables(test_session_factory):
-    """Clean job tables before and after each test.
-
-    Ensures test isolation by truncating live20_runs table.
-    """
-    async with test_session_factory() as session:
-        await session.execute(
-            text("TRUNCATE TABLE live20_runs RESTART IDENTITY CASCADE")
-        )
-        await session.commit()
-
-    yield
-
-    async with test_session_factory() as session:
-        await session.execute(
-            text("TRUNCATE TABLE live20_runs RESTART IDENTITY CASCADE")
-        )
-        await session.commit()
 
 
 async def create_live20_run(
@@ -91,8 +69,7 @@ class TestJobSurvivesRestart:
 
     @pytest.mark.asyncio
     async def test_pending_job_survives_restart(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that pending jobs are picked up after simulated restart.
 
         Scenario:
@@ -101,17 +78,17 @@ class TestJobSurvivesRestart:
         3. Verify job is still pending and ready for pickup
         """
         # Create a pending job
-        run = await create_live20_run(test_session_factory, status="pending")
+        run = await create_live20_run(rollback_session_factory, status="pending")
 
         # Simulate server restart by calling reset_stranded_jobs
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         reset_count = await service.reset_stranded_jobs()
 
         # No running jobs, so nothing to reset
         assert reset_count == 0
 
         # Verify job is still pending
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.status == "pending"
 
         # Verify job can be claimed
@@ -121,8 +98,7 @@ class TestJobSurvivesRestart:
 
     @pytest.mark.asyncio
     async def test_running_job_reset_on_restart(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that running jobs are reset to pending after server restart.
 
         Scenario:
@@ -132,7 +108,7 @@ class TestJobSurvivesRestart:
         """
         # Create a running job (simulating a job in progress before crash)
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             worker_id="old-worker",
             heartbeat_at=datetime.now(timezone.utc),
@@ -140,14 +116,14 @@ class TestJobSurvivesRestart:
         )
 
         # Simulate server restart
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         reset_count = await service.reset_stranded_jobs()
 
         # Should have reset 1 running job
         assert reset_count == 1
 
         # Verify job is reset to pending
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.status == "pending"
         assert updated_run.worker_id is None
         assert updated_run.claimed_at is None
@@ -158,8 +134,7 @@ class TestJobSurvivesRestart:
 
     @pytest.mark.asyncio
     async def test_restart_does_not_increment_retry_count(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that server restart does NOT increment retry_count.
 
         Server restart is process interruption, not a job failure.
@@ -167,43 +142,42 @@ class TestJobSurvivesRestart:
         """
         original_retry_count = 1
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             retry_count=original_retry_count,
             max_retries=3,
         )
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         await service.reset_stranded_jobs()
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         # Retry count should be unchanged
         assert updated_run.retry_count == original_retry_count
 
     @pytest.mark.asyncio
     async def test_multiple_running_jobs_all_reset(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that multiple running jobs are all reset on restart."""
         # Create multiple running jobs
         run1 = await create_live20_run(
-            test_session_factory, status="running", worker_id="worker-1"
+            rollback_session_factory, status="running", worker_id="worker-1"
         )
         run2 = await create_live20_run(
-            test_session_factory, status="running", worker_id="worker-2"
+            rollback_session_factory, status="running", worker_id="worker-2"
         )
         run3 = await create_live20_run(
-            test_session_factory, status="running", worker_id="worker-3"
+            rollback_session_factory, status="running", worker_id="worker-3"
         )
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         reset_count = await service.reset_stranded_jobs()
 
         assert reset_count == 3
 
         # All jobs should be pending now
         for run_id in [run1.id, run2.id, run3.id]:
-            updated = await get_run_by_id(test_session_factory, run_id)
+            updated = await get_run_by_id(rollback_session_factory, run_id)
             assert updated.status == "pending"
             assert updated.worker_id is None
 
@@ -213,8 +187,7 @@ class TestJobRetryOnFailure:
 
     @pytest.mark.asyncio
     async def test_job_retries_on_failure(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that failed jobs are retried up to max_retries.
 
         Scenario:
@@ -227,13 +200,13 @@ class TestJobRetryOnFailure:
         """
         max_retries = 3
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="pending",
             retry_count=0,
             max_retries=max_retries,
         )
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
 
         # Retry loop
         for i in range(max_retries):
@@ -243,14 +216,14 @@ class TestJobRetryOnFailure:
             assert claimed.id == run.id
 
             # Verify job is running
-            current = await get_run_by_id(test_session_factory, run.id)
+            current = await get_run_by_id(rollback_session_factory, run.id)
             assert current.status == "running"
 
             # Mark as failed (simulating an error during processing)
             await service.mark_failed(run.id, f"Error on attempt {i + 1}")
 
             # Verify job is reset for retry
-            updated = await get_run_by_id(test_session_factory, run.id)
+            updated = await get_run_by_id(rollback_session_factory, run.id)
             assert updated.retry_count == i + 1
             assert updated.status == "pending"
             assert updated.last_error == f"Error on attempt {i + 1}"
@@ -262,28 +235,27 @@ class TestJobRetryOnFailure:
         await service.mark_failed(run.id, "Final failure")
 
         # Verify job is permanently failed
-        final = await get_run_by_id(test_session_factory, run.id)
+        final = await get_run_by_id(rollback_session_factory, run.id)
         assert final.status == "failed"
         assert final.retry_count == max_retries  # Not incremented past max
         assert final.last_error == "Final failure"
 
     @pytest.mark.asyncio
     async def test_failed_job_preserves_progress(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that job progress is preserved across retries."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             processed_count=3,
             retry_count=0,
             max_retries=3,
         )
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         await service.mark_failed(run.id, "Temporary error")
 
-        updated = await get_run_by_id(test_session_factory, run.id)
+        updated = await get_run_by_id(rollback_session_factory, run.id)
         # Progress should be preserved for resumption
         assert updated.processed_count == 3
         assert updated.status == "pending"
@@ -293,7 +265,7 @@ class TestStaleJobReset:
     """Integration tests for stale job detection and reset."""
 
     @pytest.mark.asyncio
-    async def test_stale_job_reset(self, test_session_factory, clean_job_tables):
+    async def test_stale_job_reset(self, rollback_session_factory):
         """Test that stale jobs are reset by sweeper.
 
         Scenario:
@@ -305,7 +277,7 @@ class TestStaleJobReset:
             seconds=STALE_JOB_THRESHOLD + 60  # 6 minutes ago
         )
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             heartbeat_at=stale_time,
             worker_id="stuck-worker",
@@ -313,12 +285,12 @@ class TestStaleJobReset:
             max_retries=3,
         )
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         reset_count = await service.reset_stale_jobs()
 
         assert reset_count == 1
 
-        updated = await get_run_by_id(test_session_factory, run.id)
+        updated = await get_run_by_id(rollback_session_factory, run.id)
         assert updated.status == "pending"
         assert updated.worker_id is None
         assert updated.retry_count == 1  # Stale detection increments retry
@@ -326,49 +298,47 @@ class TestStaleJobReset:
 
     @pytest.mark.asyncio
     async def test_stale_job_fails_after_max_retries(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that stale job is failed when max_retries is exhausted."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60
         )
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             heartbeat_at=stale_time,
             retry_count=3,  # At max
             max_retries=3,
         )
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         reset_count = await service.reset_stale_jobs()
 
         # Not counted as reset (marked as failed instead)
         assert reset_count == 0
 
-        updated = await get_run_by_id(test_session_factory, run.id)
+        updated = await get_run_by_id(rollback_session_factory, run.id)
         assert updated.status == "failed"
 
     @pytest.mark.asyncio
     async def test_recent_heartbeat_not_stale(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that jobs with recent heartbeat are not considered stale."""
         recent_time = datetime.now(timezone.utc) - timedelta(seconds=30)  # 30s ago
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             heartbeat_at=recent_time,
             worker_id="active-worker",
         )
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         reset_count = await service.reset_stale_jobs()
 
         assert reset_count == 0
 
         # Job should still be running
-        updated = await get_run_by_id(test_session_factory, run.id)
+        updated = await get_run_by_id(rollback_session_factory, run.id)
         assert updated.status == "running"
         assert updated.worker_id == "active-worker"
 
@@ -378,8 +348,7 @@ class TestCancellationCheck:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_detects_cancelled_job(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that is_cancelled() correctly detects cancelled jobs.
 
         Scenario:
@@ -388,15 +357,15 @@ class TestCancellationCheck:
         3. Update status to 'cancelled'
         4. Verify is_cancelled returns True
         """
-        run = await create_live20_run(test_session_factory, status="pending")
+        run = await create_live20_run(rollback_session_factory, status="pending")
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
 
         # Not cancelled initially
         assert await service.is_cancelled(run.id) is False
 
         # Update to cancelled directly in database (simulating user cancellation)
-        async with test_session_factory() as session:
+        async with rollback_session_factory() as session:
             result = await session.execute(
                 select(Live20Run).where(Live20Run.id == run.id)
             )
@@ -409,30 +378,27 @@ class TestCancellationCheck:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_running(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that is_cancelled returns False for running jobs."""
-        run = await create_live20_run(test_session_factory, status="running")
+        run = await create_live20_run(rollback_session_factory, status="running")
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         assert await service.is_cancelled(run.id) is False
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_completed(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that is_cancelled returns False for completed jobs."""
-        run = await create_live20_run(test_session_factory, status="completed")
+        run = await create_live20_run(rollback_session_factory, status="completed")
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         assert await service.is_cancelled(run.id) is False
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_nonexistent(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that is_cancelled returns False for nonexistent job."""
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
         assert await service.is_cancelled(999999) is False
 
 
@@ -440,26 +406,26 @@ class TestFullJobLifecycle:
     """Integration tests for complete job lifecycle scenarios."""
 
     @pytest.mark.asyncio
-    async def test_full_job_success_flow(self, test_session_factory, clean_job_tables):
+    async def test_full_job_success_flow(self, rollback_session_factory):
         """Test complete job lifecycle: create -> claim -> complete.
 
         This tests the happy path where a job is created, claimed by a worker,
         processed successfully, and marked as completed.
         """
         # 1. Create job
-        run = await create_live20_run(test_session_factory, status="pending")
+        run = await create_live20_run(rollback_session_factory, status="pending")
         assert run.id is not None
         assert run.status == "pending"
 
         # 2. Worker claims job
         service = JobQueueService(
-            test_session_factory, Live20Run, worker_id="test-worker"
+            rollback_session_factory, Live20Run, worker_id="test-worker"
         )
         claimed = await service.claim_next_job()
         assert claimed.id == run.id
 
         # Verify claimed state
-        claimed_run = await get_run_by_id(test_session_factory, run.id)
+        claimed_run = await get_run_by_id(rollback_session_factory, run.id)
         assert claimed_run.status == "running"
         assert claimed_run.worker_id == "test-worker"
         assert claimed_run.claimed_at is not None
@@ -467,35 +433,34 @@ class TestFullJobLifecycle:
 
         # 3. Worker updates heartbeat during processing
         await service.update_heartbeat(run.id)
-        heartbeat_run = await get_run_by_id(test_session_factory, run.id)
+        heartbeat_run = await get_run_by_id(rollback_session_factory, run.id)
         assert heartbeat_run.heartbeat_at is not None
 
         # 4. Worker completes job
         await service.mark_completed(run.id)
-        completed_run = await get_run_by_id(test_session_factory, run.id)
+        completed_run = await get_run_by_id(rollback_session_factory, run.id)
         assert completed_run.status == "completed"
 
     @pytest.mark.asyncio
     async def test_full_job_failure_and_retry_flow(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test job lifecycle with failure and successful retry.
 
         This tests the scenario where a job fails on first attempt,
         is retried, and succeeds on the second attempt.
         """
         run = await create_live20_run(
-            test_session_factory, status="pending", max_retries=3
+            rollback_session_factory, status="pending", max_retries=3
         )
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
 
         # First attempt - fails
         claimed = await service.claim_next_job()
         assert claimed.id == run.id
         await service.mark_failed(run.id, "Network error")
 
-        first_fail = await get_run_by_id(test_session_factory, run.id)
+        first_fail = await get_run_by_id(rollback_session_factory, run.id)
         assert first_fail.status == "pending"
         assert first_fail.retry_count == 1
 
@@ -504,26 +469,25 @@ class TestFullJobLifecycle:
         assert claimed.id == run.id
         await service.mark_completed(run.id)
 
-        completed = await get_run_by_id(test_session_factory, run.id)
+        completed = await get_run_by_id(rollback_session_factory, run.id)
         assert completed.status == "completed"
         assert completed.retry_count == 1  # Still 1 from the failed attempt
 
     @pytest.mark.asyncio
     async def test_fifo_ordering_preserved_across_failures(
-        self, test_session_factory, clean_job_tables
-    ):
+        self, rollback_session_factory    ):
         """Test that FIFO ordering is preserved when jobs fail and retry.
 
         When a job fails and is reset to pending, it should be picked up
         before newer pending jobs (maintains FIFO based on created_at).
         """
         # Create first job and set it to running (simulating it was picked up)
-        run1 = await create_live20_run(test_session_factory, status="running")
+        run1 = await create_live20_run(rollback_session_factory, status="running")
 
         # Create second job as pending (newer)
-        run2 = await create_live20_run(test_session_factory, status="pending")
+        run2 = await create_live20_run(rollback_session_factory, status="pending")
 
-        service = JobQueueService(test_session_factory, Live20Run)
+        service = JobQueueService(rollback_session_factory, Live20Run)
 
         # Fail run1 - should be reset to pending
         await service.mark_failed(run1.id, "Error")
