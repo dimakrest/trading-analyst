@@ -1,8 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Live20Table } from './Live20Table';
 import type { Live20Result } from '../../types/live20';
+
+// Mock the ExpandedRowContent to avoid async complexity in these tests
+vi.mock('./ExpandedRowContent', () => ({
+  ExpandedRowContent: ({ result }: { result: Live20Result }) => (
+    <div data-testid="expanded-content">Expanded content for {result.stock}</div>
+  ),
+}));
 
 const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result => ({
   id: 1,
@@ -15,6 +22,7 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   atr: 2.35,
   entry_strategy: null,
   exit_strategy: null,
+  sector_etf: 'XLK',
   trend_direction: 'bearish',
   trend_aligned: true,
   ma20_distance_pct: -7.0,
@@ -36,6 +44,122 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
 });
 
 describe('Live20Table', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('Row expansion', () => {
+    it('renders expand button in first column', () => {
+      const result = createMockResult({ stock: 'AAPL' });
+      render(<Live20Table results={[result]} />);
+
+      const expandButton = screen.getByLabelText('Expand details for AAPL');
+      expect(expandButton).toBeInTheDocument();
+    });
+
+    it('expand button has correct aria-expanded attribute', () => {
+      const result = createMockResult({ stock: 'AAPL' });
+      render(<Live20Table results={[result]} />);
+
+      const expandButton = screen.getByLabelText('Expand details for AAPL');
+      expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('expands row when expand button is clicked', async () => {
+      const user = userEvent.setup();
+      const result = createMockResult({ stock: 'AAPL' });
+      render(<Live20Table results={[result]} />);
+
+      const expandButton = screen.getByLabelText('Expand details for AAPL');
+
+      // Initially not expanded
+      expect(screen.queryByTestId('expanded-content')).not.toBeInTheDocument();
+
+      // Click to expand
+      await user.click(expandButton);
+
+      // Should be expanded now
+      await waitFor(() => {
+        expect(screen.getByTestId('expanded-content')).toBeInTheDocument();
+        expect(screen.getByText('Expanded content for AAPL')).toBeInTheDocument();
+      });
+
+      // Aria attribute should update
+      expect(expandButton).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('collapses row when expand button is clicked again', async () => {
+      const user = userEvent.setup();
+      const result = createMockResult({ stock: 'AAPL' });
+      render(<Live20Table results={[result]} />);
+
+      const expandButton = screen.getByLabelText('Expand details for AAPL');
+
+      // Expand
+      await user.click(expandButton);
+      await waitFor(() => {
+        expect(screen.getByTestId('expanded-content')).toBeInTheDocument();
+      });
+
+      // Collapse
+      await user.click(expandButton);
+      await waitFor(() => {
+        expect(screen.queryByTestId('expanded-content')).not.toBeInTheDocument();
+      });
+
+      expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('shows chevron right when collapsed', () => {
+      const result = createMockResult({ stock: 'AAPL' });
+      render(<Live20Table results={[result]} />);
+
+      const expandButton = screen.getByLabelText('Expand details for AAPL');
+      // ChevronRight icon should be present
+      const chevronRight = expandButton.querySelector('svg');
+      expect(chevronRight).toBeInTheDocument();
+    });
+
+    it('shows chevron down when expanded', async () => {
+      const user = userEvent.setup();
+      const result = createMockResult({ stock: 'AAPL' });
+      render(<Live20Table results={[result]} />);
+
+      const expandButton = screen.getByLabelText('Expand details for AAPL');
+
+      // Expand
+      await user.click(expandButton);
+
+      await waitFor(() => {
+        // ChevronDown icon should be present (still an svg, but different icon)
+        const chevronDown = expandButton.querySelector('svg');
+        expect(chevronDown).toBeInTheDocument();
+      });
+    });
+
+    it('allows multiple rows to be expanded simultaneously', async () => {
+      const user = userEvent.setup();
+      const results = [
+        createMockResult({ stock: 'AAPL', id: 1 }),
+        createMockResult({ stock: 'MSFT', id: 2 }),
+        createMockResult({ stock: 'NVDA', id: 3 }),
+      ];
+      render(<Live20Table results={results} />);
+
+      const aaplButton = screen.getByLabelText('Expand details for AAPL');
+      const msftButton = screen.getByLabelText('Expand details for MSFT');
+
+      // Expand both
+      await user.click(aaplButton);
+      await user.click(msftButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('Expanded content for AAPL')).toBeInTheDocument();
+        expect(screen.getByText('Expanded content for MSFT')).toBeInTheDocument();
+      });
+    });
+  });
+
   describe('CCI column', () => {
     it('displays CCI value', () => {
       const result = createMockResult({ cci_value: -86.1 });
@@ -144,6 +268,37 @@ describe('Live20Table', () => {
       expect(screen.queryByText('ACC')).not.toBeInTheDocument();
       expect(screen.queryByText('EXH')).not.toBeInTheDocument();
       expect(screen.queryByText('DIST')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Sector column', () => {
+    it('displays sector ETF symbol', () => {
+      const result = createMockResult({ sector_etf: 'XLK' });
+      render(<Live20Table results={[result]} />);
+
+      expect(screen.getByText('XLK')).toBeInTheDocument();
+    });
+
+    it('displays dash when sector_etf is null', () => {
+      const result = createMockResult({ sector_etf: null });
+      render(<Live20Table results={[result]} />);
+
+      // Find the sector cell (3rd column - Expand, Symbol, Sector)
+      const row = screen.getByText('TEST').closest('tr');
+      expect(row).toBeInTheDocument();
+      const sectorCell = row?.querySelector('td:nth-child(3) span');
+      expect(sectorCell).toBeInTheDocument();
+      expect(sectorCell).toHaveTextContent('-');
+    });
+
+    it('applies correct styling', () => {
+      const result = createMockResult({ sector_etf: 'XLE' });
+      render(<Live20Table results={[result]} />);
+
+      const sectorText = screen.getByText('XLE');
+      expect(sectorText).toHaveClass('text-xs');
+      expect(sectorText).toHaveClass('font-mono');
+      expect(sectorText).toHaveClass('text-text-secondary');
     });
   });
 
@@ -329,10 +484,10 @@ describe('Live20Table', () => {
       const result = createMockResult({ atr: null });
       render(<Live20Table results={[result]} />);
 
-      // Find the ATR cell (5th column) and verify it displays a dash
+      // Find the ATR cell (7th column - Expand, Symbol, Sector, Direction, Score, Price, ATR) and verify it displays a dash
       const row = screen.getByText('TEST').closest('tr');
       expect(row).toBeInTheDocument();
-      const atrCell = row?.querySelector('td:nth-child(5) span');
+      const atrCell = row?.querySelector('td:nth-child(7) span');
       expect(atrCell).toBeInTheDocument();
       expect(atrCell).toHaveTextContent('-');
     });
@@ -368,7 +523,7 @@ describe('Live20Table', () => {
 
         // Find the ATR cell in the row
         const row = screen.getByText('TEST').closest('tr');
-        const atrCell = row?.querySelector('td:nth-child(5) span'); // ATR is 5th column
+        const atrCell = row?.querySelector('td:nth-child(7) span'); // ATR is 7th column (Expand, Symbol, Sector, Direction, Score, Price, ATR)
 
         expect(atrCell).toBeInTheDocument();
         expect(atrCell).not.toHaveClass('text-accent-bullish');

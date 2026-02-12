@@ -73,6 +73,8 @@ export interface StockHeroProps {
   direction: 'bullish' | 'bearish' | 'neutral';
   /** Stats grid data */
   stats: StockHeroStats;
+  /** Sector ETF symbol (e.g., "XLK", "XLE") */
+  sectorEtf?: string | null;
   /** Whether the component is in a loading state */
   isLoading?: boolean;
   /** Additional CSS classes */
@@ -139,6 +141,7 @@ export const StockHero = ({
   changePercent,
   direction,
   stats,
+  sectorEtf,
   isLoading = false,
   className,
 }: StockHeroProps) => {
@@ -219,6 +222,11 @@ export const StockHero = ({
             >
               <span className="badge-dot" />
               {isBullish ? 'Bullish' : 'Bearish'}
+            </span>
+          )}
+          {sectorEtf && (
+            <span className="font-mono text-xs px-2 py-1 rounded bg-bg-elevated text-text-muted border border-subtle">
+              {sectorEtf}
             </span>
           )}
         </div>

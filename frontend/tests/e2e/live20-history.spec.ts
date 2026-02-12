@@ -202,7 +202,14 @@ test.describe('Live 20 History - UI Navigation', () => {
 
     // Wait for content to load - either loading disappears or content appears
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(500);
+
+    // Wait for one of the expected states to appear
+    await Promise.race([
+      page.getByRole('table').waitFor({ state: 'visible' }).catch(() => {}),
+      page.getByText(/no runs found/i).waitFor({ state: 'visible' }).catch(() => {}),
+      page.getByText(/loading runs/i).waitFor({ state: 'visible' }).catch(() => {}),
+      page.locator('text=/failed to fetch/i').waitFor({ state: 'visible' }).catch(() => {}),
+    ]);
 
     // Should show either empty state, table, or loading
     const hasTable = await page.getByRole('table').isVisible().catch(() => false);

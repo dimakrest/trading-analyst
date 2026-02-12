@@ -6,11 +6,13 @@ import { StockAnalysis } from './StockAnalysis';
 import * as useStockDataHook from '../../hooks/useStockData';
 import * as useStockSearchHook from '../../hooks/useStockSearch';
 import * as useStockListsHook from '../../hooks/useStockLists';
+import * as useStockInfoHook from '../../hooks/useStockInfo';
 import type { StockData } from '../../types/stock';
 
 vi.mock('../../hooks/useStockData');
 vi.mock('../../hooks/useStockSearch');
 vi.mock('../../hooks/useStockLists');
+vi.mock('../../hooks/useStockInfo');
 
 // Mock lightweight-charts
 vi.mock('lightweight-charts', () => ({
@@ -114,6 +116,20 @@ describe('StockAnalysis', () => {
       createList: vi.fn(),
       updateList: vi.fn(),
       deleteList: vi.fn(),
+      refetch: vi.fn(),
+    });
+
+    vi.spyOn(useStockInfoHook, 'useStockInfo').mockReturnValue({
+      stockInfo: {
+        symbol: 'AAPL',
+        name: 'Apple Inc.',
+        sector: 'Technology',
+        sector_etf: 'XLK',
+        industry: 'Consumer Electronics',
+        exchange: 'NASDAQ',
+      },
+      isLoading: false,
+      error: null,
       refetch: vi.fn(),
     });
   });

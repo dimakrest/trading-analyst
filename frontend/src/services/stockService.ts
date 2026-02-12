@@ -1,5 +1,5 @@
 import { apiClient } from '../lib/apiClient';
-import type { StockData, StockPrice, Interval, IndicatorsResponse } from '../types/stock';
+import type { StockData, StockPrice, Interval, IndicatorsResponse, StockInfo } from '../types/stock';
 
 interface BackendStockResponse {
   symbol: string;
@@ -100,6 +100,11 @@ export const fetchIndicators = async (
   return response.data;
 };
 
+export const fetchStockInfo = async (symbol: string): Promise<StockInfo> => {
+  const response = await apiClient.get<StockInfo>(`/v1/stocks/${symbol}/info`);
+  return response.data;
+};
+
 /**
  * Stock service with all stock-related API functions
  */
@@ -107,4 +112,5 @@ export const stockService = {
   fetchStockData,
   fetchStockDataByDateRange,
   fetchIndicators,
+  fetchStockInfo,
 };

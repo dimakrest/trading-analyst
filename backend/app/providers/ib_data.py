@@ -130,8 +130,12 @@ class IBDataProvider(MarketDataProviderInterface):
 
         return dt
 
-    async def validate_symbol(self, symbol: str) -> SymbolInfo:
-        """Validate symbol exists in IB."""
+    async def get_symbol_info(self, symbol: str) -> SymbolInfo:
+        """Get symbol information from Interactive Brokers.
+
+        Note: IB API provides limited symbol metadata (symbol and currency only).
+        For full info (sector, industry), use Yahoo Finance provider.
+        """
         await self._ensure_connected()
 
         symbol = symbol.upper().strip()
@@ -155,8 +159,8 @@ class IBDataProvider(MarketDataProviderInterface):
         except SymbolNotFoundError:
             raise
         except Exception as e:
-            logger.error(f"Error validating symbol {symbol}: {e}")
-            raise APIError(f"Failed to validate symbol {symbol}: {e}")
+            logger.error(f"Error fetching symbol info for {symbol}: {e}")
+            raise APIError(f"Failed to fetch symbol info for {symbol}: {e}")
 
     async def fetch_price_data(self, request: PriceDataRequest) -> list[PriceDataPoint]:
         """Fetch historical price data from IB."""

@@ -165,3 +165,36 @@ export const cancelRun = async (runId: number): Promise<void> => {
 export const deleteRun = async (runId: number): Promise<void> => {
   await apiClient.delete(`${API_BASE}/runs/${runId}`);
 };
+
+/**
+ * Sector trend data from sector ETF analysis
+ */
+export interface SectorTrend {
+  sector_etf: string;
+  trend_direction: 'up' | 'down' | 'sideways';
+  ma20_position: 'above' | 'below';
+  ma20_distance_pct: number;
+  ma50_position: 'above' | 'below';
+  ma50_distance_pct: number;
+  price_change_5d_pct: number;
+  price_change_20d_pct: number;
+}
+
+/**
+ * Get sector trend analysis for a sector ETF
+ *
+ * Fetches trend analysis including MA positions and price changes.
+ * Used in expanded Live20 rows to show sector context.
+ *
+ * @param sectorEtf - Sector ETF symbol (e.g., 'XLK', 'XLE')
+ * @returns Promise resolving to sector trend data
+ * @throws Error if the API request fails or ETF is invalid
+ *
+ * @example
+ * const trend = await fetchSectorTrend('XLK');
+ * console.log(`XLK trend: ${trend.trend_direction}`);
+ */
+export const fetchSectorTrend = async (sectorEtf: string): Promise<SectorTrend> => {
+  const response = await apiClient.get<SectorTrend>(`/v1/stocks/${sectorEtf}/sector-trend`);
+  return response.data;
+};

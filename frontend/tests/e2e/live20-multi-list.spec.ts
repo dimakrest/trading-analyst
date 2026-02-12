@@ -234,15 +234,22 @@ test.describe('Live 20 Multi-List UI - Analyze Tab', () => {
   });
 
   test('multi-list selector dropdown can be opened', async ({ page }) => {
-    // Wait for lists to load
-    await page.waitForTimeout(1000);
-
-    // Click the dropdown button - use flexible selector
+    // Wait for dropdown button to be ready (not in loading state)
     const dropdownButton = page.locator('button').filter({ hasText: /lists/i }).first();
+    await expect(dropdownButton).toBeVisible();
+
+    // Wait for lists to finish loading (button text should not contain "Loading")
+    await expect(dropdownButton).not.toContainText('Loading', { timeout: 10000 });
+
+    // Click the dropdown button
     await dropdownButton.click();
 
-    // Dropdown menu should appear - look for "Select Lists" heading or menu content
-    await page.waitForTimeout(500);
+    // Wait for dropdown menu to appear - race to find any expected element
+    await Promise.race([
+      page.getByText(/no lists available/i).waitFor({ state: 'visible' }).catch(() => {}),
+      page.locator('[role="menuitemcheckbox"]').first().waitFor({ state: 'visible' }).catch(() => {}),
+      page.getByText(/select lists/i).waitFor({ state: 'visible' }).catch(() => {}),
+    ]);
 
     // Should show either "No lists available" or list items or heading
     const hasNoLists = await page.getByText(/no lists available/i).isVisible().catch(() => false);
@@ -261,10 +268,7 @@ test.describe('Live 20 Multi-List UI - Analyze Tab', () => {
     const textarea = page.getByPlaceholder(/search for stocks|aapl, msft/i);
     await textarea.fill('AAPL, MSFT, GOOGL');
 
-    // Wait for count to update
-    await page.waitForTimeout(300);
-
-    // Should show count in X/500 format
+    // Wait for count to update (event-driven)
     await expect(page.getByText(/3\/500/)).toBeVisible();
   });
 });

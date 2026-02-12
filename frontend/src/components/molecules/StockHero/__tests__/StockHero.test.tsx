@@ -304,6 +304,47 @@ describe('StockHero', () => {
     });
   });
 
+  describe('Sector ETF badge', () => {
+    it('should display sector ETF badge when sectorEtf is provided', () => {
+      // Arrange & Act
+      render(<StockHero {...defaultProps} sectorEtf="XLK" />);
+
+      // Assert
+      expect(screen.getByText('XLK')).toBeInTheDocument();
+    });
+
+    it('should not display sector badge when sectorEtf is null', () => {
+      // Arrange & Act
+      render(<StockHero {...defaultProps} sectorEtf={null} />);
+
+      // Assert - no sector badge rendered
+      expect(screen.queryByText('XLK')).not.toBeInTheDocument();
+    });
+
+    it('should not display sector badge when sectorEtf is undefined', () => {
+      // Arrange & Act
+      render(<StockHero {...defaultProps} />);
+
+      // Assert - no sector badge rendered (no extra spans in the symbol row)
+      const symbolRow = screen.getByTestId('stock-hero-symbol').parentElement;
+      const sectorBadge = symbolRow?.querySelector('.font-mono.text-xs.bg-bg-elevated');
+      expect(sectorBadge).not.toBeInTheDocument();
+    });
+
+    it('should apply correct styling to sector badge', () => {
+      // Arrange & Act
+      render(<StockHero {...defaultProps} sectorEtf="XLE" />);
+
+      // Assert
+      const sectorBadge = screen.getByText('XLE');
+      expect(sectorBadge).toHaveClass('font-mono');
+      expect(sectorBadge).toHaveClass('text-xs');
+      expect(sectorBadge).toHaveClass('bg-bg-elevated');
+      expect(sectorBadge).toHaveClass('text-text-muted');
+      expect(sectorBadge).toHaveClass('border-subtle');
+    });
+  });
+
   describe('Badge animation', () => {
     it('should have badge-dot class for pulse animation', () => {
       // Arrange & Act

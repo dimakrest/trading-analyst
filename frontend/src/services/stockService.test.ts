@@ -103,6 +103,65 @@ describe('stockService', () => {
     });
   });
 
+  describe('fetchStockInfo', () => {
+    it('should fetch stock info successfully', async () => {
+      // Arrange
+      const mockStockInfo = {
+        symbol: 'AAPL',
+        name: 'Apple Inc.',
+        sector: 'Technology',
+        sector_etf: 'XLK',
+        industry: 'Consumer Electronics',
+        exchange: 'NASDAQ',
+      };
+
+      mockApiClient.get.mockResolvedValue({ data: mockStockInfo });
+
+      const { fetchStockInfo } = await import('./stockService');
+
+      // Act
+      const result = await fetchStockInfo('AAPL');
+
+      // Assert
+      expect(result).toEqual(mockStockInfo);
+      expect(mockApiClient.get).toHaveBeenCalledWith('/v1/stocks/AAPL/info');
+    });
+
+    it('should throw error when API call fails', async () => {
+      // Arrange
+      mockApiClient.get.mockRejectedValue(new Error('Not Found'));
+
+      const { fetchStockInfo } = await import('./stockService');
+
+      // Act & Assert
+      await expect(fetchStockInfo('INVALID')).rejects.toThrow('Not Found');
+    });
+
+    it('should handle null sector fields', async () => {
+      // Arrange
+      const mockStockInfo = {
+        symbol: 'SPY',
+        name: 'SPDR S&P 500 ETF',
+        sector: null,
+        sector_etf: null,
+        industry: null,
+        exchange: 'NYSE',
+      };
+
+      mockApiClient.get.mockResolvedValue({ data: mockStockInfo });
+
+      const { fetchStockInfo } = await import('./stockService');
+
+      // Act
+      const result = await fetchStockInfo('SPY');
+
+      // Assert
+      expect(result.sector).toBeNull();
+      expect(result.sector_etf).toBeNull();
+      expect(result.industry).toBeNull();
+    });
+  });
+
   describe('fetchStockDataByDateRange', () => {
     it('should fetch stock data for date range successfully', async () => {
       // Arrange

@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, Fragment } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
+  getExpandedRowModel,
   flexRender,
   type ColumnDef,
   type SortingState,
+  type ExpandedState,
 } from '@tanstack/react-table';
 import {
   Table,
@@ -17,11 +19,12 @@ import {
 } from '../ui/table';
 import { Badge } from '../ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { CheckCircle, XCircle, MinusCircle, ArrowUpDown, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { CheckCircle, XCircle, MinusCircle, ArrowUpDown, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight } from 'lucide-react';
 import type { Live20Result, Live20Direction, VolumeApproach } from '../../types/live20';
 import { CandlestickIcon } from './CandlestickIcon';
 import { getCandlePatternLabel } from './candlestickUtils';
 import { cn } from '@/lib/utils';
+import { ExpandedRowContent } from './ExpandedRowContent';
 
 interface Live20TableProps {
   /** Results to display in the table */
@@ -162,14 +165,38 @@ function getVolumeApproachInfo(approach: VolumeApproach): {
  */
 export function Live20Table({ results }: Live20TableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'confidence_score', desc: true }]);
+  const [expanded, setExpanded] = useState<ExpandedState>({});
 
   const columns = useMemo<ColumnDef<Live20Result>[]>(
     () => [
+      {
+        id: 'expand',
+        header: () => null,
+        cell: ({ row }) => (
+          <button
+            onClick={() => row.toggleExpanded()}
+            className="p-1 hover:bg-bg-elevated rounded transition-colors"
+            aria-expanded={row.getIsExpanded()}
+            aria-label={`Expand details for ${row.original.stock}`}
+          >
+            {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
+        ),
+      },
       {
         accessorKey: 'stock',
         header: 'Symbol',
         cell: ({ row }) => (
           <span className="font-mono font-semibold">{row.original.stock}</span>
+        ),
+      },
+      {
+        accessorKey: 'sector_etf',
+        header: 'Sector',
+        cell: ({ row }) => (
+          <span className="text-xs font-mono text-text-secondary">
+            {row.original.sector_etf ?? '-'}
+          </span>
         ),
       },
       {
@@ -352,10 +379,12 @@ export function Live20Table({ results }: Live20TableProps) {
   const table = useReactTable({
     data: results,
     columns,
-    state: { sorting },
+    state: { sorting, expanded },
     onSortingChange: setSorting,
+    onExpandedChange: setExpanded,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getExpandedRowModel: getExpandedRowModel(),
   });
 
   return (
@@ -398,16 +427,22 @@ export function Live20Table({ results }: Live20TableProps) {
                 </TableRow>
               ) : (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className="border-b border-subtle hover:bg-bg-tertiary transition-colors"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="text-[13px]">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
+                  <Fragment key={row.id}>
+                    <TableRow className="border-b border-subtle hover:bg-bg-tertiary transition-colors">
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id} className="text-[13px]">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {row.getIsExpanded() && (
+                      <TableRow>
+                        <TableCell colSpan={columns.length} className="p-0">
+                          <ExpandedRowContent result={row.original} />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 ))
               )}
             </TableBody>

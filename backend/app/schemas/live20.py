@@ -86,6 +86,7 @@ class Live20ResultResponse(StrictBaseModel):
     direction: str | None = None  # LONG, SHORT, NO_SETUP
     entry_strategy: str | None = None  # Entry strategy used
     exit_strategy: str | None = None  # Exit strategy used
+    sector_etf: str | None = None  # SPDR sector ETF symbol
 
     model_config = {
         "from_attributes": True,
@@ -155,6 +156,7 @@ class Live20ResultResponse(StrictBaseModel):
             direction=rec.live20_direction,
             entry_strategy=rec.live20_entry_strategy,
             exit_strategy=rec.live20_exit_strategy,
+            sector_etf=rec.live20_sector_etf,
         )
 
     @field_serializer(

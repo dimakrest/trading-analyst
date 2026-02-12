@@ -159,6 +159,9 @@ class Recommendation(Base):
     live20_exit_strategy: Mapped[str | None] = mapped_column(
         String(20), nullable=True, doc="Exit strategy used: 'atr_based'"
     )
+    live20_sector_etf: Mapped[str | None] = mapped_column(
+        String(10), nullable=True, doc="Sector SPDR ETF symbol (e.g., 'XLK', 'XLE')"
+    )
 
     live20_run_id: Mapped[int | None] = mapped_column(
         Integer,

@@ -67,8 +67,8 @@ class YahooFinanceProvider(MarketDataProviderInterface):
     def supported_intervals(self) -> list[str]:
         return self.VALID_INTERVALS.copy()
 
-    async def validate_symbol(self, symbol: str) -> SymbolInfo:
-        """Validate symbol and fetch basic info from Yahoo Finance."""
+    async def get_symbol_info(self, symbol: str) -> SymbolInfo:
+        """Get comprehensive information about a stock symbol from Yahoo Finance."""
         symbol = symbol.upper().strip()
 
         try:
@@ -96,8 +96,8 @@ class YahooFinanceProvider(MarketDataProviderInterface):
         except SymbolNotFoundError:
             raise
         except Exception as e:
-            logger.error(f"Error validating symbol {symbol}: {e}")
-            raise APIError(f"Failed to validate symbol {symbol}: {e}")
+            logger.error(f"Error fetching symbol info for {symbol}: {e}")
+            raise APIError(f"Failed to fetch symbol info for {symbol}: {e}")
 
     async def fetch_price_data(self, request: PriceDataRequest) -> list[PriceDataPoint]:
         """Fetch historical price data from Yahoo Finance."""
