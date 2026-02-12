@@ -141,19 +141,28 @@ def test_session_factory(test_engine):
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def db_session(test_session_factory) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(request, test_session_factory) -> AsyncGenerator[AsyncSession, None]:
     """Create isolated database session for each test.
 
     This fixture provides a clean database session for each test
     and ensures proper cleanup after the test completes.
 
+    For synchronous tests, this fixture yields None and skips database setup.
+
     Args:
+        request: Pytest request object to check if test is async
         test_session_factory: Test session factory
 
     Yields:
-        AsyncSession: Isolated database session
+        AsyncSession: Isolated database session for async tests, None for sync tests
     """
+    import inspect
     from sqlalchemy import text
+
+    # Check if the test is async - if not, skip database setup
+    if not inspect.iscoroutinefunction(request.function):
+        yield None
+        return
 
     async with test_session_factory() as session:
         # Clean database before test

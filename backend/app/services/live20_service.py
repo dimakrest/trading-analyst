@@ -15,6 +15,7 @@ from app.services.live20_evaluator import (
     Live20Evaluator,
 )
 from app.services.pricing_strategies import PricingCalculator, PricingConfig
+from app.utils.technical_indicators import calculate_atr_percentage
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,9 @@ class Live20Service:
             closes = [float(r.close_price) for r in price_records]
             volumes = [float(r.volume) for r in price_records]
 
+            # Calculate ATR independently (for ALL stocks, regardless of direction)
+            atr_percentage = calculate_atr_percentage(highs, lows, closes)
+
             # Evaluate all criteria
             (
                 criteria,
@@ -158,7 +162,7 @@ class Live20Service:
                     or (direction == Live20Direction.SHORT and criteria[3].aligned_for_short)
                 ),
                 live20_volume_approach=volume_signal.approach.value,
-                live20_atr=pricing_result.atr if pricing_result else None,
+                live20_atr=Decimal(str(round(atr_percentage, 4))) if atr_percentage is not None else None,
                 live20_rvol=Decimal(str(volume_signal.rvol)) if math.isfinite(volume_signal.rvol) else None,
                 live20_cci_direction=cci_analysis.direction.value,
                 live20_cci_value=Decimal(str(cci_analysis.value)),
