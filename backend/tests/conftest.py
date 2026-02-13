@@ -247,6 +247,8 @@ def override_get_session_factory(db_connection):
             join_transaction_mode="create_savepoint",
         )
 
+    # Double-lambda matches FastAPI DI pattern: get_session_factory() returns
+    # a factory function, which is then called to create sessions.
     return lambda: bound_session_factory
 
 

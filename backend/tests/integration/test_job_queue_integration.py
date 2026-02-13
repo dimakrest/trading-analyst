@@ -69,7 +69,7 @@ class TestJobSurvivesRestart:
 
     @pytest.mark.asyncio
     async def test_pending_job_survives_restart(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that pending jobs are picked up after simulated restart.
 
         Scenario:
@@ -98,7 +98,7 @@ class TestJobSurvivesRestart:
 
     @pytest.mark.asyncio
     async def test_running_job_reset_on_restart(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that running jobs are reset to pending after server restart.
 
         Scenario:
@@ -134,7 +134,7 @@ class TestJobSurvivesRestart:
 
     @pytest.mark.asyncio
     async def test_restart_does_not_increment_retry_count(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that server restart does NOT increment retry_count.
 
         Server restart is process interruption, not a job failure.
@@ -157,7 +157,7 @@ class TestJobSurvivesRestart:
 
     @pytest.mark.asyncio
     async def test_multiple_running_jobs_all_reset(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that multiple running jobs are all reset on restart."""
         # Create multiple running jobs
         run1 = await create_live20_run(
@@ -187,7 +187,7 @@ class TestJobRetryOnFailure:
 
     @pytest.mark.asyncio
     async def test_job_retries_on_failure(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that failed jobs are retried up to max_retries.
 
         Scenario:
@@ -242,7 +242,7 @@ class TestJobRetryOnFailure:
 
     @pytest.mark.asyncio
     async def test_failed_job_preserves_progress(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that job progress is preserved across retries."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -298,7 +298,7 @@ class TestStaleJobReset:
 
     @pytest.mark.asyncio
     async def test_stale_job_fails_after_max_retries(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that stale job is failed when max_retries is exhausted."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60
@@ -322,7 +322,7 @@ class TestStaleJobReset:
 
     @pytest.mark.asyncio
     async def test_recent_heartbeat_not_stale(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that jobs with recent heartbeat are not considered stale."""
         recent_time = datetime.now(timezone.utc) - timedelta(seconds=30)  # 30s ago
         run = await create_live20_run(
@@ -348,7 +348,7 @@ class TestCancellationCheck:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_detects_cancelled_job(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that is_cancelled() correctly detects cancelled jobs.
 
         Scenario:
@@ -378,7 +378,7 @@ class TestCancellationCheck:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_running(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that is_cancelled returns False for running jobs."""
         run = await create_live20_run(rollback_session_factory, status="running")
 
@@ -387,7 +387,7 @@ class TestCancellationCheck:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_completed(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that is_cancelled returns False for completed jobs."""
         run = await create_live20_run(rollback_session_factory, status="completed")
 
@@ -396,7 +396,7 @@ class TestCancellationCheck:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_nonexistent(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that is_cancelled returns False for nonexistent job."""
         service = JobQueueService(rollback_session_factory, Live20Run)
         assert await service.is_cancelled(999999) is False
@@ -443,7 +443,7 @@ class TestFullJobLifecycle:
 
     @pytest.mark.asyncio
     async def test_full_job_failure_and_retry_flow(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test job lifecycle with failure and successful retry.
 
         This tests the scenario where a job fails on first attempt,
@@ -475,7 +475,7 @@ class TestFullJobLifecycle:
 
     @pytest.mark.asyncio
     async def test_fifo_ordering_preserved_across_failures(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Test that FIFO ordering is preserved when jobs fail and retry.
 
         When a job fails and is reset to pending, it should be picked up

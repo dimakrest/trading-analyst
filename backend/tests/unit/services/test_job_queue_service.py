@@ -102,7 +102,7 @@ class TestClaimNextJob:
 
     @pytest.mark.asyncio
     async def test_claim_next_job_returns_none_when_empty(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return None when no pending jobs exist."""
         service = JobQueueService(rollback_session_factory, Live20Run)
 
@@ -112,7 +112,7 @@ class TestClaimNextJob:
 
     @pytest.mark.asyncio
     async def test_claim_next_job_returns_pending_job(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return and claim a pending job."""
         run = await create_live20_run(rollback_session_factory, status="pending")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -124,7 +124,7 @@ class TestClaimNextJob:
 
     @pytest.mark.asyncio
     async def test_claim_next_job_updates_status_to_running(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should update job status to running when claimed."""
         run = await create_live20_run(rollback_session_factory, status="pending")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -136,7 +136,7 @@ class TestClaimNextJob:
 
     @pytest.mark.asyncio
     async def test_claim_next_job_sets_worker_id(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should set worker_id when claiming job."""
         run = await create_live20_run(rollback_session_factory, status="pending")
         service = JobQueueService(
@@ -150,7 +150,7 @@ class TestClaimNextJob:
 
     @pytest.mark.asyncio
     async def test_claim_next_job_sets_claimed_at_and_heartbeat(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should set claimed_at and heartbeat_at timestamps."""
         run = await create_live20_run(rollback_session_factory, status="pending")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -167,7 +167,7 @@ class TestClaimNextJob:
 
     @pytest.mark.asyncio
     async def test_claim_next_job_respects_fifo_order(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should claim jobs in FIFO order (oldest first)."""
         run1 = await create_live20_run(rollback_session_factory, status="pending")
         run2 = await create_live20_run(rollback_session_factory, status="pending")
@@ -185,7 +185,7 @@ class TestClaimNextJob:
 
     @pytest.mark.asyncio
     async def test_claim_next_job_skips_non_pending(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should only claim pending jobs, skipping running/completed/failed."""
         await create_live20_run(rollback_session_factory, status="running")
         await create_live20_run(rollback_session_factory, status="completed")
@@ -206,7 +206,7 @@ class TestIsCancelled:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_true_for_cancelled(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return True when job status is cancelled."""
         run = await create_live20_run(rollback_session_factory, status="cancelled")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -217,7 +217,7 @@ class TestIsCancelled:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_running(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return False when job status is running."""
         run = await create_live20_run(rollback_session_factory, status="running")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -228,7 +228,7 @@ class TestIsCancelled:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_pending(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return False when job status is pending."""
         run = await create_live20_run(rollback_session_factory, status="pending")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -239,7 +239,7 @@ class TestIsCancelled:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_completed(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return False when job status is completed."""
         run = await create_live20_run(rollback_session_factory, status="completed")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -250,7 +250,7 @@ class TestIsCancelled:
 
     @pytest.mark.asyncio
     async def test_is_cancelled_returns_false_for_nonexistent(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return False for nonexistent job (no status found)."""
         service = JobQueueService(rollback_session_factory, Live20Run)
 
@@ -265,7 +265,7 @@ class TestResetStrandedJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stranded_jobs_resets_running_to_pending(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should reset all running jobs to pending."""
         run1 = await create_live20_run(rollback_session_factory, status="running")
         run2 = await create_live20_run(rollback_session_factory, status="running")
@@ -283,7 +283,7 @@ class TestResetStrandedJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stranded_jobs_clears_worker_info(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should clear worker_id and claimed_at."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -300,7 +300,7 @@ class TestResetStrandedJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stranded_jobs_does_not_increment_retry_count(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should NOT increment retry_count (server restart is not failure)."""
         run = await create_live20_run(
             rollback_session_factory, status="running", retry_count=1
@@ -314,7 +314,7 @@ class TestResetStrandedJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stranded_jobs_sets_last_error_message(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should set informative last_error message."""
         run = await create_live20_run(rollback_session_factory, status="running")
 
@@ -326,7 +326,7 @@ class TestResetStrandedJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stranded_jobs_ignores_pending(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should not affect pending jobs."""
         run = await create_live20_run(rollback_session_factory, status="pending")
 
@@ -340,7 +340,7 @@ class TestResetStrandedJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stranded_jobs_ignores_completed(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should not affect completed jobs."""
         run = await create_live20_run(rollback_session_factory, status="completed")
 
@@ -354,7 +354,7 @@ class TestResetStrandedJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stranded_jobs_returns_zero_when_none(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return 0 when no running jobs exist."""
         await create_live20_run(rollback_session_factory, status="pending")
         await create_live20_run(rollback_session_factory, status="completed")
@@ -371,7 +371,7 @@ class TestUpdateHeartbeat:
 
     @pytest.mark.asyncio
     async def test_update_heartbeat_updates_timestamp(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should update heartbeat_at timestamp."""
         old_time = datetime.now(timezone.utc) - timedelta(minutes=5)
         run = await create_live20_run(
@@ -395,7 +395,7 @@ class TestMarkCompleted:
 
     @pytest.mark.asyncio
     async def test_mark_completed_updates_status(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should set status to completed."""
         run = await create_live20_run(rollback_session_factory, status="running")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -407,7 +407,7 @@ class TestMarkCompleted:
 
     @pytest.mark.asyncio
     async def test_mark_completed_updates_heartbeat(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should update heartbeat_at timestamp."""
         old_time = datetime.now(timezone.utc) - timedelta(minutes=5)
         run = await create_live20_run(
@@ -425,7 +425,7 @@ class TestMarkCompleted:
 
     @pytest.mark.asyncio
     async def test_mark_completed_clears_last_error(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should clear last_error when job completes successfully.
 
         This is important for jobs that failed previously but succeeded on retry.
@@ -450,7 +450,7 @@ class TestMarkFailed:
 
     @pytest.mark.asyncio
     async def test_mark_failed_increments_retry_count(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should increment retry_count when retries available."""
         run = await create_live20_run(
             rollback_session_factory, status="running", retry_count=0, max_retries=3
@@ -464,7 +464,7 @@ class TestMarkFailed:
 
     @pytest.mark.asyncio
     async def test_mark_failed_resets_to_pending_for_retry(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should reset status to pending when retries available."""
         run = await create_live20_run(
             rollback_session_factory, status="running", retry_count=0, max_retries=3
@@ -478,7 +478,7 @@ class TestMarkFailed:
 
     @pytest.mark.asyncio
     async def test_mark_failed_clears_worker_info_for_retry(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should clear worker_id and claimed_at for retry."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -497,7 +497,7 @@ class TestMarkFailed:
 
     @pytest.mark.asyncio
     async def test_mark_failed_sets_last_error(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should set last_error message."""
         run = await create_live20_run(rollback_session_factory, status="running")
         service = JobQueueService(rollback_session_factory, Live20Run)
@@ -509,7 +509,7 @@ class TestMarkFailed:
 
     @pytest.mark.asyncio
     async def test_mark_failed_sets_failed_after_max_retries(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should set status to failed when max_retries exceeded."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -526,7 +526,7 @@ class TestMarkFailed:
 
     @pytest.mark.asyncio
     async def test_mark_failed_does_not_increment_past_max(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should not increment retry_count when already at max."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -543,7 +543,7 @@ class TestMarkFailed:
 
     @pytest.mark.asyncio
     async def test_mark_failed_handles_nonexistent_job(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should handle nonexistent job gracefully (no error)."""
         service = JobQueueService(rollback_session_factory, Live20Run)
 
@@ -557,7 +557,7 @@ class TestResetStaleJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stale_jobs_resets_old_heartbeat(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should reset jobs with old heartbeat to pending."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60
@@ -579,7 +579,7 @@ class TestResetStaleJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stale_jobs_increments_retry_count(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should increment retry_count for stale jobs."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60
@@ -599,7 +599,7 @@ class TestResetStaleJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stale_jobs_clears_worker_info(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should clear worker_id and claimed_at."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60
@@ -620,7 +620,7 @@ class TestResetStaleJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stale_jobs_sets_last_error(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should set informative last_error message."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60
@@ -640,7 +640,7 @@ class TestResetStaleJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stale_jobs_fails_after_max_retries(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should set status to failed when max_retries exceeded."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60
@@ -664,7 +664,7 @@ class TestResetStaleJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stale_jobs_ignores_recent_heartbeat(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should not reset jobs with recent heartbeat."""
         recent_time = datetime.now(timezone.utc) - timedelta(seconds=30)  # 30s ago
         run = await create_live20_run(
@@ -683,7 +683,7 @@ class TestResetStaleJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stale_jobs_ignores_pending(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should not affect pending jobs even with old heartbeat."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60
@@ -704,7 +704,7 @@ class TestResetStaleJobs:
 
     @pytest.mark.asyncio
     async def test_reset_stale_jobs_returns_count(
-        self, rollback_session_factory    ):
+        self, rollback_session_factory):
         """Should return count of reset jobs."""
         stale_time = datetime.now(timezone.utc) - timedelta(
             seconds=STALE_JOB_THRESHOLD + 60

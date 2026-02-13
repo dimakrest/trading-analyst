@@ -193,14 +193,6 @@ addopts = [
     "--strict-config",
     "--verbose",
     "--tb=short",
-    "--cov=app",
-    "--cov-report=term-missing",
-    "--cov-report=html:htmlcov",
-    "--cov-report=xml:coverage.xml",
-    # Temporarily disabled due to pytest-cov + async SQLAlchemy limitation
-    # Re-enable after resolving test isolation issues with coverage
-    # "--cov-fail-under=80",
-    "--no-cov-on-fail",
 ]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
