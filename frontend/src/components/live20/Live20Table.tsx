@@ -158,7 +158,7 @@ function getVolumeApproachInfo(approach: VolumeApproach): {
  * Live 20 results table
  *
  * Displays analysis results in a sortable table with columns for symbol, direction,
- * score, price, and each criterion (Trend, MA20, Candle, Volume, CCI) with alignment
+ * score, ATR, and each criterion (Trend, MA20, Candle, Volume, CCI) with alignment
  * indicators. Supports sorting by score (default: descending).
  *
  * @param props - Component props
@@ -216,15 +216,6 @@ export function Live20Table({ results }: Live20TableProps) {
           </button>
         ),
         cell: ({ row }) => <ScoreBar score={row.original.confidence_score} />,
-      },
-      {
-        accessorKey: 'entry_price',
-        header: 'Price',
-        cell: ({ row }) => (
-          <span className="font-mono">
-            ${row.original.entry_price?.toFixed(2) ?? '-'}
-          </span>
-        ),
       },
       {
         accessorKey: 'atr',

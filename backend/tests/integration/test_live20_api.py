@@ -27,8 +27,6 @@ async def sample_live20_results(db_session: AsyncSession):
             recommendation="LONG",
             confidence_score=80,
             reasoning="Live 20 mean reversion analysis",
-            entry_price=Decimal("150.50"),
-            stop_loss=Decimal("148.25"),
             live20_trend_direction="bearish",
             live20_trend_aligned=True,
             live20_ma20_distance_pct=Decimal("-6.5"),
@@ -50,8 +48,6 @@ async def sample_live20_results(db_session: AsyncSession):
             recommendation="SHORT",
             confidence_score=60,
             reasoning="Live 20 mean reversion analysis",
-            entry_price=Decimal("200.25"),
-            stop_loss=Decimal("205.50"),
             live20_trend_direction="bullish",
             live20_trend_aligned=True,
             live20_ma20_distance_pct=Decimal("7.2"),
@@ -73,7 +69,6 @@ async def sample_live20_results(db_session: AsyncSession):
             recommendation="NO_SETUP",
             confidence_score=40,
             reasoning="Live 20 mean reversion analysis",
-            entry_price=Decimal("350.00"),
             live20_trend_direction="neutral",
             live20_trend_aligned=False,
             live20_ma20_distance_pct=Decimal("2.0"),
@@ -307,7 +302,6 @@ async def test_results_decimal_serialization(async_client: AsyncClient, sample_l
 
     # Verify Decimal fields are returned as floats
     result = data["results"][0]
-    assert isinstance(result["entry_price"], float)
     assert isinstance(result["ma20_distance_pct"], float)
     assert isinstance(result["cci_value"], float)
     assert isinstance(result["atr"], float)

@@ -1,5 +1,5 @@
 import { apiClient } from '../lib/apiClient';
-import type { Live20AnalyzeResponse, Live20ResultsResponse, Live20RunListResponse, Live20RunDetail, StrategyConfig } from '../types/live20';
+import type { Live20AnalyzeResponse, Live20ResultsResponse, Live20RunListResponse, Live20RunDetail } from '../types/live20';
 
 const API_BASE = '/v1/live-20';
 
@@ -12,7 +12,6 @@ const API_BASE = '/v1/live-20';
  *
  * @param symbols - Array of stock symbols to analyze (max 500)
  * @param sourceLists - Optional array of source list objects with id and name (for tracking)
- * @param strategyConfig - Optional strategy configuration for entry/exit strategies
  * @param signal - Optional AbortSignal to cancel the request
  * @returns Promise resolving to analysis results with recommendations and errors
  * @throws Error if the API request fails
@@ -24,20 +23,15 @@ const API_BASE = '/v1/live-20';
 export const analyzeSymbols = async (
   symbols: string[],
   sourceLists: Array<{ id: number; name: string }> | null = null,
-  strategyConfig: StrategyConfig | null = null,
   signal?: AbortSignal
 ): Promise<Live20AnalyzeResponse> => {
   const body: {
     symbols: string[];
     source_lists?: Array<{ id: number; name: string }>;
-    strategy_config?: StrategyConfig;
   } = { symbols };
 
   if (sourceLists !== null && sourceLists.length > 0) {
     body.source_lists = sourceLists;
-  }
-  if (strategyConfig !== null) {
-    body.strategy_config = strategyConfig;
   }
 
   const response = await apiClient.post<Live20AnalyzeResponse>(

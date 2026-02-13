@@ -3,7 +3,6 @@
 Tests service-layer concerns:
 - Database operations
 - Error handling
-- Pricing integration
 - Symbol validation
 
 Note: Concurrency control is tested in worker tests, not service tests.
@@ -22,7 +21,6 @@ from app.services.live20_service import (
     Live20Result,
     Live20Service,
 )
-from app.services.pricing_strategies import PricingConfig
 
 
 # Common fixtures for all test classes
@@ -81,7 +79,7 @@ class TestLive20Service:
         ) as mock_get_data:
             mock_get_data.return_value = sample_price_data
 
-            result = await service._analyze_symbol("AAPL", PricingConfig())
+            result = await service._analyze_symbol("AAPL")
 
             assert result.status == "success"
             assert result.symbol == "AAPL"
@@ -98,7 +96,7 @@ class TestLive20Service:
         ) as mock_get_data:
             mock_get_data.return_value = sample_price_data
 
-            result = await service._analyze_symbol("AAPL", PricingConfig())
+            result = await service._analyze_symbol("AAPL")
 
             assert result.status == "success"
             rec = result.recommendation
@@ -118,7 +116,7 @@ class TestLive20Service:
     @pytest.mark.asyncio
     async def test_analyze_symbol_invalid_symbol(self, service):
         """Test analysis with invalid symbol."""
-        result = await service._analyze_symbol("", PricingConfig())
+        result = await service._analyze_symbol("")
 
         assert result.status == "error"
         assert "Invalid symbol" in result.error_message
@@ -132,7 +130,7 @@ class TestLive20Service:
         ) as mock_get_data:
             mock_get_data.return_value = []  # No data
 
-            result = await service._analyze_symbol("AAPL", PricingConfig())
+            result = await service._analyze_symbol("AAPL")
 
             assert result.status == "error"
             assert "Insufficient data" in result.error_message

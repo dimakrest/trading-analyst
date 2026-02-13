@@ -9,35 +9,6 @@ from pydantic import Field, field_serializer, model_validator
 from app.schemas.base import StrictBaseModel
 
 
-class StrategyConfigSchema(StrictBaseModel):
-    """Pricing strategy configuration for Live 20 analysis.
-
-    Validates and structures the entry/exit strategy parameters.
-    Mirrors backend's PricingConfig dataclass for API validation.
-    """
-
-    entry_strategy: Literal["current_price", "breakout_confirmation"] = Field(
-        default="current_price",
-        description="Entry price calculation strategy",
-    )
-    exit_strategy: Literal["atr_based"] = Field(
-        default="atr_based",
-        description="Exit price (stop loss) calculation strategy",
-    )
-    breakout_offset_pct: float = Field(
-        default=2.0,
-        ge=0.1,
-        le=10.0,
-        description="Percentage offset for breakout_confirmation entry (0.1-10%)",
-    )
-    atr_multiplier: float = Field(
-        default=0.5,
-        ge=0.1,
-        le=3.0,
-        description="ATR multiplier for stop loss calculation (0.1-3.0)",
-    )
-
-
 class SourceListItem(StrictBaseModel):
     """Reference to a stock list used as source for analysis."""
 
@@ -55,8 +26,6 @@ class Live20ResultResponse(StrictBaseModel):
     # Core results
     recommendation: str  # Maps to live20_direction: LONG, SHORT, NO_SETUP
     confidence_score: int  # 0-100 score
-    entry_price: Decimal | None  # Current price at analysis time
-    stop_loss: Decimal | None = None  # Calculated stop loss price
 
     # Live 20 specific fields
     trend_direction: str | None = None
@@ -84,8 +53,6 @@ class Live20ResultResponse(StrictBaseModel):
     cci_aligned: bool | None = None
     criteria_aligned: int | None = None
     direction: str | None = None  # LONG, SHORT, NO_SETUP
-    entry_strategy: str | None = None  # Entry strategy used
-    exit_strategy: str | None = None  # Exit strategy used
     sector_etf: str | None = None  # SPDR sector ETF symbol
 
     model_config = {
@@ -98,8 +65,6 @@ class Live20ResultResponse(StrictBaseModel):
                     "created_at": "2025-01-22T10:30:00",
                     "recommendation": "LONG",
                     "confidence_score": 80,
-                    "entry_price": "175.50",
-                    "stop_loss": "171.25",
                     "trend_direction": "bearish",
                     "trend_aligned": True,
                     "ma20_distance_pct": "-3.25",
@@ -117,9 +82,7 @@ class Live20ResultResponse(StrictBaseModel):
                     "cci_zone": "oversold",
                     "cci_aligned": True,
                     "criteria_aligned": 4,
-                    "direction": "LONG",
-                    "entry_strategy": "current_price",
-                    "exit_strategy": "atr_based"
+                    "direction": "LONG"
                 }
             ]
         }
@@ -134,8 +97,6 @@ class Live20ResultResponse(StrictBaseModel):
             created_at=rec.created_at,
             recommendation=rec.live20_direction or "NO_SETUP",
             confidence_score=rec.confidence_score or 0,
-            entry_price=rec.entry_price,
-            stop_loss=rec.stop_loss,
             trend_direction=rec.live20_trend_direction,
             trend_aligned=rec.live20_trend_aligned,
             ma20_distance_pct=rec.live20_ma20_distance_pct,
@@ -154,13 +115,11 @@ class Live20ResultResponse(StrictBaseModel):
             cci_aligned=rec.live20_cci_aligned,
             criteria_aligned=rec.live20_criteria_aligned,
             direction=rec.live20_direction,
-            entry_strategy=rec.live20_entry_strategy,
-            exit_strategy=rec.live20_exit_strategy,
             sector_etf=rec.live20_sector_etf,
         )
 
     @field_serializer(
-        "entry_price", "stop_loss", "ma20_distance_pct", "atr", "rvol", "cci_value", when_used="json"
+        "ma20_distance_pct", "atr", "rvol", "cci_value", when_used="json"
     )
     def serialize_decimal_as_float(self, value: Decimal | None) -> float | None:
         """Serialize decimal fields as float for JSON."""
@@ -192,10 +151,6 @@ class Live20AnalyzeRequest(StrictBaseModel):
         None,
         max_length=10,
         description="Array of source lists when multiple lists combined (max 10 lists)",
-    )
-    strategy_config: StrategyConfigSchema | None = Field(
-        None,
-        description="Pricing strategy configuration for entry/exit calculations",
     )
 
     @model_validator(mode="after")

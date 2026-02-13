@@ -30,7 +30,6 @@ const createMockResult = (id: number, stock: string, direction: 'LONG' | 'SHORT'
   created_at: '2025-12-24T12:00:00Z',
   recommendation: direction,
   confidence_score: 75,
-  entry_price: 100,
   sector_etf: 'XLK',
   trend_direction: 'UP',
   trend_aligned: true,
@@ -50,9 +49,6 @@ const createMockResult = (id: number, stock: string, direction: 'LONG' | 'SHORT'
   criteria_aligned: 5,
   direction,
   atr: 2.35,  // ATR is always calculated, regardless of direction
-  stop_loss: direction !== 'NO_SETUP' ? 95 : null,
-  entry_strategy: direction !== 'NO_SETUP' ? 'current_price' : null,
-  exit_strategy: direction !== 'NO_SETUP' ? 'atr_based' : null,
 });
 
 const mockResults = [
@@ -73,7 +69,6 @@ const createMockRunDetail = (status: string, results: Live20Result[]): Live20Run
   input_symbols: ['AAPL', 'MSFT', 'NVDA'],
   stock_list_id: null,
   stock_list_name: null,
-  strategy_config: null,
   results,
 });
 

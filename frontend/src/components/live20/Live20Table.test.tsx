@@ -17,11 +17,7 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   created_at: '2025-12-22T00:00:00Z',
   recommendation: 'LONG',
   confidence_score: 80,
-  entry_price: 100.0,
-  stop_loss: null,
   atr: 2.35,
-  entry_strategy: null,
-  exit_strategy: null,
   sector_etf: 'XLK',
   trend_direction: 'bearish',
   trend_aligned: true,
@@ -484,10 +480,10 @@ describe('Live20Table', () => {
       const result = createMockResult({ atr: null });
       render(<Live20Table results={[result]} />);
 
-      // Find the ATR cell (7th column - Expand, Symbol, Sector, Direction, Score, Price, ATR) and verify it displays a dash
+      // Find the ATR cell (6th column - Expand, Symbol, Sector, Direction, Score, ATR) and verify it displays a dash
       const row = screen.getByText('TEST').closest('tr');
       expect(row).toBeInTheDocument();
-      const atrCell = row?.querySelector('td:nth-child(7) span');
+      const atrCell = row?.querySelector('td:nth-child(6) span');
       expect(atrCell).toBeInTheDocument();
       expect(atrCell).toHaveTextContent('-');
     });
@@ -523,7 +519,7 @@ describe('Live20Table', () => {
 
         // Find the ATR cell in the row
         const row = screen.getByText('TEST').closest('tr');
-        const atrCell = row?.querySelector('td:nth-child(7) span'); // ATR is 7th column (Expand, Symbol, Sector, Direction, Score, Price, ATR)
+        const atrCell = row?.querySelector('td:nth-child(6) span'); // ATR is 6th column (Expand, Symbol, Sector, Direction, Score, ATR)
 
         expect(atrCell).toBeInTheDocument();
         expect(atrCell).not.toHaveClass('text-accent-bullish');

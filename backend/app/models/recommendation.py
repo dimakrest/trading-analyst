@@ -66,18 +66,6 @@ class Recommendation(Base):
         String(20), nullable=False, doc="LONG, SHORT, or NO_SETUP (Live20 directions)"
     )
 
-    entry_price: Mapped[Decimal | None] = mapped_column(
-        Numeric(precision=12, scale=4), nullable=True, doc="Recommended entry price"
-    )
-
-    stop_loss: Mapped[Decimal | None] = mapped_column(
-        Numeric(precision=12, scale=4), nullable=True, doc="Recommended stop loss price"
-    )
-
-    take_profit: Mapped[Decimal | None] = mapped_column(
-        Numeric(precision=12, scale=4), nullable=True, doc="Recommended take profit price"
-    )
-
     reasoning: Mapped[str] = mapped_column(
         Text, nullable=False, doc="Evaluator's reasoning for the recommendation"
     )
@@ -152,12 +140,6 @@ class Recommendation(Base):
     )
     live20_direction: Mapped[str | None] = mapped_column(
         String(10), nullable=True, index=True, doc="Live 20 direction: 'LONG', 'SHORT', 'NO_SETUP'"
-    )
-    live20_entry_strategy: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, doc="Entry strategy used: 'current_price', 'breakout_confirmation'"
-    )
-    live20_exit_strategy: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, doc="Exit strategy used: 'atr_based'"
     )
     live20_sector_etf: Mapped[str | None] = mapped_column(
         String(10), nullable=True, doc="Sector SPDR ETF symbol (e.g., 'XLK', 'XLE')"

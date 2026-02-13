@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PullToRefresh } from '@/components/ui/pull-to-refresh';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
-import type { Live20Direction, StrategyConfig } from '@/types/live20';
+import type { Live20Direction } from '@/types/live20';
 import { useLive20 } from '@/hooks/useLive20';
 import { useResponsive } from '@/hooks/useResponsive';
 import { Live20Input } from './Live20Input';
@@ -56,12 +56,11 @@ export function Live20Dashboard() {
 
   const handleAnalyze = async (
     symbols: string[],
-    sourceLists: Array<{ id: number; name: string }> | null,
-    strategyConfig: StrategyConfig
+    sourceLists: Array<{ id: number; name: string }> | null
   ) => {
     setSymbolCount(symbols.length);
     setWasCancelled(false);
-    await analyzeSymbols(symbols, sourceLists, strategyConfig);
+    await analyzeSymbols(symbols, sourceLists);
   };
 
   // Track if the current analysis was cancelled

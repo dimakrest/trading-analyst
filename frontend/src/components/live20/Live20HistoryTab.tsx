@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
-import { Search, ChevronRight, List, Target } from 'lucide-react';
+import { Search, ChevronRight, List } from 'lucide-react';
 import type { Live20RunSummary } from '../../types/live20';
 import { listRuns, type ListRunsParams } from '../../services/live20Service';
-import { getStrategyDisplayLabel } from '../../utils/live20';
 
 const PAGE_SIZE = 20;
 
@@ -307,15 +306,6 @@ export function Live20HistoryTab() {
                             {run.stock_list_name}
                           </Badge>
                         ) : null}
-                        {getStrategyDisplayLabel(run.strategy_config) && (
-                          <Badge
-                            variant="outline"
-                            className="ml-2 text-xs inline-flex items-center gap-1 border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)] text-[#fbbf24]"
-                          >
-                            <Target className="h-3 w-3" aria-hidden="true" />
-                            {getStrategyDisplayLabel(run.strategy_config)}
-                          </Badge>
-                        )}
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap font-mono text-[13px] font-semibold text-text-primary">
                         {run.symbol_count}

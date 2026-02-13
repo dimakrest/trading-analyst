@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { Live20Result, Live20Counts, Live20Direction, StrategyConfig } from '@/types/live20';
+import type { Live20Result, Live20Counts, Live20Direction } from '@/types/live20';
 import * as live20Service from '@/services/live20Service';
 import { useLive20Polling } from './useLive20Polling';
 import { cancelRun } from '@/services/live20Service';
@@ -17,7 +17,7 @@ interface UseLive20Return {
   isLoading: boolean;
   isAnalyzing: boolean;
   error: string | null;
-  analyzeSymbols: (symbols: string[], sourceLists?: Array<{ id: number; name: string }> | null, strategyConfig?: StrategyConfig | null) => Promise<void>;
+  analyzeSymbols: (symbols: string[], sourceLists?: Array<{ id: number; name: string }> | null) => Promise<void>;
   fetchResults: (direction?: Live20Direction | null, minScore?: number) => Promise<void>;
   progress: AnalysisProgress | null;
   cancelAnalysis: () => Promise<void>;
@@ -108,8 +108,7 @@ export function useLive20(): UseLive20Return {
   const analyzeSymbols = useCallback(
     async (
       symbols: string[],
-      sourceLists: Array<{ id: number; name: string }> | null = null,
-      strategyConfig: StrategyConfig | null = null
+      sourceLists: Array<{ id: number; name: string }> | null = null
     ) => {
       setError(null);
       setResults([]);
@@ -117,7 +116,7 @@ export function useLive20(): UseLive20Return {
       setFailedSymbols({});
 
       try {
-        const response = await live20Service.analyzeSymbols(symbols, sourceLists, strategyConfig);
+        const response = await live20Service.analyzeSymbols(symbols, sourceLists);
 
         setActiveRunId(response.run_id);
         setProgress({

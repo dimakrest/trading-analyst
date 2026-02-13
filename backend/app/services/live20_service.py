@@ -14,7 +14,6 @@ from app.services.live20_evaluator import (
     Live20Direction,
     Live20Evaluator,
 )
-from app.services.pricing_strategies import PricingCalculator, PricingConfig
 from app.utils.technical_indicators import calculate_atr_percentage
 
 logger = logging.getLogger(__name__)
@@ -42,7 +41,6 @@ class Live20Service:
 
     Delegates evaluation logic to Live20Evaluator and handles:
     - Database operations (fetching price data, saving recommendations)
-    - Pricing calculations
 
     See Live20Evaluator for details on the 5 criteria and scoring logic.
     """
@@ -56,7 +54,7 @@ class Live20Service:
         self.session_factory = session_factory
         self._evaluator = Live20Evaluator()
 
-    async def _analyze_symbol(self, symbol: str, pricing_config: PricingConfig) -> Live20Result:
+    async def _analyze_symbol(self, symbol: str) -> Live20Result:
         """Analyze a single symbol and save result."""
         try:
             # Validate symbol
@@ -109,10 +107,6 @@ class Live20Service:
             # Determine direction based on aligned criteria
             direction, score = self._evaluator.determine_direction_and_score(criteria)
 
-            # Calculate pricing using strategy config
-            calculator = PricingCalculator(pricing_config)
-            pricing_result = calculator.calculate(direction, closes, highs, lows)
-
             # Lookup sector ETF (cheap DB cache hit, non-blocking)
             sector_etf = None
             try:
@@ -122,23 +116,13 @@ class Live20Service:
                 # Non-critical - don't fail analysis if sector lookup fails
                 logger.warning(f"Failed to fetch sector ETF for {symbol}: {e}")
 
-            # Create recommendation with pricing
+            # Create recommendation
             recommendation = Recommendation(
                 stock=symbol,
                 source=RecommendationSource.LIVE_20.value,
                 recommendation=direction,  # Maps to recommendation field
                 confidence_score=score,
-                # Use calculated prices or None for NO_SETUP
-                entry_price=pricing_result.entry_price if pricing_result else None,
-                stop_loss=pricing_result.stop_loss if pricing_result else None,
                 reasoning="Live 20 mean reversion analysis",
-                # Strategy fields
-                live20_entry_strategy=(
-                    pricing_result.entry_strategy.value if pricing_result else None
-                ),
-                live20_exit_strategy=(
-                    pricing_result.exit_strategy.value if pricing_result else None
-                ),
                 # Live 20 specific fields
                 live20_trend_direction=criteria[0].value,
                 live20_trend_aligned=(

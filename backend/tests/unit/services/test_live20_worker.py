@@ -47,9 +47,8 @@ async def create_live20_run(
                     source=RecommendationSource.LIVE_20.value,
                     recommendation="LONG",
                     confidence_score=80,
-                    entry_price=Decimal("100.00"),
                     reasoning="Test recommendation",
-                                        live20_run_id=run.id,
+                    live20_run_id=run.id,
                     live20_direction="LONG",
                 )
                 session.add(rec)
@@ -101,7 +100,7 @@ class TestLive20WorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_skips_already_processed(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should skip symbols that already have recommendations."""
         # Create run with AAPL already processed
         run = await create_live20_run(
@@ -139,7 +138,7 @@ class TestLive20WorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_checks_cancellation(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should check for cancellation before each batch."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -174,7 +173,7 @@ class TestLive20WorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_stops_on_cancellation(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should stop processing when run is cancelled."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -200,7 +199,7 @@ class TestLive20WorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_all_done_early_return(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should return early if all symbols already processed."""
         # Create run with all symbols already processed
         run = await create_live20_run(
@@ -231,7 +230,7 @@ class TestLive20WorkerResumeCountAccuracy:
 
     @pytest.mark.asyncio
     async def test_resume_recovers_counts_from_existing_recommendations(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should recover accurate counts from existing recommendations on resume.
 
         This tests the critical scenario where a server crashes mid-processing:
@@ -264,9 +263,8 @@ class TestLive20WorkerResumeCountAccuracy:
                 source=RecommendationSource.LIVE_20.value,
                 recommendation="LONG",
                 confidence_score=85,
-                entry_price=Decimal("150.00"),
                 reasoning="Strong breakout",
-                                live20_run_id=run.id,
+                live20_run_id=run.id,
                 live20_direction="LONG",
             )
             rec_msft = Recommendation(
@@ -274,9 +272,8 @@ class TestLive20WorkerResumeCountAccuracy:
                 source=RecommendationSource.LIVE_20.value,
                 recommendation="SHORT",
                 confidence_score=75,
-                entry_price=Decimal("300.00"),
                 reasoning="Breakdown pattern",
-                                live20_run_id=run.id,
+                live20_run_id=run.id,
                 live20_direction="SHORT",
             )
             session.add(rec_aapl)
@@ -328,7 +325,7 @@ class TestLive20WorkerDirectionCounting:
 
     @pytest.mark.asyncio
     async def test_process_job_counts_long(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should count LONG results correctly."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -361,7 +358,7 @@ class TestLive20WorkerDirectionCounting:
 
     @pytest.mark.asyncio
     async def test_process_job_counts_short(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should count SHORT results correctly."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -392,7 +389,7 @@ class TestLive20WorkerDirectionCounting:
 
     @pytest.mark.asyncio
     async def test_process_job_counts_no_setup(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should count NO_SETUP results correctly."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -427,7 +424,7 @@ class TestLive20WorkerProcessedCount:
 
     @pytest.mark.asyncio
     async def test_process_job_updates_processed_count(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should update processed_count after each symbol."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -457,7 +454,7 @@ class TestLive20WorkerProcessedCount:
 
     @pytest.mark.asyncio
     async def test_process_job_updates_count_on_error(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should still update processed_count when analysis fails."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -494,7 +491,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_process_job_tracks_failed_symbols(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should track failed symbols with their error messages."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -537,7 +534,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_process_job_tracks_multiple_failures(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should track multiple failed symbols."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -572,7 +569,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_process_job_handles_none_error_message(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should handle None error_message with default text."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -604,7 +601,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_process_job_no_failures_no_failed_symbols(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should not set failed_symbols when all succeed."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -635,7 +632,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_process_job_persists_failed_symbols_after_each_batch(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should persist failed_symbols after each batch to prevent infinite retry on crash.
 
         Critical crash scenario:
@@ -666,7 +663,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
         call_count = [0]
 
-        async def analyze_with_failure(symbol, config):
+        async def analyze_with_failure(symbol):
             """Fail SYM3 in the first batch."""
             call_count[0] += 1
 
@@ -706,7 +703,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_failed_symbols_accumulates_across_batches(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should accumulate failed_symbols across multiple batches."""
         # Use symbols that span multiple batches
         symbols = [f"SYM{i}" for i in range(25)]
@@ -739,7 +736,7 @@ class TestLive20WorkerFailedSymbolsTracking:
         ) as MockService:
             mock_service = MagicMock()
             mock_service._analyze_symbol = AsyncMock(
-                side_effect=lambda sym, cfg: create_result(sym)
+                side_effect=lambda sym: create_result(sym)
             )
             MockService.return_value = mock_service
 
@@ -754,7 +751,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_failed_symbols_preserved_on_resume(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Should preserve existing failed_symbols when resuming a run."""
         # Create a run with existing failed_symbols (simulating a previous crash)
         async with rollback_session_factory() as session:
@@ -796,7 +793,7 @@ class TestLive20WorkerFailedSymbolsTracking:
         ) as MockService:
             mock_service = MagicMock()
             mock_service._analyze_symbol = AsyncMock(
-                side_effect=lambda sym, cfg: create_result(sym)
+                side_effect=lambda sym: create_result(sym)
             )
             MockService.return_value = mock_service
 
@@ -816,7 +813,7 @@ class TestLive20WorkerConcurrency:
 
     @pytest.mark.asyncio
     async def test_processes_symbols_in_batches(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Test that symbols are processed in batches of BATCH_SIZE."""
         # Create a run with 25 symbols (should be 3 batches: 10, 10, 5)
         symbols = [f"SYM{i}" for i in range(25)]
@@ -848,7 +845,7 @@ class TestLive20WorkerConcurrency:
 
     @pytest.mark.asyncio
     async def test_cancellation_checked_between_batches(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Test that cancellation is checked between batches (not between symbols)."""
         # Create a run with 25 symbols (3 batches: 10, 10, 5)
         symbols = [f"SYM{i}" for i in range(25)]
@@ -888,7 +885,7 @@ class TestLive20WorkerConcurrency:
 
     @pytest.mark.asyncio
     async def test_individual_failures_dont_fail_batch(
-        self, rollback_session_factory, mock_queue_service    ):
+        self, rollback_session_factory, mock_queue_service):
         """Test that one symbol failure doesn't fail the entire batch."""
         run = await create_live20_run(
             rollback_session_factory,
@@ -899,7 +896,7 @@ class TestLive20WorkerConcurrency:
         worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # Create a function that raises exception for "BAD" symbol
-        async def analyze_conditional(symbol, config):
+        async def analyze_conditional(symbol):
             if symbol == "BAD":
                 raise Exception("API error")
             # Return success for other symbols
