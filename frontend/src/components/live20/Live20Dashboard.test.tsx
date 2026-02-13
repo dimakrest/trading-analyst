@@ -34,7 +34,6 @@ const mockResults: Live20Result[] = [
     created_at: '2025-12-24T12:00:00Z',
     recommendation: 'LONG',
     confidence_score: 85,
-    entry_price: 175.24,
     sector_etf: 'XLK',
     trend_direction: 'UP',
     trend_aligned: true,
@@ -54,9 +53,6 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 5,
     direction: 'LONG',
     atr: 3.45,
-    stop_loss: 170.50,
-    entry_strategy: 'current_price',
-    exit_strategy: 'atr_based',
   },
   {
     id: 2,
@@ -64,7 +60,6 @@ const mockResults: Live20Result[] = [
     created_at: '2025-12-24T12:00:00Z',
     recommendation: 'SHORT',
     confidence_score: 72,
-    entry_price: 420.15,
     sector_etf: 'XLK',
     trend_direction: 'DOWN',
     trend_aligned: true,
@@ -84,9 +79,6 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 4,
     direction: 'SHORT',
     atr: 5.80,
-    stop_loss: 430.25,
-    entry_strategy: 'breakout_confirmation',
-    exit_strategy: 'atr_based',
   },
   {
     id: 3,
@@ -94,7 +86,6 @@ const mockResults: Live20Result[] = [
     created_at: '2025-12-24T12:00:00Z',
     recommendation: 'LONG',
     confidence_score: 68,
-    entry_price: 880.5,
     sector_etf: 'XLK',
     trend_direction: 'UP',
     trend_aligned: true,
@@ -114,9 +105,6 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 4,
     direction: 'LONG',
     atr: 12.50,
-    stop_loss: 865.00,
-    entry_strategy: 'current_price',
-    exit_strategy: 'atr_based',
   },
 ];
 

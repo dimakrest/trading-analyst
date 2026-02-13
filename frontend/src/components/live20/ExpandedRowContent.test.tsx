@@ -30,8 +30,6 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   created_at: '2025-12-01T10:00:00Z',
   recommendation: 'LONG',
   confidence_score: 85,
-  entry_price: 150.0,
-  stop_loss: 145.0,
   atr: 2.5,
   trend_direction: 'up',
   trend_aligned: true,
@@ -50,8 +48,6 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   cci_aligned: true,
   criteria_aligned: 5,
   direction: 'LONG',
-  entry_strategy: 'breakout_confirmation',
-  exit_strategy: 'atr_based',
   ...overrides,
 });
 

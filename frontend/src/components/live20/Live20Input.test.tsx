@@ -3,7 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Live20Input } from './Live20Input';
 import * as useStockListsModule from '@/hooks/useStockLists';
-import type { StrategyConfig } from '@/types/live20';
 
 // Mock the useStockLists hook
 vi.mock('@/hooks/useStockLists');
@@ -13,20 +12,6 @@ const mockLists = [
   { id: 2, name: 'Energy Stocks', symbols: ['XOM', 'CVX'], symbol_count: 2 },
   { id: 3, name: 'Empty List', symbols: [], symbol_count: 0 },
 ];
-
-// Default strategy config passed when analyzing
-const defaultStrategyConfig: StrategyConfig = {
-  entry_strategy: 'current_price',
-  exit_strategy: 'atr_based',
-};
-
-/**
- * Helper to get the entry strategy selector combobox.
- * Note: MultiListSelector uses a button (not combobox), so Entry Strategy is now the only combobox.
- */
-const getEntryStrategyCombobox = () => {
-  return screen.getByRole('combobox');
-};
 
 /**
  * Helper to get the multi-list selector button.
@@ -73,7 +58,7 @@ describe('Live20Input', () => {
     });
   });
 
-  it('should pass sourceLists and strategy config to onAnalyze callback', async () => {
+  it('should pass sourceLists to onAnalyze callback', async () => {
     // Arrange
     const onAnalyze = vi.fn();
     const user = userEvent.setup();
@@ -103,8 +88,7 @@ describe('Live20Input', () => {
     await waitFor(() => {
       expect(onAnalyze).toHaveBeenCalledWith(
         ['AAPL', 'GOOGL', 'MSFT'],
-        [{ id: 1, name: 'Tech Watchlist' }],
-        defaultStrategyConfig
+        [{ id: 1, name: 'Tech Watchlist' }]
       );
     });
   });
@@ -123,7 +107,7 @@ describe('Live20Input', () => {
 
     // Assert
     await waitFor(() => {
-      expect(onAnalyze).toHaveBeenCalledWith(['NVDA', 'AMD'], null, defaultStrategyConfig);
+      expect(onAnalyze).toHaveBeenCalledWith(['NVDA', 'AMD'], null);
     });
   });
 
@@ -254,7 +238,7 @@ describe('Live20Input', () => {
     await user.click(screen.getByRole('button', { name: 'Analyze Symbols' }));
 
     await waitFor(() => {
-      expect(onAnalyze).toHaveBeenCalledWith(['NVDA', 'AMD'], null, defaultStrategyConfig);
+      expect(onAnalyze).toHaveBeenCalledWith(['NVDA', 'AMD'], null);
     });
   });
 
@@ -369,8 +353,7 @@ describe('Live20Input', () => {
       await waitFor(() => {
         expect(onAnalyze).toHaveBeenCalledWith(
           ['AAPL', 'GOOGL', 'MSFT'],
-          [{ id: 1, name: 'Tech Watchlist' }],
-          defaultStrategyConfig
+          [{ id: 1, name: 'Tech Watchlist' }]
         );
       });
     });
@@ -410,8 +393,7 @@ describe('Live20Input', () => {
       await waitFor(() => {
         expect(onAnalyze).toHaveBeenCalledWith(
           ['AAPL', 'GOOGL', 'MSFT', 'NVDA'],
-          null,
-          defaultStrategyConfig
+          null
         );
       });
     });
@@ -451,8 +433,7 @@ describe('Live20Input', () => {
       await waitFor(() => {
         expect(onAnalyze).toHaveBeenCalledWith(
           ['AAPL', 'MSFT'],
-          null,
-          defaultStrategyConfig
+          null
         );
       });
     });
@@ -492,8 +473,7 @@ describe('Live20Input', () => {
       await waitFor(() => {
         expect(onAnalyze).toHaveBeenCalledWith(
           ['MSFT', 'AAPL', 'GOOGL'],
-          [{ id: 1, name: 'Tech Watchlist' }],
-          defaultStrategyConfig
+          [{ id: 1, name: 'Tech Watchlist' }]
         );
       });
     });
@@ -534,8 +514,7 @@ describe('Live20Input', () => {
       await waitFor(() => {
         expect(onAnalyze).toHaveBeenCalledWith(
           ['AAPL', 'GOOGL', 'MSFT'],
-          [{ id: 1, name: 'Tech Watchlist' }],
-          defaultStrategyConfig
+          [{ id: 1, name: 'Tech Watchlist' }]
         );
       });
     });
@@ -651,84 +630,6 @@ describe('Live20Input', () => {
         expect(symbols).toContain('NVDA');
         expect(symbols).toContain('TSLA');
       });
-    });
-  });
-
-  describe('Entry Strategy Selector', () => {
-    it('should render entry strategy selector with default value', () => {
-      // Act
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
-
-      // Assert
-      expect(screen.getByLabelText('Entry Strategy')).toBeInTheDocument();
-      expect(getEntryStrategyCombobox()).toHaveTextContent('Current Price (close)');
-    });
-
-    it('should show stop badge', () => {
-      // Act
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
-
-      // Assert
-      expect(screen.getByText('Stop: 0.5 x ATR')).toBeInTheDocument();
-    });
-
-    it('should allow changing entry strategy', async () => {
-      // Arrange
-      const user = userEvent.setup();
-
-      // Act
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
-
-      // Open entry strategy selector
-      await user.click(getEntryStrategyCombobox());
-      await waitFor(() => {
-        expect(screen.getByRole('option', { name: 'Breakout Confirmation (+2% LONG / -2% SHORT)' })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('option', { name: 'Breakout Confirmation (+2% LONG / -2% SHORT)' }));
-
-      // Assert
-      await waitFor(() => {
-        expect(getEntryStrategyCombobox()).toHaveTextContent('Breakout Confirmation (+2% LONG / -2% SHORT)');
-      });
-    });
-
-    it('should pass breakout_confirmation strategy to onAnalyze', async () => {
-      // Arrange
-      const onAnalyze = vi.fn();
-      const user = userEvent.setup();
-
-      // Act
-      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
-
-      // Type symbols
-      await user.type(screen.getByRole('textbox'), 'AAPL');
-
-      // Change entry strategy
-      await user.click(getEntryStrategyCombobox());
-      await waitFor(() => {
-        expect(screen.getByRole('option', { name: 'Breakout Confirmation (+2% LONG / -2% SHORT)' })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('option', { name: 'Breakout Confirmation (+2% LONG / -2% SHORT)' }));
-
-      // Click analyze
-      await user.click(screen.getByRole('button', { name: 'Analyze Symbols' }));
-
-      // Assert
-      await waitFor(() => {
-        expect(onAnalyze).toHaveBeenCalledWith(
-          ['AAPL'],
-          null,
-          { entry_strategy: 'breakout_confirmation', exit_strategy: 'atr_based' }
-        );
-      });
-    });
-
-    it('should disable entry strategy selector when analyzing', () => {
-      // Act
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={true} />);
-
-      // Assert
-      expect(getEntryStrategyCombobox()).toBeDisabled();
     });
   });
 

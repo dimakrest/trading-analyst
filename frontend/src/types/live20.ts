@@ -1,14 +1,5 @@
 export type Live20Direction = 'LONG' | 'SHORT' | 'NO_SETUP';
 export type VolumeApproach = 'exhaustion' | 'accumulation' | 'distribution' | null;
-export type EntryStrategy = 'current_price' | 'breakout_confirmation';
-export type ExitStrategy = 'atr_based';
-
-export interface StrategyConfig {
-  entry_strategy?: EntryStrategy;
-  exit_strategy?: ExitStrategy;
-  breakout_offset_pct?: number;
-  atr_multiplier?: number;
-}
 
 export interface Live20Result {
   id: number;
@@ -16,8 +7,6 @@ export interface Live20Result {
   created_at: string;
   recommendation: Live20Direction;
   confidence_score: number;
-  entry_price: number | null;
-  stop_loss: number | null;
   atr: number | null;
 
   // Criteria details
@@ -38,8 +27,6 @@ export interface Live20Result {
   cci_aligned: boolean | null;
   criteria_aligned: number | null;
   direction: Live20Direction | null;
-  entry_strategy: EntryStrategy | null;
-  exit_strategy: ExitStrategy | null;
   sector_etf: string | null;
 }
 
@@ -85,7 +72,6 @@ export interface Live20RunSummary {
   stock_list_id: number | null;
   stock_list_name: string | null;
   source_lists?: Array<{ id: number; name: string }> | null;
-  strategy_config: StrategyConfig | null;
 }
 
 export interface Live20RunListResponse {
@@ -109,7 +95,6 @@ export interface Live20RunDetail {
   stock_list_id: number | null;
   stock_list_name: string | null;
   source_lists?: Array<{ id: number; name: string }> | null;
-  strategy_config: StrategyConfig | null;
   results: Live20Result[];
   error_message?: string | null;
   failed_symbols?: Record<string, string>;

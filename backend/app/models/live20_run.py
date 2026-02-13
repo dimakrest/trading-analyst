@@ -72,11 +72,6 @@ class Live20Run(Base):
         doc="Array of source lists when multiple lists combined: [{id: int, name: str}, ...]",
     )
 
-    # Pricing strategy configuration
-    strategy_config: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, doc="Pricing strategy configuration used for this run"
-    )
-
     # Queue management columns for PostgreSQL-based job queue
     worker_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, doc="ID of worker processing this run"

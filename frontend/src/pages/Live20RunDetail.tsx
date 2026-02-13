@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Target, Trash2, XCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -13,15 +13,13 @@ import type {
   Live20Direction,
   Live20RunDetail as Live20RunDetailType,
 } from '../types/live20';
-import { getStrategyDisplayLabel, hasCustomAtrMultiplier } from '../utils/live20';
 
 /**
  * Live20RunDetail - Analysis Run Detail Page
  *
  * Displays detailed information about a specific Live20 analysis run:
- * - Summary: timestamp, symbol counts by direction, configuration
+ * - Summary: timestamp, symbol counts by direction
  * - Source lists: single or multi-list source indicators
- * - Strategy configuration: entry/exit settings
  * - Results: filterable, searchable table of analysis results
  * - Actions: cancel (for active runs), delete (for completed runs)
  */
@@ -235,25 +233,6 @@ export function Live20RunDetail() {
           <span className="text-sm font-semibold text-[#c4b5fd]">{run.stock_list_name}</span>
         </div>
       ) : null}
-
-      {getStrategyDisplayLabel(run.strategy_config) && (
-        <div className="flex items-center gap-2 px-4 py-3 mb-4 rounded-md border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.12)]">
-          <Target className="h-4 w-4 text-[#fbbf24]" aria-hidden="true" />
-          <span className="text-sm text-muted-foreground">Entry:</span>
-          <span className="text-sm font-semibold text-[#fbbf24]">
-            {getStrategyDisplayLabel(run.strategy_config)}
-          </span>
-          {hasCustomAtrMultiplier(run.strategy_config) && (
-            <>
-              <span className="text-muted-foreground mx-1">|</span>
-              <span className="text-sm text-muted-foreground">Stop:</span>
-              <span className="text-sm font-semibold text-[#fbbf24]">
-                {run.strategy_config?.atr_multiplier}x ATR
-              </span>
-            </>
-          )}
-        </div>
-      )}
 
       <Card className="mb-6">
         <CardHeader>

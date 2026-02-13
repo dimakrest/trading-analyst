@@ -39,7 +39,6 @@ const mockRuns: Live20RunListResponse = {
       no_setup_count: 25,
       stock_list_id: null,
       stock_list_name: null,
-      strategy_config: null,
     },
     {
       id: 2,
@@ -52,7 +51,6 @@ const mockRuns: Live20RunListResponse = {
       no_setup_count: 18,
       stock_list_id: null,
       stock_list_name: null,
-      strategy_config: null,
     },
   ],
   total: 2,
@@ -236,7 +234,6 @@ describe('Live20HistoryTab', () => {
         no_setup_count: 5,
         stock_list_id: null,
         stock_list_name: null,
-        strategy_config: null,
       })),
       total: 50,
       has_more: true,
@@ -278,7 +275,6 @@ describe('Live20HistoryTab', () => {
         no_setup_count: 5,
         stock_list_id: null,
         stock_list_name: null,
-        strategy_config: null,
       })),
       total: 50,
       has_more: true,
@@ -353,7 +349,6 @@ describe('Live20HistoryTab', () => {
         no_setup_count: 5,
         stock_list_id: null,
         stock_list_name: null,
-        strategy_config: null,
       })),
       total: 50,
       has_more: true,
@@ -384,7 +379,6 @@ describe('Live20HistoryTab', () => {
         no_setup_count: 5,
         stock_list_id: null,
         stock_list_name: null,
-        strategy_config: null,
       })),
       total: 50,
       has_more: true,
@@ -436,7 +430,6 @@ describe('Live20HistoryTab', () => {
           no_setup_count: 2,
           stock_list_id: 10,
           stock_list_name: 'Tech Watchlist',
-          strategy_config: null,
         },
       ],
       total: 1,
@@ -468,7 +461,6 @@ describe('Live20HistoryTab', () => {
           no_setup_count: 2,
           stock_list_id: null,
           stock_list_name: null,
-          strategy_config: null,
         },
       ],
       total: 1,
@@ -490,77 +482,6 @@ describe('Live20HistoryTab', () => {
     expect(screen.queryByText('Tech Watchlist')).not.toBeInTheDocument();
   });
 
-  it('renders strategy badge for breakout_confirmation strategy', async () => {
-    const runsWithStrategy: Live20RunListResponse = {
-      items: [
-        {
-          id: 1,
-          created_at: '2024-12-29T14:45:00Z',
-          status: 'completed',
-          symbol_count: 5,
-          processed_count: 5,
-          long_count: 2,
-          short_count: 1,
-          no_setup_count: 2,
-          stock_list_id: null,
-          stock_list_name: null,
-          strategy_config: {
-            entry_strategy: 'breakout_confirmation',
-            breakout_offset_pct: 2.0,
-          },
-        },
-      ],
-      total: 1,
-      has_more: false,
-      limit: 20,
-      offset: 0,
-    };
-
-    mockListRuns.mockResolvedValue(runsWithStrategy);
-
-    renderWithRouter(<Live20HistoryTab />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Breakout +2%')).toBeInTheDocument();
-    });
-  });
-
-  it('does not render strategy badge for current_price strategy', async () => {
-    const runsWithCurrentPrice: Live20RunListResponse = {
-      items: [
-        {
-          id: 1,
-          created_at: '2024-12-29T14:45:00Z',
-          status: 'completed',
-          symbol_count: 5,
-          processed_count: 5,
-          long_count: 2,
-          short_count: 1,
-          no_setup_count: 2,
-          stock_list_id: null,
-          stock_list_name: null,
-          strategy_config: {
-            entry_strategy: 'current_price',
-          },
-        },
-      ],
-      total: 1,
-      has_more: false,
-      limit: 20,
-      offset: 0,
-    };
-
-    mockListRuns.mockResolvedValue(runsWithCurrentPrice);
-
-    renderWithRouter(<Live20HistoryTab />);
-
-    await waitFor(() => {
-      expect(screen.getByText('5')).toBeInTheDocument(); // symbol_count renders
-    });
-
-    expect(screen.queryByText(/Limit/)).not.toBeInTheDocument();
-  });
-
   it('displays single list badge when run has source_lists with one item', async () => {
     const runsWithSourceList: Live20RunListResponse = {
       items: [
@@ -576,7 +497,6 @@ describe('Live20HistoryTab', () => {
           stock_list_id: null,
           stock_list_name: null,
           source_lists: [{ id: 10, name: 'Tech Watchlist' }],
-          strategy_config: null,
         },
       ],
       total: 1,
@@ -613,7 +533,6 @@ describe('Live20HistoryTab', () => {
             { id: 20, name: 'Growth Stocks' },
             { id: 30, name: 'High Momentum' },
           ],
-          strategy_config: null,
         },
       ],
       total: 1,
@@ -649,7 +568,6 @@ describe('Live20HistoryTab', () => {
             { id: 10, name: 'Tech Watchlist' },
             { id: 20, name: 'Growth Stocks' },
           ],
-          strategy_config: null,
         },
       ],
       total: 1,
@@ -683,7 +601,6 @@ describe('Live20HistoryTab', () => {
           no_setup_count: 2,
           stock_list_id: 10,
           stock_list_name: 'Legacy Watchlist',
-          strategy_config: null,
         },
       ],
       total: 1,
@@ -716,7 +633,6 @@ describe('Live20HistoryTab', () => {
           stock_list_id: null,
           stock_list_name: null,
           source_lists: null,
-          strategy_config: null,
         },
       ],
       total: 1,

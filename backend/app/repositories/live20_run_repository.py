@@ -45,7 +45,6 @@ class Live20RunRepository:
         stock_list_id: int | None = None,
         stock_list_name: str | None = None,
         source_lists: list[dict] | None = None,
-        strategy_config: dict | None = None,
     ) -> Live20Run:
         """Create a new Live20Run.
 
@@ -59,7 +58,6 @@ class Live20RunRepository:
             stock_list_id: ID of stock list used as source, if any
             stock_list_name: Name of stock list at time of analysis, if any
             source_lists: Array of source lists when multiple lists combined, if any
-            strategy_config: Pricing strategy configuration used, if any
 
         Returns:
             Created Live20Run instance
@@ -74,7 +72,6 @@ class Live20RunRepository:
             stock_list_id=stock_list_id,
             stock_list_name=stock_list_name,
             source_lists=source_lists,
-            strategy_config=strategy_config,
         )
         self.session.add(run)
         await self.session.flush()

@@ -33,7 +33,6 @@ class Live20RunSummary(StrictBaseModel):
         None,
         description="Array of source lists when multiple lists combined",
     )
-    strategy_config: dict | None = None
     failed_count: int = Field(
         default=0, description="Number of symbols that failed analysis"
     )
@@ -54,11 +53,6 @@ class Live20RunSummary(StrictBaseModel):
                     "stock_list_id": 1,
                     "stock_list_name": "S&P 500 Top 50",
                     "source_lists": None,
-                    "strategy_config": {
-                        "entry_strategy": "current_price",
-                        "exit_strategy": "atr_based",
-                        "atr_multiplier": 0.5
-                    },
                     "failed_count": 2
                 }
             ]
@@ -103,7 +97,6 @@ class Live20RunSummary(StrictBaseModel):
             stock_list_id=getattr(obj, "stock_list_id", None),
             stock_list_name=getattr(obj, "stock_list_name", None),
             source_lists=getattr(obj, "source_lists", None),
-            strategy_config=getattr(obj, "strategy_config", None),
             failed_count=failed_count,
         )
 
@@ -144,7 +137,6 @@ class Live20RunDetailResponse(StrictBaseModel):
         None,
         description="Array of source lists when multiple lists combined",
     )
-    strategy_config: dict | None = None
     results: list[Live20ResultResponse]
     failed_symbols: dict[str, str] = Field(
         default_factory=dict,
@@ -168,11 +160,6 @@ class Live20RunDetailResponse(StrictBaseModel):
                     "stock_list_id": 1,
                     "stock_list_name": "Tech Stocks",
                     "source_lists": None,
-                    "strategy_config": {
-                        "entry_strategy": "current_price",
-                        "exit_strategy": "atr_based",
-                        "atr_multiplier": 0.5
-                    },
                     "results": [
                         {
                             "id": 1,
@@ -180,8 +167,6 @@ class Live20RunDetailResponse(StrictBaseModel):
                             "created_at": "2025-01-22T10:30:00",
                             "recommendation": "LONG",
                             "confidence_score": 80,
-                            "entry_price": "175.50",
-                            "stop_loss": "171.25",
                             "trend_aligned": True,
                             "ma20_aligned": True,
                             "candle_aligned": True,

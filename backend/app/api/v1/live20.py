@@ -70,9 +70,6 @@ async def analyze_symbols(
     source_lists_dict = (
         [item.model_dump() for item in request.source_lists] if request.source_lists else None
     )
-    strategy_config_dict = (
-        request.strategy_config.model_dump() if request.strategy_config else None
-    )
 
     # Create run with status='pending' for async processing
     async with session_factory() as session:
@@ -84,7 +81,6 @@ async def analyze_symbols(
             stock_list_id=request.stock_list_id,
             stock_list_name=request.stock_list_name,
             source_lists=source_lists_dict,
-            strategy_config=strategy_config_dict,
         )
         run_id = run.id
         await session.commit()
@@ -282,7 +278,6 @@ async def get_run(
         stock_list_id=run.stock_list_id,
         stock_list_name=run.stock_list_name,
         source_lists=run.source_lists,
-        strategy_config=run.strategy_config,
         results=[Live20ResultResponse.from_recommendation(r) for r in recommendations],
         failed_symbols=run.failed_symbols or {},
     )

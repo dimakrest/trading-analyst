@@ -13,7 +13,6 @@ from app.models.live20_run import Live20Run
 from app.models.recommendation import Recommendation
 from app.services.job_worker import JobWorker
 from app.services.live20_service import Live20Direction, Live20Service
-from app.services.pricing_strategies import PricingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +58,6 @@ class Live20Worker(JobWorker[Live20Run]):
         # Create Live20Service for analysis
         service = Live20Service(self.session_factory)
 
-        # Create PricingConfig from run's strategy_config
-        pricing_config = (
-            PricingConfig.from_dict(run.strategy_config)
-            if run.strategy_config
-            else PricingConfig()
-        )
-
         # Track counts for updating run at the end
         # Recalculate from existing recommendations to ensure accuracy on resume
         # (counts in run.* may be stale if server crashed before final update)
@@ -109,7 +101,7 @@ class Live20Worker(JobWorker[Live20Run]):
 
             # Create tasks for batch
             tasks = [
-                service._analyze_symbol(symbol, pricing_config)
+                service._analyze_symbol(symbol)
                 for symbol in batch
             ]
 

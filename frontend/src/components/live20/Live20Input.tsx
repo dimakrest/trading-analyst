@@ -2,23 +2,11 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { MultiListSelector } from '@/components/molecules/MultiListSelector';
 import { TrendingUp, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStockLists } from '@/hooks/useStockLists';
-import type { EntryStrategy, ExitStrategy, StrategyConfig } from '@/types/live20';
-
-/** Default exit strategy - ATR-based stop loss calculation */
-const DEFAULT_EXIT_STRATEGY: ExitStrategy = 'atr_based';
 
 /** Maximum allowed symbols */
 const MAX_SYMBOLS = 500;
@@ -29,12 +17,10 @@ interface Live20InputProps {
    * @param symbols - Parsed symbols from textarea (may differ from original lists)
    * @param sourceLists - The lists to associate with this run, or null if symbols
    *                      were modified or manually entered
-   * @param strategyConfig - The pricing strategy configuration for entry/exit
    */
   onAnalyze: (
     symbols: string[],
-    sourceLists: Array<{ id: number; name: string }> | null,
-    strategyConfig: StrategyConfig
+    sourceLists: Array<{ id: number; name: string }> | null
   ) => void;
   /** Whether analysis is currently in progress */
   isAnalyzing: boolean;
@@ -51,7 +37,6 @@ interface Live20InputProps {
 export function Live20Input({ onAnalyze, isAnalyzing }: Live20InputProps) {
   const [input, setInput] = useState('');
   const [selectedListIds, setSelectedListIds] = useState<number[]>([]);
-  const [entryStrategy, setEntryStrategy] = useState<EntryStrategy>('current_price');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch stock lists
@@ -140,11 +125,7 @@ export function Live20Input({ onAnalyze, isAnalyzing }: Live20InputProps) {
 
   const handleSubmit = () => {
     if (isValid) {
-      const strategyConfig: StrategyConfig = {
-        entry_strategy: entryStrategy,
-        exit_strategy: DEFAULT_EXIT_STRATEGY,
-      };
-      onAnalyze(symbols, effectiveSourceLists, strategyConfig);
+      onAnalyze(symbols, effectiveSourceLists);
     }
   };
 
@@ -234,36 +215,6 @@ or paste one symbol per line"
               </AlertDescription>
             </Alert>
           )}
-
-          {/* Entry Strategy Selector */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="entry-strategy" className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-              Entry Strategy
-            </Label>
-            <Select
-              value={entryStrategy}
-              onValueChange={(value) => setEntryStrategy(value as EntryStrategy)}
-              disabled={isAnalyzing}
-            >
-              <SelectTrigger id="entry-strategy" className="bg-bg-tertiary border-default">
-                <SelectValue placeholder="Select entry strategy" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="current_price">
-                  Current Price (close)
-                </SelectItem>
-                <SelectItem value="breakout_confirmation">
-                  Breakout Confirmation (+2% LONG / -2% SHORT)
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Badge
-              variant="outline"
-              className="text-xs border-muted-foreground/30 w-fit"
-            >
-              Stop: 0.5 x ATR
-            </Badge>
-          </div>
 
           {/* Analyze Button */}
           <Button
