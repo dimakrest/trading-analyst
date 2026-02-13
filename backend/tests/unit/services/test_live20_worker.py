@@ -6,38 +6,12 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import text
 
 from app.models.live20_run import Live20Run
 from app.models.recommendation import Recommendation, RecommendationSource
 from app.services.job_queue_service import JobQueueService
 from app.services.live20_worker import Live20Worker
 from app.services.live20_service import Live20Result
-
-
-@pytest_asyncio.fixture
-async def clean_live20_tables(test_session_factory):
-    """Clean Live20 tables before and after each test."""
-    async with test_session_factory() as session:
-        await session.execute(
-            text(
-                "TRUNCATE TABLE live20_runs, recommendations "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
-        await session.commit()
-
-    yield
-
-    async with test_session_factory() as session:
-        await session.execute(
-            text(
-                "TRUNCATE TABLE live20_runs, recommendations "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
-        await session.commit()
 
 
 async def create_live20_run(
@@ -127,18 +101,17 @@ class TestLive20WorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_skips_already_processed(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should skip symbols that already have recommendations."""
         # Create run with AAPL already processed
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL", "MSFT", "GOOGL"],
             existing_recommendations=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -166,11 +139,10 @@ class TestLive20WorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_checks_cancellation(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should check for cancellation before each batch."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL", "MSFT", "GOOGL"],
         )
@@ -180,7 +152,7 @@ class TestLive20WorkerProcessJob:
             side_effect=[False, True]
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -202,18 +174,17 @@ class TestLive20WorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_stops_on_cancellation(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should stop processing when run is cancelled."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
         )
 
         # Cancel immediately
         mock_queue_service.is_cancelled = AsyncMock(return_value=True)
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.live20_worker.Live20Service"
@@ -229,18 +200,17 @@ class TestLive20WorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_all_done_early_return(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should return early if all symbols already processed."""
         # Create run with all symbols already processed
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL", "MSFT"],
             existing_recommendations=["AAPL", "MSFT"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.live20_worker.Live20Service"
@@ -261,8 +231,7 @@ class TestLive20WorkerResumeCountAccuracy:
 
     @pytest.mark.asyncio
     async def test_resume_recovers_counts_from_existing_recommendations(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should recover accurate counts from existing recommendations on resume.
 
         This tests the critical scenario where a server crashes mid-processing:
@@ -273,7 +242,7 @@ class TestLive20WorkerResumeCountAccuracy:
         Without the fix, counts only reflect the resumed session (losing pre-crash counts).
         """
         # Create run with 4 symbols - simulate 2 already processed before crash
-        async with test_session_factory() as session:
+        async with rollback_session_factory() as session:
             run = Live20Run(
                 status="running",
                 symbol_count=4,
@@ -315,7 +284,7 @@ class TestLive20WorkerResumeCountAccuracy:
             await session.commit()
             await session.refresh(run)
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # Mock results for remaining symbols: GOOGL=LONG, NVDA=NO_SETUP
         def create_mock_result(symbol: str, direction: str):
@@ -344,7 +313,7 @@ class TestLive20WorkerResumeCountAccuracy:
             assert mock_service._analyze_symbol.call_count == 2
 
         # Verify final counts include BOTH pre-crash AND resumed results
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         # AAPL (pre-crash) + GOOGL (resumed) = 2 LONG
         assert updated_run.long_count == 2
         # MSFT (pre-crash) = 1 SHORT
@@ -359,16 +328,15 @@ class TestLive20WorkerDirectionCounting:
 
     @pytest.mark.asyncio
     async def test_process_job_counts_long(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should count LONG results correctly."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -386,23 +354,22 @@ class TestLive20WorkerDirectionCounting:
             await worker.process_job(run)
 
         # Verify counts were updated
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.long_count == 1
         assert updated_run.short_count == 0
         assert updated_run.no_setup_count == 0
 
     @pytest.mark.asyncio
     async def test_process_job_counts_short(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should count SHORT results correctly."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -419,22 +386,21 @@ class TestLive20WorkerDirectionCounting:
 
             await worker.process_job(run)
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.long_count == 0
         assert updated_run.short_count == 1
 
     @pytest.mark.asyncio
     async def test_process_job_counts_no_setup(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should count NO_SETUP results correctly."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -451,7 +417,7 @@ class TestLive20WorkerDirectionCounting:
 
             await worker.process_job(run)
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.no_setup_count == 1
 
 
@@ -461,16 +427,15 @@ class TestLive20WorkerProcessedCount:
 
     @pytest.mark.asyncio
     async def test_process_job_updates_processed_count(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should update processed_count after each symbol."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL", "MSFT"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -487,21 +452,20 @@ class TestLive20WorkerProcessedCount:
 
             await worker.process_job(run)
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.processed_count == 2
 
     @pytest.mark.asyncio
     async def test_process_job_updates_count_on_error(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should still update processed_count when analysis fails."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # Create error result
         error_result = Live20Result(
@@ -519,7 +483,7 @@ class TestLive20WorkerProcessedCount:
 
             await worker.process_job(run)
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         # Should still increment processed_count even for errors
         assert updated_run.processed_count == 1
 
@@ -530,16 +494,15 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_process_job_tracks_failed_symbols(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should track failed symbols with their error messages."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL", "MSFT"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # First symbol succeeds, second fails
         success_result = MagicMock()
@@ -565,7 +528,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
             await worker.process_job(run)
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.failed_symbols is not None
         assert "MSFT" in updated_run.failed_symbols
         assert updated_run.failed_symbols["MSFT"] == "Data unavailable for MSFT"
@@ -574,16 +537,15 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_process_job_tracks_multiple_failures(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should track multiple failed symbols."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL", "MSFT", "GOOGL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # All three fail with different errors
         error_results = [
@@ -601,7 +563,7 @@ class TestLive20WorkerFailedSymbolsTracking:
 
             await worker.process_job(run)
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.failed_symbols is not None
         assert len(updated_run.failed_symbols) == 3
         assert updated_run.failed_symbols["AAPL"] == "Rate limited"
@@ -610,16 +572,15 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_process_job_handles_none_error_message(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should handle None error_message with default text."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # Error result with None message
         error_result = Live20Result(
@@ -637,22 +598,21 @@ class TestLive20WorkerFailedSymbolsTracking:
 
             await worker.process_job(run)
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.failed_symbols is not None
         assert updated_run.failed_symbols["AAPL"] == "Unknown error"
 
     @pytest.mark.asyncio
     async def test_process_job_no_failures_no_failed_symbols(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should not set failed_symbols when all succeed."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         success_result = MagicMock()
         success_result.status = "success"
@@ -669,14 +629,13 @@ class TestLive20WorkerFailedSymbolsTracking:
 
             await worker.process_job(run)
 
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         # Should be None (not empty dict) when no failures
         assert updated_run.failed_symbols is None
 
     @pytest.mark.asyncio
     async def test_process_job_persists_failed_symbols_after_each_batch(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should persist failed_symbols after each batch to prevent infinite retry on crash.
 
         Critical crash scenario:
@@ -693,7 +652,7 @@ class TestLive20WorkerFailedSymbolsTracking:
         # Use 25 symbols to test multiple batches (10, 10, 5)
         symbols = [f"SYM{i}" for i in range(25)]
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=symbols,
         )
@@ -703,7 +662,7 @@ class TestLive20WorkerFailedSymbolsTracking:
             side_effect=[False, True]  # Process batch 1, then cancel
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         call_count = [0]
 
@@ -736,7 +695,7 @@ class TestLive20WorkerFailedSymbolsTracking:
             await worker.process_job(run)
 
         # Verify that SYM3's failure was persisted even though we "crashed" after batch 1
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.failed_symbols is not None
         assert "SYM3" in updated_run.failed_symbols
         assert updated_run.failed_symbols["SYM3"] == "SYM3 data unavailable"
@@ -747,18 +706,17 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_failed_symbols_accumulates_across_batches(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should accumulate failed_symbols across multiple batches."""
         # Use symbols that span multiple batches
         symbols = [f"SYM{i}" for i in range(25)]
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=symbols,
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # Fail one symbol per batch
         def create_result(symbol):
@@ -788,7 +746,7 @@ class TestLive20WorkerFailedSymbolsTracking:
             await worker.process_job(run)
 
         # Check that both failures are recorded
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.failed_symbols is not None
         assert len(updated_run.failed_symbols) == 2
         assert "SYM5" in updated_run.failed_symbols
@@ -796,11 +754,10 @@ class TestLive20WorkerFailedSymbolsTracking:
 
     @pytest.mark.asyncio
     async def test_failed_symbols_preserved_on_resume(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should preserve existing failed_symbols when resuming a run."""
         # Create a run with existing failed_symbols (simulating a previous crash)
-        async with test_session_factory() as session:
+        async with rollback_session_factory() as session:
             run = Live20Run(
                 status="running",
                 symbol_count=3,
@@ -817,7 +774,7 @@ class TestLive20WorkerFailedSymbolsTracking:
             await session.commit()
             await session.refresh(run)
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # MSFT fails, GOOGL succeeds
         def create_result(symbol):
@@ -846,7 +803,7 @@ class TestLive20WorkerFailedSymbolsTracking:
             await worker.process_job(run)
 
         # Should have BOTH old and new failures
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.failed_symbols is not None
         assert len(updated_run.failed_symbols) == 2
         assert updated_run.failed_symbols["AAPL"] == "Previous crash error"
@@ -859,18 +816,17 @@ class TestLive20WorkerConcurrency:
 
     @pytest.mark.asyncio
     async def test_processes_symbols_in_batches(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Test that symbols are processed in batches of BATCH_SIZE."""
         # Create a run with 25 symbols (should be 3 batches: 10, 10, 5)
         symbols = [f"SYM{i}" for i in range(25)]
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=symbols,
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -892,13 +848,12 @@ class TestLive20WorkerConcurrency:
 
     @pytest.mark.asyncio
     async def test_cancellation_checked_between_batches(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Test that cancellation is checked between batches (not between symbols)."""
         # Create a run with 25 symbols (3 batches: 10, 10, 5)
         symbols = [f"SYM{i}" for i in range(25)]
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=symbols,
         )
@@ -909,7 +864,7 @@ class TestLive20WorkerConcurrency:
             side_effect=[False, True]
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -933,16 +888,15 @@ class TestLive20WorkerConcurrency:
 
     @pytest.mark.asyncio
     async def test_individual_failures_dont_fail_batch(
-        self, test_session_factory, mock_queue_service, clean_live20_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Test that one symbol failure doesn't fail the entire batch."""
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["GOOD1", "BAD", "GOOD2"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         # Create a function that raises exception for "BAD" symbol
         async def analyze_conditional(symbol, config):
@@ -969,7 +923,7 @@ class TestLive20WorkerConcurrency:
             assert mock_service._analyze_symbol.call_count == 3
 
         # Verify "BAD" is in failed_symbols
-        updated_run = await get_run_by_id(test_session_factory, run.id)
+        updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.failed_symbols is not None
         assert "BAD" in updated_run.failed_symbols
         assert "API error" in updated_run.failed_symbols["BAD"]
@@ -981,7 +935,7 @@ class TestLive20WorkerLogging:
 
     @pytest.mark.asyncio
     async def test_logs_resume_count(
-        self, test_session_factory, mock_queue_service, clean_live20_tables, caplog
+        self, rollback_session_factory, mock_queue_service, caplog
     ):
         """Should log how many symbols are already processed."""
         import logging
@@ -989,13 +943,13 @@ class TestLive20WorkerLogging:
         caplog.set_level(logging.INFO)
 
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL", "MSFT", "GOOGL"],
             existing_recommendations=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"
@@ -1019,7 +973,7 @@ class TestLive20WorkerLogging:
 
     @pytest.mark.asyncio
     async def test_logs_cancellation(
-        self, test_session_factory, mock_queue_service, clean_live20_tables, caplog
+        self, rollback_session_factory, mock_queue_service, caplog
     ):
         """Should log when run is cancelled."""
         import logging
@@ -1027,13 +981,13 @@ class TestLive20WorkerLogging:
         caplog.set_level(logging.INFO)
 
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
         )
 
         mock_queue_service.is_cancelled = AsyncMock(return_value=True)
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         await worker.process_job(run)
 
@@ -1042,7 +996,7 @@ class TestLive20WorkerLogging:
 
     @pytest.mark.asyncio
     async def test_logs_completion_summary(
-        self, test_session_factory, mock_queue_service, clean_live20_tables, caplog
+        self, rollback_session_factory, mock_queue_service, caplog
     ):
         """Should log completion summary with counts."""
         import logging
@@ -1050,12 +1004,12 @@ class TestLive20WorkerLogging:
         caplog.set_level(logging.INFO)
 
         run = await create_live20_run(
-            test_session_factory,
+            rollback_session_factory,
             status="running",
             input_symbols=["AAPL"],
         )
 
-        worker = Live20Worker(test_session_factory, mock_queue_service)
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
 
         mock_result = MagicMock()
         mock_result.status = "success"

@@ -90,7 +90,7 @@ class TestArenaSimulationIntegration:
 
     @pytest.mark.integration
     async def test_full_simulation_lifecycle_no_trades(
-        self, db_session, test_session_factory, mock_price_data, mock_agent
+        self, db_session, rollback_session_factory, mock_price_data, mock_agent
     ) -> None:
         """Test complete simulation lifecycle with no trades."""
         # Create simulation
@@ -115,7 +115,7 @@ class TestArenaSimulationIntegration:
         )
 
         # Run simulation
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         async def mock_get_price_data(symbol, start_date, end_date, interval):
             return mock_price_data.get(symbol, [])
@@ -150,7 +150,7 @@ class TestArenaSimulationIntegration:
 
     @pytest.mark.integration
     async def test_full_simulation_with_winning_trade(
-        self, db_session, test_session_factory, mock_price_data, mock_agent
+        self, db_session, rollback_session_factory, mock_price_data, mock_agent
     ) -> None:
         """Test simulation with a winning trade that gets stopped out with profit."""
         # Create uptrending price data
@@ -213,7 +213,7 @@ class TestArenaSimulationIntegration:
         mock_agent.evaluate = mock_evaluate
 
         # Run simulation
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         async def mock_get_price_data(symbol, start_date, end_date, interval):
             if symbol == "AAPL":
@@ -234,7 +234,7 @@ class TestArenaSimulationIntegration:
 
     @pytest.mark.integration
     async def test_simulation_with_multiple_symbols(
-        self, db_session, test_session_factory, mock_price_data, mock_agent
+        self, db_session, rollback_session_factory, mock_price_data, mock_agent
     ) -> None:
         """Test simulation tracking multiple symbols simultaneously."""
         simulation = ArenaSimulation(
@@ -256,7 +256,7 @@ class TestArenaSimulationIntegration:
             return_value=AgentDecision(symbol="TEST", action="NO_SIGNAL", score=30)
         )
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         async def mock_get_price_data(symbol, start_date, end_date, interval):
             return mock_price_data.get(symbol, [])
@@ -282,7 +282,7 @@ class TestArenaSimulationIntegration:
 
     @pytest.mark.integration
     async def test_simulation_step_by_step(
-        self, db_session, test_session_factory, mock_price_data, mock_agent
+        self, db_session, rollback_session_factory, mock_price_data, mock_agent
     ) -> None:
         """Test stepping through simulation day by day."""
         simulation = ArenaSimulation(
@@ -304,7 +304,7 @@ class TestArenaSimulationIntegration:
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL", score=30)
         )
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         async def mock_get_price_data(symbol, start_date, end_date, interval):
             return mock_price_data.get(symbol, [])
@@ -335,7 +335,7 @@ class TestArenaSimulationIntegration:
 
     @pytest.mark.integration
     async def test_simulation_tracks_drawdown(
-        self, db_session, test_session_factory, mock_price_data, mock_agent
+        self, db_session, rollback_session_factory, mock_price_data, mock_agent
     ) -> None:
         """Test that simulation correctly tracks maximum drawdown."""
         # Create price data with volatility to cause drawdown
@@ -380,7 +380,7 @@ class TestArenaSimulationIntegration:
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL", score=30)
         )
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         async def mock_get_price_data(symbol, start_date, end_date, interval):
             if symbol == "AAPL":
@@ -446,7 +446,7 @@ class TestArenaPositionLifecycle:
 
     @pytest.mark.integration
     async def test_position_opens_at_next_day_open(
-        self, db_session, test_session_factory, price_data_with_stop_trigger
+        self, db_session, rollback_session_factory, price_data_with_stop_trigger
     ) -> None:
         """Test that position opens at next day's open price after BUY signal."""
         from unittest.mock import MagicMock
@@ -538,7 +538,7 @@ class TestArenaPositionLifecycle:
 
         mock_agent.evaluate = mock_evaluate
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         async def mock_get_price_data(symbol, start_date, end_date, interval):
             return price_data if symbol == "AAPL" else []
@@ -578,7 +578,7 @@ class TestArenaPositionLifecycle:
 
     @pytest.mark.integration
     async def test_trailing_stop_updates_with_new_highs(
-        self, db_session, test_session_factory
+        self, db_session, rollback_session_factory
     ) -> None:
         """Test trailing stop moves up as price makes new highs."""
         from unittest.mock import MagicMock
@@ -666,7 +666,7 @@ class TestArenaPositionLifecycle:
 
         mock_agent.evaluate = mock_evaluate
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         async def mock_get_price_data(symbol, start_date, end_date, interval):
             return price_data if symbol == "AAPL" else []
@@ -700,7 +700,7 @@ class TestArenaSimulationMetrics:
 
     @pytest.mark.integration
     async def test_cumulative_return_calculated_correctly(
-        self, db_session, test_session_factory
+        self, db_session, rollback_session_factory
     ) -> None:
         """Test cumulative return is calculated correctly."""
         from unittest.mock import MagicMock
@@ -744,7 +744,7 @@ class TestArenaSimulationMetrics:
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
         )
 
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         async def mock_get_price_data(symbol, start_date, end_date, interval):
             return price_data if symbol == "AAPL" else []
@@ -817,7 +817,7 @@ class TestArenaWorkerIntegration:
 
     @pytest.mark.integration
     async def test_simulation_engine_runs_with_worker_style_session_management(
-        self, db_session, test_session_factory, mock_price_data, mock_agent
+        self, db_session, rollback_session_factory, mock_price_data, mock_agent
     ) -> None:
         """Test that simulation engine works with worker-style session management.
 
@@ -855,7 +855,7 @@ class TestArenaWorkerIntegration:
             return mock_price_data.get(symbol, [])
 
         # Create engine with the same session (simulating worker pattern)
-        engine = SimulationEngine(db_session, session_factory=test_session_factory)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with patch(
             "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
@@ -883,7 +883,7 @@ class TestArenaWorkerIntegration:
 
     @pytest.mark.integration
     async def test_simulation_respects_min_buy_score_threshold(
-        self, db_session, test_session_factory, mock_price_data
+        self, db_session, rollback_session_factory, mock_price_data
     ) -> None:
         """Verify simulation passes min_buy_score configuration to agent.
 
@@ -945,7 +945,7 @@ class TestArenaWorkerIntegration:
             side_effect=track_agent_creation,
         ):
             # Test high threshold simulation
-            engine_high = SimulationEngine(db_session, session_factory=test_session_factory)
+            engine_high = SimulationEngine(db_session, session_factory=rollback_session_factory)
             with patch.object(
                 engine_high.data_service,
                 "get_price_data",
@@ -954,7 +954,7 @@ class TestArenaWorkerIntegration:
                 await engine_high.initialize_simulation(high_threshold_sim.id)
 
             # Test low threshold simulation
-            engine_low = SimulationEngine(db_session, session_factory=test_session_factory)
+            engine_low = SimulationEngine(db_session, session_factory=rollback_session_factory)
             with patch.object(
                 engine_low.data_service,
                 "get_price_data",

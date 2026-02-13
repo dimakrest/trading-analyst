@@ -9,36 +9,10 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import text
 
 from app.models.arena import ArenaSimulation, ArenaSnapshot, SimulationStatus
 from app.services.arena.arena_worker import ArenaWorker
 from app.services.job_queue_service import JobQueueService
-
-
-@pytest_asyncio.fixture
-async def clean_arena_tables(test_session_factory):
-    """Clean arena tables before and after each test."""
-    async with test_session_factory() as session:
-        await session.execute(
-            text(
-                "TRUNCATE TABLE arena_snapshots, arena_positions, arena_simulations "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
-        await session.commit()
-
-    yield
-
-    async with test_session_factory() as session:
-        await session.execute(
-            text(
-                "TRUNCATE TABLE arena_snapshots, arena_positions, arena_simulations "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
-        await session.commit()
 
 
 async def create_arena_simulation(
@@ -126,17 +100,16 @@ class TestArenaWorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_initializes_pending_simulation(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should initialize simulation when current_day=0 and total_days=0."""
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=0,
             total_days=0,
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -144,7 +117,7 @@ class TestArenaWorkerProcessJob:
             mock_engine = MagicMock()
             # Mock initialize to update simulation state
             async def mock_init(sim_id):
-                async with test_session_factory() as session:
+                async with rollback_session_factory() as session:
                     sim = await session.get(ArenaSimulation, sim_id)
                     sim.total_days = 5
                     sim.status = SimulationStatus.RUNNING.value
@@ -161,17 +134,16 @@ class TestArenaWorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_skips_initialization_for_resumed_simulation(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should skip initialization when simulation already has total_days set."""
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=2,  # Already at day 2
             total_days=5,   # Total days already set
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -188,11 +160,10 @@ class TestArenaWorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_checks_cancellation_before_each_day(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should check for cancellation before each day's processing."""
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=0,
             total_days=5,
@@ -203,7 +174,7 @@ class TestArenaWorkerProcessJob:
             side_effect=[False, False, True]
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -216,7 +187,7 @@ class TestArenaWorkerProcessJob:
             async def mock_step_day(sim_id):
                 step_count[0] += 1
                 # Update simulation state
-                async with test_session_factory() as session:
+                async with rollback_session_factory() as session:
                     sim = await session.get(ArenaSimulation, sim_id)
                     sim.current_day = step_count[0]
                     await session.commit()
@@ -235,11 +206,10 @@ class TestArenaWorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_stops_on_cancellation(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should stop processing when simulation is cancelled."""
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=0,
             total_days=5,
@@ -248,7 +218,7 @@ class TestArenaWorkerProcessJob:
         # Cancel immediately
         mock_queue_service.is_cancelled = AsyncMock(return_value=True)
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -265,17 +235,16 @@ class TestArenaWorkerProcessJob:
 
     @pytest.mark.asyncio
     async def test_process_job_completes_all_days(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should process all days until completion."""
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=0,
             total_days=3,
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -288,7 +257,7 @@ class TestArenaWorkerProcessJob:
             async def mock_step_day(sim_id):
                 step_count[0] += 1
                 # Update simulation state
-                async with test_session_factory() as session:
+                async with rollback_session_factory() as session:
                     sim = await session.get(ArenaSimulation, sim_id)
                     sim.current_day = step_count[0]
                     await session.commit()
@@ -317,19 +286,19 @@ class TestArenaWorkerLogging:
 
     @pytest.mark.asyncio
     async def test_logs_simulation_start(
-        self, test_session_factory, mock_queue_service, clean_arena_tables, caplog
+        self, rollback_session_factory, mock_queue_service, caplog
     ):
         """Should log simulation start with current progress."""
         caplog.set_level(logging.INFO)
 
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=2,
             total_days=5,
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -346,13 +315,13 @@ class TestArenaWorkerLogging:
 
     @pytest.mark.asyncio
     async def test_logs_cancellation(
-        self, test_session_factory, mock_queue_service, clean_arena_tables, caplog
+        self, rollback_session_factory, mock_queue_service, caplog
     ):
         """Should log when simulation is cancelled."""
         caplog.set_level(logging.INFO)
 
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=0,
             total_days=5,
@@ -360,7 +329,7 @@ class TestArenaWorkerLogging:
 
         mock_queue_service.is_cancelled = AsyncMock(return_value=True)
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -375,19 +344,19 @@ class TestArenaWorkerLogging:
 
     @pytest.mark.asyncio
     async def test_logs_initialization(
-        self, test_session_factory, mock_queue_service, clean_arena_tables, caplog
+        self, rollback_session_factory, mock_queue_service, caplog
     ):
         """Should log when simulation is initialized."""
         caplog.set_level(logging.INFO)
 
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=0,
             total_days=0,  # Not yet initialized
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -395,7 +364,7 @@ class TestArenaWorkerLogging:
             mock_engine = MagicMock()
 
             async def mock_init(sim_id):
-                async with test_session_factory() as session:
+                async with rollback_session_factory() as session:
                     sim = await session.get(ArenaSimulation, sim_id)
                     sim.total_days = 10
                     await session.commit()
@@ -418,18 +387,17 @@ class TestArenaWorkerResumeCapability:
 
     @pytest.mark.asyncio
     async def test_resume_continues_from_current_day(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should continue processing from current_day on resume."""
         # Simulate a simulation that was interrupted at day 3 of 5
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=3,
             total_days=5,
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
         processed_days = []
 
         with patch(
@@ -440,7 +408,7 @@ class TestArenaWorkerResumeCapability:
 
             async def mock_step_day(sim_id):
                 # Track which day we're processing
-                async with test_session_factory() as session:
+                async with rollback_session_factory() as session:
                     sim = await session.get(ArenaSimulation, sim_id)
                     processed_days.append(sim.current_day)
                     sim.current_day += 1
@@ -466,17 +434,16 @@ class TestArenaWorkerResumeCapability:
 
     @pytest.mark.asyncio
     async def test_resume_does_not_reinitialize(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should not re-initialize a partially completed simulation."""
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=2,
             total_days=5,  # Already initialized
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -498,17 +465,16 @@ class TestArenaWorkerEdgeCases:
 
     @pytest.mark.asyncio
     async def test_handles_empty_simulation(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should handle simulation with no trading days."""
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=0,
             total_days=0,
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"
@@ -517,7 +483,7 @@ class TestArenaWorkerEdgeCases:
 
             # Initialize sets total_days to 0 (no trading days in range)
             async def mock_init(sim_id):
-                async with test_session_factory() as session:
+                async with rollback_session_factory() as session:
                     sim = await session.get(ArenaSimulation, sim_id)
                     sim.total_days = 0  # No trading days!
                     await session.commit()
@@ -534,17 +500,16 @@ class TestArenaWorkerEdgeCases:
 
     @pytest.mark.asyncio
     async def test_simulation_already_at_final_day(
-        self, test_session_factory, mock_queue_service, clean_arena_tables
-    ):
+        self, rollback_session_factory, mock_queue_service    ):
         """Should handle simulation already at the final day."""
         simulation = await create_arena_simulation(
-            test_session_factory,
+            rollback_session_factory,
             status=SimulationStatus.RUNNING.value,
             current_day=5,
             total_days=5,  # At the end
         )
 
-        worker = ArenaWorker(test_session_factory, mock_queue_service)
+        worker = ArenaWorker(rollback_session_factory, mock_queue_service)
 
         with patch(
             "app.services.arena.arena_worker.SimulationEngine"

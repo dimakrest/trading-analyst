@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stock import StockPrice
@@ -59,14 +59,35 @@ async def cache_service(stock_repository: StockPriceRepository):
 
 @pytest_asyncio.fixture
 async def data_service(
-    test_session_factory,
+    rollback_session_factory,
     mock_provider: MockMarketDataProvider,
 ):
     """Create data service with session factory."""
     return DataService(
+        session_factory=rollback_session_factory,
+        provider=mock_provider,
+    )
+
+
+@pytest_asyncio.fixture
+async def concurrent_data_service(
+    test_session_factory,
+    mock_provider: MockMarketDataProvider,
+):
+    """Data service with real separate connections for concurrent tests."""
+    return DataService(
         session_factory=test_session_factory,
         provider=mock_provider,
     )
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clean_stock_prices(test_session_factory):
+    """Clean stock_prices before each test to prevent data leakage."""
+    async with test_session_factory() as session:
+        await session.execute(text("DELETE FROM stock_prices"))
+        await session.commit()
+    yield
 
 
 # ============================================================================
@@ -684,7 +705,7 @@ async def test_different_intervals_cache_isolation(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_concurrent_requests_same_symbol_no_duplicates(
-    data_service: DataService,
+    concurrent_data_service: DataService,
     mock_provider: MockMarketDataProvider,
 ):
     """Verify concurrent requests don't duplicate API calls or cause errors.
@@ -717,7 +738,7 @@ async def test_concurrent_requests_same_symbol_no_duplicates(
 
     # Fire 5 concurrent requests for SAME symbol/interval/dates
     tasks = [
-        data_service.get_price_data(symbol, start_date, end_date, interval)
+        concurrent_data_service.get_price_data(symbol, start_date, end_date, interval)
         for _ in range(5)
     ]
 
@@ -744,7 +765,7 @@ async def test_concurrent_requests_same_symbol_no_duplicates(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_double_check_after_lock_returns_cached(
-    data_service: DataService,
+    concurrent_data_service: DataService,
     mock_provider: MockMarketDataProvider,
 ):
     """Verify double-check after lock returns cached data without re-fetching.
@@ -781,7 +802,7 @@ async def test_double_check_after_lock_returns_cached(
     # Fire 3 concurrent requests — first enters lock and fetches,
     # others wait for lock then double-check finds fresh cache
     tasks = [
-        data_service.get_price_data(symbol, start_date, end_date, interval)
+        concurrent_data_service.get_price_data(symbol, start_date, end_date, interval)
         for _ in range(3)
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)

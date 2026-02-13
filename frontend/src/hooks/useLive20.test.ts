@@ -49,7 +49,7 @@ const createMockResult = (id: number, stock: string, direction: 'LONG' | 'SHORT'
   cci_aligned: true,
   criteria_aligned: 5,
   direction,
-  atr: direction !== 'NO_SETUP' ? 2.35 : null,
+  atr: 2.35,  // ATR is always calculated, regardless of direction
   stop_loss: direction !== 'NO_SETUP' ? 95 : null,
   entry_strategy: direction !== 'NO_SETUP' ? 'current_price' : null,
   exit_strategy: direction !== 'NO_SETUP' ? 'atr_based' : null,

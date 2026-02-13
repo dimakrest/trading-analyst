@@ -3,9 +3,7 @@
 import logging
 from decimal import Decimal
 
-import pandas as pd
-
-from app.utils.technical_indicators import calculate_atr
+from app.utils.technical_indicators import calculate_atr_percentage
 
 from .types import EntryStrategy, PricingConfig, PricingResult
 
@@ -137,8 +135,7 @@ class PricingCalculator:
     ) -> float | None:
         """Get latest ATR value as percentage of current price.
 
-        Uses calculate_atr from app.utils.technical_indicators to ensure
-        consistent calculation across the system, then converts to percentage.
+        Thin wrapper around calculate_atr_percentage() with error handling.
 
         Args:
             highs: List of high prices
@@ -148,38 +145,12 @@ class PricingCalculator:
             period: ATR period (default 14)
 
         Returns:
-            Latest ATR as percentage (e.g., 4.25 for 4.25%), or None if calculation fails
+            Latest ATR as percentage, or None if calculation fails
         """
         try:
-            if len(closes) < period + 1:
-                return None
-
-            if current_price <= 0:
-                logger.warning("Invalid current_price for ATR percentage calculation")
-                return None
-
-            # Create DataFrame for the shared utility
-            df = pd.DataFrame(
-                {
-                    "High": highs,
-                    "Low": lows,
-                    "Close": closes,
-                }
+            return calculate_atr_percentage(
+                highs, lows, closes, period, price_override=current_price
             )
-
-            # Use shared ATR calculation (returns dollar value)
-            atr_series = calculate_atr(df, period=period)
-
-            # Get latest value
-            latest_atr_dollars = atr_series.iloc[-1]
-            if pd.isna(latest_atr_dollars):
-                return None
-
-            # Convert to percentage: (atr_dollars / current_price) * 100
-            atr_percentage = (float(latest_atr_dollars) / current_price) * 100
-
-            return atr_percentage
-
         except Exception as e:
             logger.error(f"ATR calculation error: {e}")
             return None

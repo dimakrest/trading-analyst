@@ -73,6 +73,11 @@ const mockSectorTrend: SectorTrend = {
  * Mock stock price data
  */
 const mockStockData = {
+  symbol: 'AAPL',
+  company_name: 'Apple Inc.',
+  current_price: 105.0,
+  price_change: 5.0,
+  price_change_percent: 5.0,
   prices: [
     {
       date: '2025-12-01',
@@ -97,10 +102,16 @@ const mockStockData = {
  * Mock indicators response
  */
 const mockIndicatorsResponse = {
+  symbol: 'AAPL',
   data: [
-    { date: '2025-12-01', ma_20: 100.5, cci: -50.2, cci_signal: 'neutral' as const },
-    { date: '2025-12-02', ma_20: 101.2, cci: -30.5, cci_signal: 'neutral' as const },
+    { date: '2025-12-01', ma_20: 100.5, cci: -50.2 },
+    { date: '2025-12-02', ma_20: 101.2, cci: -30.5 },
   ],
+  total_records: 2,
+  start_date: '2025-12-01',
+  end_date: '2025-12-02',
+  interval: '1d',
+  indicators: ['ma_20', 'cci'],
 };
 
 describe('ExpandedRowContent', () => {
@@ -339,16 +350,27 @@ describe('ExpandedRowContent', () => {
     it('should handle missing indicators gracefully', async () => {
       vi.spyOn(live20Service, 'fetchSectorTrend').mockResolvedValue(mockSectorTrend);
       vi.spyOn(stockService, 'fetchStockDataByDateRange').mockResolvedValue({
+        symbol: 'AAPL',
+        company_name: 'Apple Inc.',
+        current_price: 106.0,
+        price_change: 6.0,
+        price_change_percent: 6.0,
         prices: [
           { date: '2025-12-01', open: 100, high: 105, low: 99, close: 103, volume: 1000000 },
           { date: '2025-12-03', open: 104, high: 107, low: 103, close: 106, volume: 1100000 },
         ],
       });
       vi.spyOn(stockService, 'fetchIndicators').mockResolvedValue({
+        symbol: 'AAPL',
         data: [
           // Only one date has indicators
-          { date: '2025-12-01', ma_20: 100.5, cci: -50.2, cci_signal: 'neutral' as const },
+          { date: '2025-12-01', ma_20: 100.5, cci: -50.2 },
         ],
+        total_records: 1,
+        start_date: '2025-12-01',
+        end_date: '2025-12-01',
+        interval: '1d',
+        indicators: ['ma_20', 'cci'],
       });
 
       const result = createMockResult({ stock: 'AAPL' });
@@ -774,7 +796,7 @@ describe('ExpandedRowContent', () => {
     });
 
     it('should show fallback message when no sector data', async () => {
-      vi.spyOn(live20Service, 'fetchSectorTrend').mockResolvedValue(null);
+      vi.spyOn(live20Service, 'fetchSectorTrend').mockRejectedValue(new Error('No sector data'));
       vi.spyOn(stockService, 'fetchStockDataByDateRange').mockResolvedValue(mockStockData);
       vi.spyOn(stockService, 'fetchIndicators').mockResolvedValue(mockIndicatorsResponse);
 
@@ -842,8 +864,23 @@ describe('ExpandedRowContent', () => {
 
     it('should show fallback when no stock data', async () => {
       vi.spyOn(live20Service, 'fetchSectorTrend').mockResolvedValue(mockSectorTrend);
-      vi.spyOn(stockService, 'fetchStockDataByDateRange').mockResolvedValue({ prices: [] });
-      vi.spyOn(stockService, 'fetchIndicators').mockResolvedValue({ data: [] });
+      vi.spyOn(stockService, 'fetchStockDataByDateRange').mockResolvedValue({
+        symbol: 'AAPL',
+        company_name: 'Apple Inc.',
+        current_price: 0,
+        price_change: 0,
+        price_change_percent: 0,
+        prices: [],
+      });
+      vi.spyOn(stockService, 'fetchIndicators').mockResolvedValue({
+        symbol: 'AAPL',
+        data: [],
+        total_records: 0,
+        start_date: '2025-12-01',
+        end_date: '2025-12-01',
+        interval: '1d',
+        indicators: [],
+      });
 
       const result = createMockResult();
       render(<ExpandedRowContent result={result} />);

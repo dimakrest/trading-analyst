@@ -5,6 +5,7 @@ import pytest
 
 from app.utils.technical_indicators import (
     calculate_atr,
+    calculate_atr_percentage,
     calculate_sma,
 )
 
@@ -115,3 +116,76 @@ class TestCalculateATR:
 
         # ATR should be similar to average range (within reasonable bounds)
         assert 0.5 * typical_range <= latest_atr <= 2.0 * typical_range
+
+
+class TestCalculateAtrPercentage:
+    """Tests for calculate_atr_percentage standalone function."""
+
+    def test_basic_calculation(self):
+        """Test ATR percentage with known values."""
+        closes = [100.0] * 20
+        highs = [101.0] * 20
+        lows = [99.0] * 20
+
+        result = calculate_atr_percentage(highs, lows, closes)
+        assert result is not None
+        assert result == pytest.approx(2.0, rel=0.1)  # $2 ATR / $100 = 2%
+
+    def test_insufficient_data_returns_none(self):
+        """Test returns None with insufficient data."""
+        closes = [100.0] * 10  # Less than period + 1 = 15
+        highs = [101.0] * 10
+        lows = [99.0] * 10
+
+        result = calculate_atr_percentage(highs, lows, closes)
+        assert result is None
+
+    def test_different_price_ranges(self):
+        """Test percentage is correct across price ranges."""
+        # $5 stock with $0.25 range = 5%
+        result = calculate_atr_percentage(
+            highs=[5.125] * 20, lows=[4.875] * 20, closes=[5.0] * 20
+        )
+        assert result is not None
+        assert result == pytest.approx(5.0, rel=0.1)
+
+    def test_uses_latest_close_as_denominator(self):
+        """Test that latest close is used, not any other price."""
+        # Prices trend from 100 to 109.5
+        closes = [100.0 + i * 0.5 for i in range(20)]
+        highs = [c + 1.0 for c in closes]
+        lows = [c - 1.0 for c in closes]
+
+        result = calculate_atr_percentage(highs, lows, closes)
+        assert result is not None
+        # ATR ~$2 (range is consistently $2), latest close is 109.5
+        # So ~2/109.5 * 100 ≈ 1.83%
+        assert result == pytest.approx(2.0 / 109.5 * 100, rel=0.15)
+
+    def test_zero_price_returns_none(self):
+        """Test returns None for zero price."""
+        result = calculate_atr_percentage(
+            highs=[0.0] * 20, lows=[0.0] * 20, closes=[0.0] * 20
+        )
+        assert result is None
+
+    def test_price_override_parameter(self):
+        """Test that price_override changes the denominator."""
+        closes = [100.0] * 20
+        highs = [101.0] * 20
+        lows = [99.0] * 20
+
+        # Default: uses closes[-1] = 100.0
+        result_default = calculate_atr_percentage(highs, lows, closes)
+        assert result_default is not None
+        assert result_default == pytest.approx(2.0, rel=0.1)  # $2 / $100 = 2%
+
+        # Override: uses custom price = 102.0 (e.g., entry price)
+        result_override = calculate_atr_percentage(
+            highs, lows, closes, price_override=102.0
+        )
+        assert result_override is not None
+        assert result_override == pytest.approx(1.96, rel=0.1)  # $2 / $102 ≈ 1.96%
+
+        # Results should differ when override is used
+        assert result_default != result_override
