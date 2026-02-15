@@ -16,6 +16,7 @@ from typing import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import noload
 
 from app.models.arena import (
     ArenaPosition,
@@ -63,6 +64,12 @@ class SimulationEngine:
         """
         self.session = session
         self.data_service = DataService(session_factory=session_factory)
+        # In-memory caches (populated during init or first step_day for resume)
+        self._trading_days_cache: dict[int, list[date]] = {}
+        self._peak_equity: dict[int, Decimal] = {}
+        self._max_drawdown: dict[int, Decimal] = {}
+        # Price data cache: {simulation_id: {symbol: [PriceBar, ...]}}
+        self._price_cache: dict[int, dict[str, list[PriceBar]]] = {}
 
     async def initialize_simulation(
         self,
@@ -82,7 +89,11 @@ class SimulationEngine:
         Raises:
             ValueError: If simulation not found or already started.
         """
-        simulation = await self.session.get(ArenaSimulation, simulation_id)
+        simulation = await self.session.get(
+            ArenaSimulation,
+            simulation_id,
+            options=[noload(ArenaSimulation.positions), noload(ArenaSimulation.snapshots)],
+        )
         if not simulation:
             msg = f"Simulation {simulation_id} not found"
             raise ValueError(msg)
@@ -99,33 +110,28 @@ class SimulationEngine:
 
         # Already initialized - skip (idempotent for retries)
         if simulation.is_initialized:
-            logger.info(
-                f"Simulation {simulation_id} already initialized, skipping"
-            )
+            logger.info(f"Simulation {simulation_id} already initialized, skipping")
             return simulation
 
         # Get agent to know lookback requirements
         agent = get_agent(simulation.agent_type, simulation.agent_config)
         lookback_days = agent.required_lookback_days
 
-        # Pre-load price data for all symbols with lookback period
-        data_start = simulation.start_date - timedelta(days=lookback_days + 30)
-        for symbol in simulation.symbols:
-            await self.data_service.get_price_data(
-                symbol=symbol,
-                start_date=datetime.combine(
-                    data_start, datetime.min.time(), tzinfo=timezone.utc
-                ),
-                end_date=datetime.combine(
-                    simulation.end_date, datetime.max.time(), tzinfo=timezone.utc
-                ),
-                interval="1d",
-            )
-
-        # Get trading days in simulation range
-        trading_days = await self._get_trading_days(
-            simulation.symbols, simulation.start_date, simulation.end_date
+        # Pre-load all price data into memory cache (replaces the old loop that
+        # loaded data through DataService and discarded the results)
+        await self._load_price_cache(
+            simulation.id,
+            simulation.symbols,
+            simulation.start_date,
+            simulation.end_date,
+            lookback_days,
         )
+
+        # Get trading days from cache
+        trading_days = self._get_trading_days_from_cache(
+            simulation.id, simulation.start_date, simulation.end_date
+        )
+        self._trading_days_cache[simulation.id] = trading_days
 
         if not trading_days:
             msg = "No trading days found in date range"
@@ -134,6 +140,10 @@ class SimulationEngine:
         # Update simulation state
         simulation.total_days = len(trading_days)
         simulation.status = SimulationStatus.RUNNING.value
+
+        # Initialize drawdown tracking (no snapshots yet, use initial capital)
+        self._peak_equity[simulation.id] = simulation.initial_capital
+        self._max_drawdown[simulation.id] = Decimal("0")
 
         await self.session.commit()
         await self.session.refresh(simulation)
@@ -175,7 +185,11 @@ class SimulationEngine:
         Raises:
             ValueError: If simulation not found or not in RUNNING status.
         """
-        simulation = await self.session.get(ArenaSimulation, simulation_id)
+        simulation = await self.session.get(
+            ArenaSimulation,
+            simulation_id,
+            options=[noload(ArenaSimulation.positions), noload(ArenaSimulation.snapshots)],
+        )
         if not simulation:
             msg = f"Simulation {simulation_id} not found"
             raise ValueError(msg)
@@ -192,17 +206,27 @@ class SimulationEngine:
         trail_pct = Decimal(str(simulation.agent_config.get("trailing_stop_pct", 5.0)))
         trailing_stop = FixedPercentTrailingStop(trail_pct)
 
-        # Get trading days
-        trading_days = await self._get_trading_days(
-            simulation.symbols, simulation.start_date, simulation.end_date
-        )
+        # Ensure price cache is loaded (handles resume case)
+        if simulation_id not in self._price_cache:
+            await self._load_price_cache(
+                simulation_id,
+                simulation.symbols,
+                simulation.start_date,
+                simulation.end_date,
+                agent.required_lookback_days,
+            )
+
+        # Use cached trading days (lazy-load for resume case)
+        if simulation_id not in self._trading_days_cache:
+            self._trading_days_cache[simulation_id] = self._get_trading_days_from_cache(
+                simulation_id, simulation.start_date, simulation.end_date
+            )
+        trading_days = self._trading_days_cache[simulation_id]
 
         # Check if simulation is complete
         if simulation.current_day >= len(trading_days):
             # Close all positions and finalize
-            await self._close_all_positions(
-                simulation, trading_days[-1], ExitReason.SIMULATION_END
-            )
+            await self._close_all_positions(simulation, trading_days[-1], ExitReason.SIMULATION_END)
             await self._finalize_simulation(simulation)
             return None
 
@@ -214,8 +238,16 @@ class SimulationEngine:
 
         # Load open positions
         open_positions = await self._get_open_positions(simulation.id)
-        positions_by_symbol: dict[str, ArenaPosition] = {
-            p.symbol: p for p in open_positions
+        positions_by_symbol: dict[str, ArenaPosition] = {p.symbol: p for p in open_positions}
+
+        # Batch-load pending positions (1 query instead of N)
+        pending_result = await self.session.execute(
+            select(ArenaPosition)
+            .where(ArenaPosition.simulation_id == simulation.id)
+            .where(ArenaPosition.status == PositionStatus.PENDING.value)
+        )
+        pending_by_symbol: dict[str, ArenaPosition] = {
+            p.symbol: p for p in pending_result.scalars().all()
         }
 
         # Process each symbol
@@ -223,7 +255,8 @@ class SimulationEngine:
 
         for symbol in simulation.symbols:
             # Get price history up to current date
-            price_history = await self._get_price_history(
+            price_history = self._get_cached_price_history(
+                simulation_id,
                 symbol,
                 current_date - timedelta(days=agent.required_lookback_days + 30),
                 current_date,
@@ -243,7 +276,7 @@ class SimulationEngine:
                 continue
 
             # Check for pending position to open
-            pending = await self._get_pending_position(simulation.id, symbol)
+            pending = pending_by_symbol.get(symbol)
             if pending:
                 # Calculate shares
                 calculated_shares = int(simulation.position_size / today_bar.open)
@@ -262,8 +295,7 @@ class SimulationEngine:
                     pending.status = PositionStatus.CLOSED.value
                     pending.exit_reason = ExitReason.INSUFFICIENT_CAPITAL.value
                     pending.agent_reasoning = (
-                        f"Position skipped: insufficient cash ${cash:.2f} < "
-                        f"cost ${cost:.2f}"
+                        f"Position skipped: insufficient cash ${cash:.2f} < " f"cost ${cost:.2f}"
                     )
                 else:
                     # Open position at today's open
@@ -296,9 +328,7 @@ class SimulationEngine:
                     # Gap-down handling: if stock opens below stop, we get filled at open
                     exit_price = min(update.trigger_price, today_bar.open)
                     realized_pnl = (exit_price - position.entry_price) * position.shares
-                    return_pct = (
-                        (exit_price - position.entry_price) / position.entry_price * 100
-                    )
+                    return_pct = (exit_price - position.entry_price) / position.entry_price * 100
 
                     position.status = PositionStatus.CLOSED.value
                     position.exit_date = current_date
@@ -321,9 +351,7 @@ class SimulationEngine:
 
             # Get agent decision (only if not already holding)
             has_position = symbol in positions_by_symbol
-            decision = await agent.evaluate(
-                symbol, price_history, current_date, has_position
-            )
+            decision = await agent.evaluate(symbol, price_history, current_date, has_position)
 
             decisions[symbol] = {
                 "action": decision.action,
@@ -349,24 +377,18 @@ class SimulationEngine:
         for position in positions_by_symbol.values():
             if position.status == PositionStatus.OPEN.value:
                 # Get current price
-                today_bar = await self._get_bar_for_date(position.symbol, current_date)
+                today_bar = self._get_cached_bar_for_date(simulation_id, position.symbol, current_date)
                 if today_bar:
                     positions_value += position.shares * today_bar.close
 
         total_equity = cash + positions_value
 
         # Calculate daily P&L
-        prev_equity = (
-            prev_snapshot.total_equity if prev_snapshot else simulation.initial_capital
-        )
+        prev_equity = prev_snapshot.total_equity if prev_snapshot else simulation.initial_capital
         daily_pnl = total_equity - prev_equity
-        daily_return_pct = (
-            (daily_pnl / prev_equity * 100) if prev_equity else Decimal("0")
-        )
+        daily_return_pct = (daily_pnl / prev_equity * 100) if prev_equity else Decimal("0")
         cumulative_return_pct = (
-            (total_equity - simulation.initial_capital)
-            / simulation.initial_capital
-            * 100
+            (total_equity - simulation.initial_capital) / simulation.initial_capital * 100
         )
 
         # Create snapshot
@@ -385,13 +407,57 @@ class SimulationEngine:
         )
         self.session.add(snapshot)
 
+        # Cross-check: verify snapshot values are internally consistent
+        # This catches bugs in snapshot construction (e.g., wrong argument order)
+        # rather than the calculation itself, where total_equity is defined as
+        # cash + positions_value and thus can never mismatch inline.
+        if abs(snapshot.total_equity - (snapshot.cash + snapshot.positions_value)) > Decimal(
+            "0.01"
+        ):
+            logger.error(
+                f"Simulation {simulation_id} day {simulation.current_day}: "
+                f"snapshot equity mismatch: {snapshot.total_equity} != "
+                f"{snapshot.cash} + {snapshot.positions_value}"
+            )
+            raise ValueError(
+                f"Accounting error: snapshot equity mismatch "
+                f"({snapshot.total_equity} != {snapshot.cash} + {snapshot.positions_value})"
+            )
+
         # Update simulation state
         simulation.current_day += 1
         simulation.final_equity = total_equity
         simulation.total_return_pct = cumulative_return_pct
 
-        # Update max drawdown
-        await self._update_max_drawdown(simulation)
+        # Incremental max drawdown (O(1) instead of O(n))
+        sim_id = simulation.id
+        if sim_id not in self._peak_equity:
+            await self._init_drawdown_state(simulation)
+        peak = self._peak_equity[sim_id]
+        if total_equity > peak:
+            peak = total_equity
+            self._peak_equity[sim_id] = peak
+        if peak > 0:
+            dd = (peak - total_equity) / peak * 100
+            current_max = self._max_drawdown.get(sim_id, Decimal("0"))
+            if dd > current_max:
+                self._max_drawdown[sim_id] = dd
+                simulation.max_drawdown_pct = dd
+
+        # Validate accounting invariants before commit
+        if cash < 0:
+            logger.error(
+                f"Simulation {simulation_id} day {simulation.current_day}: "
+                f"cash went negative: {cash}"
+            )
+            raise ValueError(f"Accounting error: cash is negative ({cash})")
+
+        if positions_value < 0:
+            logger.error(
+                f"Simulation {simulation_id} day {simulation.current_day}: "
+                f"positions_value is negative: {positions_value}"
+            )
+            raise ValueError(f"Accounting error: positions_value is negative ({positions_value})")
 
         await self.session.commit()
         await self.session.refresh(snapshot)
@@ -422,74 +488,137 @@ class SimulationEngine:
             if snapshot is None:
                 break
 
-        simulation = await self.session.get(ArenaSimulation, simulation_id)
+        simulation = await self.session.get(
+            ArenaSimulation,
+            simulation_id,
+            options=[noload(ArenaSimulation.positions), noload(ArenaSimulation.snapshots)],
+        )
         return simulation
 
     # =========================================================================
     # Helper Methods
     # =========================================================================
 
-    async def _get_trading_days(
-        self, symbols: list[str], start: date, end: date
-    ) -> list[date]:
-        """Get trading days in range where we have data for at least one symbol.
+    async def _init_drawdown_state(self, simulation: ArenaSimulation) -> None:
+        """Initialize peak equity and max drawdown from existing snapshots.
+
+        Called on first step_day() when resuming a simulation to reconstruct
+        the incremental drawdown tracking state.
+        """
+        sim_id = simulation.id
+        if sim_id in self._peak_equity:
+            return  # Already initialized
+
+        result = await self.session.execute(
+            select(ArenaSnapshot.total_equity)
+            .where(ArenaSnapshot.simulation_id == sim_id)
+            .order_by(ArenaSnapshot.day_number)
+        )
+        equities = [row[0] for row in result.all()]
+
+        # Use initial_capital as starting peak. On day 0, total_equity ==
+        # initial_capital (no positions opened, cash == initial_capital),
+        # so this is equivalent to the original equities[0] approach.
+        peak = simulation.initial_capital
+        max_dd = Decimal("0")
+        for equity in equities:
+            if equity > peak:
+                peak = equity
+            if peak > 0:
+                dd = (peak - equity) / peak * 100
+                max_dd = max(max_dd, dd)
+
+        self._peak_equity[sim_id] = peak
+        self._max_drawdown[sim_id] = max_dd
+
+    async def _load_price_cache(
+        self,
+        simulation_id: int,
+        symbols: list[str],
+        start_date: date,
+        end_date: date,
+        lookback_days: int,
+    ) -> None:
+        """Load all price data into memory for a simulation.
+
+        Called during initialization and lazy-loaded on resume.
+        All subsequent price lookups use this cache instead of DB queries.
 
         Args:
-            symbols: List of stock symbols.
-            start: Start date.
-            end: End date.
-
-        Returns:
-            Sorted list of trading dates.
+            simulation_id: Simulation ID for cache key.
+            symbols: List of symbols to load.
+            start_date: Simulation start date.
+            end_date: Simulation end date.
+            lookback_days: Agent's required lookback period.
         """
-        all_dates: set[date] = set()
+        if simulation_id in self._price_cache:
+            return  # Already loaded
+
+        data_start = start_date - timedelta(days=lookback_days + 30)
+        cache: dict[str, list[PriceBar]] = {}
+
         for symbol in symbols:
             records = await self.data_service.get_price_data(
                 symbol=symbol,
                 start_date=datetime.combine(
-                    start, datetime.min.time(), tzinfo=timezone.utc
+                    data_start, datetime.min.time(), tzinfo=timezone.utc
                 ),
-                end_date=datetime.combine(end, datetime.max.time(), tzinfo=timezone.utc),
+                end_date=datetime.combine(
+                    end_date, datetime.max.time(), tzinfo=timezone.utc
+                ),
                 interval="1d",
             )
-            for r in records:
-                record_date = r.timestamp.date()
-                if start <= record_date <= end:
-                    all_dates.add(record_date)
-        return sorted(all_dates)
+            cache[symbol] = [
+                PriceBar(
+                    date=r.timestamp.date(),
+                    open=Decimal(str(r.open_price)),
+                    high=Decimal(str(r.high_price)),
+                    low=Decimal(str(r.low_price)),
+                    close=Decimal(str(r.close_price)),
+                    volume=int(r.volume),
+                )
+                for r in records
+            ]
 
-    async def _get_price_history(
-        self, symbol: str, start: date, end: date
+        self._price_cache[simulation_id] = cache
+
+    def _get_cached_price_history(
+        self, simulation_id: int, symbol: str, start: date, end: date
     ) -> list[PriceBar]:
-        """Get price history as PriceBar objects.
+        """Get price history from in-memory cache with date filtering."""
+        all_bars = self._price_cache.get(simulation_id, {}).get(symbol, [])
+        return [b for b in all_bars if start <= b.date <= end]
+
+    def _get_cached_bar_for_date(
+        self, simulation_id: int, symbol: str, target_date: date
+    ) -> PriceBar | None:
+        """Get single bar from in-memory cache."""
+        all_bars = self._price_cache.get(simulation_id, {}).get(symbol, [])
+        for bar in reversed(all_bars):
+            if bar.date == target_date:
+                return bar
+        return None
+
+    def _get_trading_days_from_cache(
+        self, simulation_id: int, start: date, end: date
+    ) -> list[date]:
+        """Get trading days from price cache.
 
         Args:
-            symbol: Stock symbol.
+            simulation_id: Simulation ID.
             start: Start date.
             end: End date.
 
         Returns:
-            List of PriceBar objects sorted by date.
+            Sorted list of trading dates where we have data for at least one symbol.
         """
-        records = await self.data_service.get_price_data(
-            symbol=symbol,
-            start_date=datetime.combine(
-                start, datetime.min.time(), tzinfo=timezone.utc
-            ),
-            end_date=datetime.combine(end, datetime.max.time(), tzinfo=timezone.utc),
-            interval="1d",
-        )
-        return [
-            PriceBar(
-                date=r.timestamp.date(),
-                open=Decimal(str(r.open_price)),
-                high=Decimal(str(r.high_price)),
-                low=Decimal(str(r.low_price)),
-                close=Decimal(str(r.close_price)),
-                volume=int(r.volume),
-            )
-            for r in records
-        ]
+        all_dates: set[date] = set()
+        symbol_cache = self._price_cache.get(simulation_id, {})
+        for bars in symbol_cache.values():
+            for bar in bars:
+                if start <= bar.date <= end:
+                    all_dates.add(bar.date)
+        return sorted(all_dates)
 
     def _find_bar_for_date(
         self, price_history: list[PriceBar], target_date: date
@@ -508,24 +637,7 @@ class SimulationEngine:
                 return bar
         return None
 
-    async def _get_bar_for_date(
-        self, symbol: str, target_date: date
-    ) -> PriceBar | None:
-        """Get single bar for specific date by querying the database.
-
-        Args:
-            symbol: Stock symbol.
-            target_date: Target date.
-
-        Returns:
-            PriceBar for the date or None if not found.
-        """
-        history = await self._get_price_history(symbol, target_date, target_date)
-        return history[0] if history else None
-
-    async def _get_latest_snapshot(
-        self, simulation_id: int
-    ) -> ArenaSnapshot | None:
+    async def _get_latest_snapshot(self, simulation_id: int) -> ArenaSnapshot | None:
         """Get most recent snapshot for a simulation.
 
         Args:
@@ -542,9 +654,7 @@ class SimulationEngine:
         )
         return result.scalar_one_or_none()
 
-    async def _get_open_positions(
-        self, simulation_id: int
-    ) -> Sequence[ArenaPosition]:
+    async def _get_open_positions(self, simulation_id: int) -> Sequence[ArenaPosition]:
         """Get all open positions for a simulation.
 
         Args:
@@ -560,26 +670,6 @@ class SimulationEngine:
         )
         return result.scalars().all()
 
-    async def _get_pending_position(
-        self, simulation_id: int, symbol: str
-    ) -> ArenaPosition | None:
-        """Get pending position for a symbol.
-
-        Args:
-            simulation_id: Simulation ID.
-            symbol: Stock symbol.
-
-        Returns:
-            Pending position or None if no pending position exists.
-        """
-        result = await self.session.execute(
-            select(ArenaPosition)
-            .where(ArenaPosition.simulation_id == simulation_id)
-            .where(ArenaPosition.symbol == symbol)
-            .where(ArenaPosition.status == PositionStatus.PENDING.value)
-        )
-        return result.scalar_one_or_none()
-
     async def _close_all_positions(
         self, simulation: ArenaSimulation, close_date: date, reason: ExitReason
     ) -> None:
@@ -593,7 +683,7 @@ class SimulationEngine:
         open_positions = await self._get_open_positions(simulation.id)
 
         for position in open_positions:
-            bar = await self._get_bar_for_date(position.symbol, close_date)
+            bar = self._get_cached_bar_for_date(simulation.id, position.symbol, close_date)
             if not bar:
                 continue
 
@@ -612,6 +702,18 @@ class SimulationEngine:
             if realized_pnl > 0:
                 simulation.winning_trades += 1
 
+    def clear_simulation_cache(self, simulation_id: int) -> None:
+        """Clear all in-memory caches for a completed simulation.
+
+        Caches are per-engine-instance and not thread-safe by design.
+        Each ArenaWorker creates one engine per simulation and runs
+        sequentially, so no concurrency issues exist.
+        """
+        self._price_cache.pop(simulation_id, None)
+        self._trading_days_cache.pop(simulation_id, None)
+        self._peak_equity.pop(simulation_id, None)
+        self._max_drawdown.pop(simulation_id, None)
+
     async def _finalize_simulation(self, simulation: ArenaSimulation) -> None:
         """Mark simulation as completed.
 
@@ -620,39 +722,9 @@ class SimulationEngine:
         """
         simulation.status = SimulationStatus.COMPLETED.value
         await self.session.commit()
+        self.clear_simulation_cache(simulation.id)  # Free memory
         logger.info(
             f"Simulation {simulation.id} completed: "
             f"{simulation.total_trades} trades, "
             f"return {simulation.total_return_pct}%"
         )
-
-    async def _update_max_drawdown(self, simulation: ArenaSimulation) -> None:
-        """Update max drawdown based on equity curve.
-
-        Calculates the maximum drawdown from peak equity to any subsequent
-        trough. This is a key risk metric for trading strategies.
-
-        Args:
-            simulation: Simulation to update.
-        """
-        result = await self.session.execute(
-            select(ArenaSnapshot.total_equity)
-            .where(ArenaSnapshot.simulation_id == simulation.id)
-            .order_by(ArenaSnapshot.day_number)
-        )
-        equities = [row[0] for row in result.all()]
-
-        if len(equities) < 2:
-            return
-
-        peak = equities[0]
-        max_dd = Decimal("0")
-
-        for equity in equities:
-            if equity > peak:
-                peak = equity
-            if peak > 0:
-                drawdown = (peak - equity) / peak * 100
-                max_dd = max(max_dd, drawdown)
-
-        simulation.max_drawdown_pct = max_dd
