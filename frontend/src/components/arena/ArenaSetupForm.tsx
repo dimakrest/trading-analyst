@@ -17,6 +17,9 @@ import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
 import type { CreateSimulationRequest } from '../../types/arena';
 
+// Arena configuration constants
+const MAX_ARENA_SYMBOLS = 600;
+
 interface ArenaSetupFormProps {
   /** Callback when form is submitted with valid data */
   onSubmit: (request: CreateSimulationRequest) => Promise<void>;
@@ -162,7 +165,7 @@ export const ArenaSetupForm = ({
   }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, onSubmit]);
 
   const symbolList = parseSymbols(symbols);
-  const hasValidSymbols = symbolList.length > 0 && symbolList.length <= 50;
+  const hasValidSymbols = symbolList.length > 0 && symbolList.length <= MAX_ARENA_SYMBOLS;
   const hasValidDates = startDate && endDate && new Date(startDate) < new Date(endDate);
   const hasValidCapital = parseFloat(capital) > 0;
   const hasValidPositionSize = parseFloat(positionSize) > 0;
@@ -228,7 +231,7 @@ export const ArenaSetupForm = ({
           <p className="text-xs text-muted-foreground mt-1">
             {selectedList
               ? 'Symbols populated from list. You can modify them before starting.'
-              : `${symbolList.length} symbol${symbolList.length !== 1 ? 's' : ''} (max 50)`}
+              : `${symbolList.length} symbol${symbolList.length !== 1 ? 's' : ''} (max ${MAX_ARENA_SYMBOLS})`}
           </p>
         </div>
 

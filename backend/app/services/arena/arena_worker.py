@@ -5,6 +5,7 @@ and processes them with resume capability and cancellation support.
 """
 
 import logging
+import time
 
 from app.models.arena import ArenaSimulation
 from app.services.arena.simulation_engine import SimulationEngine
@@ -47,20 +48,16 @@ class ArenaWorker(JobWorker[ArenaSimulation]):
             # Load simulation in this session
             sim = await session.get(ArenaSimulation, simulation_id)
             if not sim:
-                logger.error(
-                    f"[{worker_id}] Simulation {simulation_id} not found"
-                )
+                logger.error(f"[{worker_id}] Simulation {simulation_id} not found")
                 return
 
             # Initialize simulation if not yet started
             if not sim.is_initialized:
-                logger.info(
-                    f"[{worker_id}] Simulation {simulation_id}: initializing"
-                )
+                logger.info(f"[{worker_id}] Simulation {simulation_id}: initializing")
                 await engine.initialize_simulation(simulation_id)
 
-                # Refresh to get updated state
-                await session.refresh(sim)
+                # Refresh to get updated state (only refresh scalar attributes needed by the worker)
+                await session.refresh(sim, attribute_names=["current_day", "total_days", "status"])
                 logger.info(
                     f"[{worker_id}] Simulation {simulation_id}: initialized "
                     f"with {sim.total_days} trading days"
@@ -77,23 +74,34 @@ class ArenaWorker(JobWorker[ArenaSimulation]):
                     return
 
                 # Process one day
+                start_time = time.monotonic()
                 snapshot = await engine.step_day(simulation_id)
+                elapsed = time.monotonic() - start_time
 
                 if snapshot is None:
                     # Simulation completed (step_day returns None when done)
                     break
 
                 # Refresh simulation to get updated current_day
-                await session.refresh(sim)
+                await session.refresh(sim, attribute_names=["current_day", "total_days", "status"])
 
-                logger.debug(
+                logger.info(
                     f"[{worker_id}] Simulation {simulation_id}: "
                     f"day {sim.current_day}/{sim.total_days} complete, "
-                    f"equity=${snapshot.total_equity}"
+                    f"equity=${snapshot.total_equity}, took {elapsed:.2f}s"
                 )
 
             # Log completion summary (refresh state after session work)
-            await session.refresh(sim)
+            await session.refresh(
+                sim,
+                attribute_names=[
+                    "current_day",
+                    "total_days",
+                    "status",
+                    "total_trades",
+                    "total_return_pct",
+                ],
+            )
             logger.info(
                 f"[{worker_id}] Simulation {simulation_id} completed: "
                 f"{sim.total_trades} trades, "

@@ -244,9 +244,9 @@ class TestCreateSimulation:
         self,
         async_client: AsyncClient,
     ):
-        """More than 50 symbols returns validation error."""
+        """More than 600 symbols returns validation error."""
         # Arrange
-        symbols = [f"SYM{i}" for i in range(51)]
+        symbols = [f"SYM{i}" for i in range(601)]
         request_data = {
             "symbols": symbols,
             "start_date": "2024-01-01",

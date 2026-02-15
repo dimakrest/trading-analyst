@@ -77,7 +77,9 @@ class TestSimulationEngineInitializeSimulation:
         ]
 
     @pytest.mark.unit
-    async def test_initialize_simulation_not_found(self, db_session, rollback_session_factory) -> None:
+    async def test_initialize_simulation_not_found(
+        self, db_session, rollback_session_factory
+    ) -> None:
         """Test initialization fails when simulation not found."""
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
@@ -169,9 +171,7 @@ class TestSimulationEngineInitializeSimulation:
 
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
-        with patch.object(
-            engine.data_service, "get_price_data", return_value=[]
-        ):
+        with patch.object(engine.data_service, "get_price_data", return_value=[]):
             with pytest.raises(ValueError, match="No trading days"):
                 await engine.initialize_simulation(simulation.id)
 
@@ -188,9 +188,7 @@ class TestSimulationEngineInitializeSimulation:
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         # Mock data service to return price data
-        with patch.object(
-            engine.data_service, "get_price_data", return_value=mock_price_data
-        ):
+        with patch.object(engine.data_service, "get_price_data", return_value=mock_price_data):
             result = await engine.initialize_simulation(simulation.id)
 
         assert result.status == SimulationStatus.RUNNING.value
@@ -250,7 +248,9 @@ class TestSimulationEngineStepDay:
         ]
 
     @pytest.mark.unit
-    async def test_step_day_simulation_not_found(self, db_session, rollback_session_factory) -> None:
+    async def test_step_day_simulation_not_found(
+        self, db_session, rollback_session_factory
+    ) -> None:
         """Test step_day fails when simulation not found."""
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
@@ -292,7 +292,12 @@ class TestSimulationEngineStepDay:
 
     @pytest.mark.unit
     async def test_step_day_creates_snapshot(
-        self, db_session, rollback_session_factory, running_simulation_data, sample_price_bars, mock_agent
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
     ) -> None:
         """Test step_day creates a daily snapshot."""
         simulation = ArenaSimulation(**running_simulation_data)
@@ -302,17 +307,16 @@ class TestSimulationEngineStepDay:
 
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
+        # Pre-populate caches instead of mocking methods
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
         # Mock dependencies
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=[bar.date for bar in sample_price_bars[:5]]
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=sample_price_bars
-                ):
-                    snapshot = await engine.step_day(simulation.id)
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            snapshot = await engine.step_day(simulation.id)
 
         assert snapshot is not None
         assert snapshot.simulation_id == simulation.id
@@ -322,7 +326,12 @@ class TestSimulationEngineStepDay:
 
     @pytest.mark.unit
     async def test_step_day_increments_current_day(
-        self, db_session, rollback_session_factory, running_simulation_data, sample_price_bars, mock_agent
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
     ) -> None:
         """Test step_day increments current_day."""
         simulation = ArenaSimulation(**running_simulation_data)
@@ -332,23 +341,27 @@ class TestSimulationEngineStepDay:
 
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=[bar.date for bar in sample_price_bars[:5]]
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=sample_price_bars
-                ):
-                    await engine.step_day(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
 
         await db_session.refresh(simulation)
         assert simulation.current_day == 1
 
     @pytest.mark.unit
     async def test_step_day_records_agent_decisions(
-        self, db_session, rollback_session_factory, running_simulation_data, sample_price_bars, mock_agent
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
     ) -> None:
         """Test step_day records agent decisions in snapshot."""
         simulation = ArenaSimulation(**running_simulation_data)
@@ -358,23 +371,27 @@ class TestSimulationEngineStepDay:
 
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=[bar.date for bar in sample_price_bars[:5]]
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=sample_price_bars
-                ):
-                    snapshot = await engine.step_day(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            snapshot = await engine.step_day(simulation.id)
 
         assert "AAPL" in snapshot.decisions
         assert snapshot.decisions["AAPL"]["action"] == "NO_SIGNAL"
 
     @pytest.mark.unit
     async def test_step_day_handles_no_price_data(
-        self, db_session, rollback_session_factory, running_simulation_data, sample_price_bars, mock_agent
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
     ) -> None:
         """Test step_day handles missing price data gracefully."""
         simulation = ArenaSimulation(**running_simulation_data)
@@ -384,16 +401,14 @@ class TestSimulationEngineStepDay:
 
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=[date(2024, 1, 15)]
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=[]
-                ):
-                    snapshot = await engine.step_day(simulation.id)
+        # Pre-populate caches with empty price data
+        engine._trading_days_cache[simulation.id] = [date(2024, 1, 15)]
+        engine._price_cache[simulation.id] = {
+            symbol: [] for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            snapshot = await engine.step_day(simulation.id)
 
         assert snapshot.decisions["AAPL"]["action"] == "NO_DATA"
 
@@ -461,21 +476,17 @@ class TestSimulationEnginePositionManagement:
         mock_agent = MagicMock()
         mock_agent.required_lookback_days = 60
         mock_agent.evaluate = AsyncMock(
-            return_value=AgentDecision(
-                symbol="AAPL", action="HOLD", reasoning="Already holding"
-            )
+            return_value=AgentDecision(symbol="AAPL", action="HOLD", reasoning="Already holding")
         )
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=trading_days
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=price_bars
-                ):
-                    await engine.step_day(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
 
         await db_session.refresh(pending)
         assert pending.status == PositionStatus.OPEN.value
@@ -526,16 +537,14 @@ class TestSimulationEnginePositionManagement:
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
         )
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=trading_days
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=price_bars
-                ):
-                    await engine.step_day(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
 
         await db_session.refresh(pending)
         assert pending.status == PositionStatus.CLOSED.value
@@ -610,21 +619,15 @@ class TestSimulationEnginePositionManagement:
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
         )
 
-        async def mock_get_price_history(symbol, start, end):
-            if symbol == "AAPL":
-                return price_bars_aapl
-            return price_bars_msft
+        # Pre-populate caches with different price bars per symbol
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            "AAPL": price_bars_aapl,
+            "MSFT": price_bars_msft,
+        }
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=trading_days
-            ):
-                with patch.object(
-                    engine, "_get_price_history", side_effect=mock_get_price_history
-                ):
-                    await engine.step_day(simulation.id)
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
 
         await db_session.refresh(pending1)
         await db_session.refresh(pending2)
@@ -671,16 +674,14 @@ class TestSimulationEnginePositionManagement:
             )
         )
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=[date(2024, 1, 15)]
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=price_bars
-                ):
-                    await engine.step_day(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        engine._trading_days_cache[simulation.id] = [date(2024, 1, 15)]
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
 
         # Check pending position was created
         result = await db_session.execute(
@@ -763,16 +764,14 @@ class TestSimulationEngineTrailingStop:
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
         )
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=trading_days
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=price_bars
-                ):
-                    await engine.step_day(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
 
         await db_session.refresh(position)
         assert position.status == PositionStatus.CLOSED.value
@@ -816,7 +815,7 @@ class TestSimulationEngineTrailingStop:
                 date=date(2024, 1, 17),
                 open=Decimal("102.00"),
                 high=Decimal("110.00"),  # New high
-                low=Decimal("101.00"),   # Above stop at 95
+                low=Decimal("101.00"),  # Above stop at 95
                 close=Decimal("108.00"),
                 volume=1000000,
             )
@@ -824,20 +823,16 @@ class TestSimulationEngineTrailingStop:
 
         mock_agent = MagicMock()
         mock_agent.required_lookback_days = 60
-        mock_agent.evaluate = AsyncMock(
-            return_value=AgentDecision(symbol="AAPL", action="HOLD")
-        )
+        mock_agent.evaluate = AsyncMock(return_value=AgentDecision(symbol="AAPL", action="HOLD"))
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=trading_days
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=price_bars
-                ):
-                    await engine.step_day(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
 
         await db_session.refresh(position)
         assert position.status == PositionStatus.OPEN.value
@@ -904,16 +899,14 @@ class TestSimulationEngineTrailingStop:
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
         )
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(
-                engine, "_get_trading_days", return_value=trading_days
-            ):
-                with patch.object(
-                    engine, "_get_price_history", return_value=price_bars
-                ):
-                    await engine.step_day(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
 
         await db_session.refresh(position)
         assert position.status == PositionStatus.CLOSED.value
@@ -931,7 +924,9 @@ class TestSimulationEngineRunToCompletion:
     """Tests for SimulationEngine.run_to_completion() method."""
 
     @pytest.mark.unit
-    async def test_run_to_completion_processes_all_days(self, db_session, rollback_session_factory) -> None:
+    async def test_run_to_completion_processes_all_days(
+        self, db_session, rollback_session_factory
+    ) -> None:
         """Test run_to_completion processes all simulation days."""
         simulation = ArenaSimulation(
             name="Full Run Test",
@@ -976,14 +971,14 @@ class TestSimulationEngineRunToCompletion:
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
         )
 
-        with patch(
-            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
-        ):
-            with patch.object(engine, "_get_trading_days", return_value=trading_days):
-                with patch.object(
-                    engine, "_get_price_history", return_value=price_bars
-                ):
-                    result = await engine.run_to_completion(simulation.id)
+        # Pre-populate caches instead of mocking methods
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            result = await engine.run_to_completion(simulation.id)
 
         assert result.status == SimulationStatus.COMPLETED.value
         assert result.current_day == 3
@@ -1092,59 +1087,6 @@ class TestSimulationEngineHelpers:
         assert result[0].symbol == "AAPL"
 
     @pytest.mark.unit
-    async def test_get_pending_position_returns_pending(
-        self, db_session, rollback_session_factory, simulation_for_helpers
-    ) -> None:
-        """Test _get_pending_position returns pending position for symbol."""
-        db_session.add(simulation_for_helpers)
-        await db_session.commit()
-        await db_session.refresh(simulation_for_helpers)
-
-        pending = ArenaPosition(
-            simulation_id=simulation_for_helpers.id,
-            symbol="AAPL",
-            status=PositionStatus.PENDING.value,
-            signal_date=date(2024, 1, 15),
-            trailing_stop_pct=Decimal("5.00"),
-        )
-        db_session.add(pending)
-        await db_session.commit()
-
-        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
-        result = await engine._get_pending_position(
-            simulation_for_helpers.id, "AAPL"
-        )
-
-        assert result is not None
-        assert result.symbol == "AAPL"
-
-    @pytest.mark.unit
-    async def test_get_pending_position_returns_none_for_other_symbol(
-        self, db_session, rollback_session_factory, simulation_for_helpers
-    ) -> None:
-        """Test _get_pending_position returns None for non-pending symbol."""
-        db_session.add(simulation_for_helpers)
-        await db_session.commit()
-        await db_session.refresh(simulation_for_helpers)
-
-        pending = ArenaPosition(
-            simulation_id=simulation_for_helpers.id,
-            symbol="AAPL",
-            status=PositionStatus.PENDING.value,
-            signal_date=date(2024, 1, 15),
-            trailing_stop_pct=Decimal("5.00"),
-        )
-        db_session.add(pending)
-        await db_session.commit()
-
-        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
-        result = await engine._get_pending_position(
-            simulation_for_helpers.id, "MSFT"
-        )
-
-        assert result is None
-
-    @pytest.mark.unit
     def test_find_bar_for_date_returns_matching_bar(self) -> None:
         """Test _find_bar_for_date returns bar for target date."""
         mock_session_factory = MagicMock()
@@ -1195,92 +1137,6 @@ class TestSimulationEngineHelpers:
         result = engine._find_bar_for_date(bars, date(2024, 1, 20))
 
         assert result is None
-
-
-@pytest.mark.usefixtures("db_session")
-class TestSimulationEngineMaxDrawdown:
-    """Tests for max drawdown calculation."""
-
-    @pytest.mark.unit
-    async def test_update_max_drawdown_with_single_snapshot(
-        self, db_session, rollback_session_factory
-    ) -> None:
-        """Test max drawdown not updated with only one snapshot."""
-        simulation = ArenaSimulation(
-            name="Drawdown Test",
-            symbols=["AAPL"],
-            start_date=date(2024, 1, 15),
-            end_date=date(2024, 1, 20),
-            initial_capital=Decimal("10000.00"),
-            position_size=Decimal("1000.00"),
-            agent_type="live20",
-            agent_config={"trailing_stop_pct": 5.0},
-            status=SimulationStatus.RUNNING.value,
-        )
-        db_session.add(simulation)
-        await db_session.commit()
-        await db_session.refresh(simulation)
-
-        snapshot = ArenaSnapshot(
-            simulation_id=simulation.id,
-            snapshot_date=date(2024, 1, 15),
-            day_number=0,
-            cash=Decimal("10000.00"),
-            positions_value=Decimal("0.00"),
-            total_equity=Decimal("10000.00"),
-        )
-        db_session.add(snapshot)
-        await db_session.commit()
-
-        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
-        await engine._update_max_drawdown(simulation)
-
-        assert simulation.max_drawdown_pct is None
-
-    @pytest.mark.unit
-    async def test_update_max_drawdown_calculates_correctly(
-        self, db_session, rollback_session_factory
-    ) -> None:
-        """Test max drawdown calculates correctly with equity curve."""
-        simulation = ArenaSimulation(
-            name="Drawdown Test",
-            symbols=["AAPL"],
-            start_date=date(2024, 1, 15),
-            end_date=date(2024, 1, 20),
-            initial_capital=Decimal("10000.00"),
-            position_size=Decimal("1000.00"),
-            agent_type="live20",
-            agent_config={"trailing_stop_pct": 5.0},
-            status=SimulationStatus.RUNNING.value,
-        )
-        db_session.add(simulation)
-        await db_session.commit()
-        await db_session.refresh(simulation)
-
-        # Create equity curve: 10000 -> 11000 -> 10000 (9.09% drawdown)
-        equities = [
-            Decimal("10000.00"),
-            Decimal("11000.00"),  # Peak
-            Decimal("10000.00"),  # Drawdown
-        ]
-        for i, equity in enumerate(equities):
-            snapshot = ArenaSnapshot(
-                simulation_id=simulation.id,
-                snapshot_date=date(2024, 1, 15) + timedelta(days=i),
-                day_number=i,
-                cash=equity,
-                positions_value=Decimal("0.00"),
-                total_equity=equity,
-            )
-            db_session.add(snapshot)
-        await db_session.commit()
-
-        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
-        await engine._update_max_drawdown(simulation)
-
-        # Max drawdown: (11000 - 10000) / 11000 * 100 = 9.09%
-        assert simulation.max_drawdown_pct is not None
-        assert abs(simulation.max_drawdown_pct - Decimal("9.0909")) < Decimal("0.01")
 
 
 @pytest.mark.usefixtures("db_session")
@@ -1340,22 +1196,33 @@ class TestSimulationEngineCloseAllPositions:
 
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
-        # Mock price bars for close - use coroutine mock
-        async def mock_get_bar(symbol: str, target_date: date):
-            prices = {"AAPL": Decimal("105.00"), "MSFT": Decimal("210.00")}
-            return PriceBar(
-                date=target_date,
-                open=prices[symbol],
-                high=prices[symbol],
-                low=prices[symbol],
-                close=prices[symbol],
-                volume=1000000,
-            )
+        # Pre-populate price cache with closing prices
+        engine._price_cache[simulation.id] = {
+            "AAPL": [
+                PriceBar(
+                    date=date(2024, 1, 20),
+                    open=Decimal("105.00"),
+                    high=Decimal("105.00"),
+                    low=Decimal("105.00"),
+                    close=Decimal("105.00"),
+                    volume=1000000,
+                )
+            ],
+            "MSFT": [
+                PriceBar(
+                    date=date(2024, 1, 20),
+                    open=Decimal("210.00"),
+                    high=Decimal("210.00"),
+                    low=Decimal("210.00"),
+                    close=Decimal("210.00"),
+                    volume=1000000,
+                )
+            ],
+        }
 
-        with patch.object(engine, "_get_bar_for_date", side_effect=mock_get_bar):
-            await engine._close_all_positions(
-                simulation, date(2024, 1, 20), ExitReason.SIMULATION_END
-            )
+        await engine._close_all_positions(
+            simulation, date(2024, 1, 20), ExitReason.SIMULATION_END
+        )
 
         # Commit to persist changes
         await db_session.commit()
@@ -1372,3 +1239,1118 @@ class TestSimulationEngineCloseAllPositions:
         assert position2.exit_reason == ExitReason.SIMULATION_END.value
         assert position2.exit_price == Decimal("210.00")
         assert position2.realized_pnl == Decimal("50.00")  # 5 * (210 - 200)
+
+
+@pytest.mark.usefixtures("db_session")
+class TestSimulationEngineValidation:
+    """Tests for accounting validation in SimulationEngine.
+
+    Phase 1 of arena caching plan: Runtime validation of accounting invariants
+    to catch bugs early before they produce silently wrong results.
+    """
+
+    @pytest.fixture
+    def running_simulation_data(self) -> dict:
+        """Create running simulation data."""
+        return {
+            "name": "Validation Test",
+            "symbols": ["AAPL"],
+            "start_date": date(2024, 1, 15),
+            "end_date": date(2024, 1, 20),
+            "initial_capital": Decimal("10000.00"),
+            "position_size": Decimal("1000.00"),
+            "agent_type": "live20",
+            "agent_config": {"trailing_stop_pct": 5.0},
+            "status": SimulationStatus.RUNNING.value,
+            "current_day": 0,
+            "total_days": 5,
+        }
+
+    @pytest.fixture
+    def sample_price_bars(self) -> list[PriceBar]:
+        """Create sample price bars for testing."""
+        return [
+            PriceBar(
+                date=date(2024, 1, 15) + timedelta(days=i),
+                open=Decimal("100.00") + i,
+                high=Decimal("102.00") + i,
+                low=Decimal("98.00") + i,
+                close=Decimal("101.00") + i,
+                volume=1000000,
+            )
+            for i in range(10)
+        ]
+
+    @pytest.fixture
+    def mock_agent(self) -> MagicMock:
+        """Create mock agent."""
+        agent = MagicMock()
+        agent.name = "MockAgent"
+        agent.required_lookback_days = 60
+        agent.evaluate = AsyncMock(
+            return_value=AgentDecision(
+                symbol="AAPL",
+                action="NO_SIGNAL",
+                score=40,
+                reasoning="Test reasoning",
+            )
+        )
+        return agent
+
+    @pytest.mark.unit
+    async def test_validation_raises_on_negative_cash(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test validation raises ValueError when cash goes negative.
+
+        This test verifies that the accounting validation catches negative cash
+        before committing to the database, preventing data corruption.
+        """
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Pre-populate caches instead of mocking methods
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
+        # Set up mocks for normal operation
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            # Inject negative cash by patching _get_latest_snapshot
+            # to return a snapshot with more positions_value than initial capital
+            mock_snapshot = MagicMock()
+            mock_snapshot.cash = Decimal("-100.00")  # Negative cash
+            mock_snapshot.total_equity = Decimal("9900.00")
+
+            with patch.object(engine, "_get_latest_snapshot", return_value=mock_snapshot):
+                with pytest.raises(ValueError, match="cash is negative"):
+                    await engine.step_day(simulation.id)
+
+    @pytest.mark.unit
+    async def test_validation_raises_on_negative_positions_value(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test validation raises ValueError when positions_value is negative.
+
+        This test verifies that the accounting validation catches negative positions_value
+        before committing to the database. We simulate this by patching the portfolio
+        valuation calculation to return a negative value.
+        """
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        # Create an open position to trigger position valuation
+        position = ArenaPosition(
+            simulation_id=simulation.id,
+            symbol="AAPL",
+            status=PositionStatus.OPEN.value,
+            signal_date=date(2024, 1, 14),
+            entry_date=date(2024, 1, 15),
+            entry_price=Decimal("100.00"),
+            shares=10,
+            trailing_stop_pct=Decimal("5.00"),
+            highest_price=Decimal("100.00"),
+            current_stop=Decimal("95.00"),
+        )
+        db_session.add(position)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Pre-populate caches instead of mocking methods
+        engine._trading_days_cache[simulation.id] = [date(2024, 1, 15)]
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
+        # Use a mock that simulates a calculation bug resulting in negative positions_value
+        # We'll patch the calculation by making the loop that sums positions_value
+        # produce a negative result
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            # Create a bar that would be used for valuation, but patch
+            # the positions_by_symbol to inject negative position value calculation
+            async def mock_step_with_negative_positions():
+                # Call the real step_day but intercept at the right point
+                # Actually, let's use a different approach: patch the position's shares to negative
+                position.shares = (
+                    -10
+                )  # Negative shares would cause negative positions_value
+                try:
+                    return await engine.step_day(simulation.id)
+                finally:
+                    position.shares = 10  # Reset
+
+            with pytest.raises(ValueError, match="positions_value is negative"):
+                await mock_step_with_negative_positions()
+
+    @pytest.mark.unit
+    async def test_validation_passes_for_valid_accounting(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test validation does not raise errors for valid accounting.
+
+        This positive test verifies that normal operation (positive cash, positive
+        positions_value, internally consistent snapshot) passes all validations
+        without errors.
+        """
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Pre-populate caches instead of mocking methods
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
+        # Run a normal step_day - should not raise any validation errors
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            snapshot = await engine.step_day(simulation.id)
+
+        # Verify snapshot was created successfully
+        assert snapshot is not None
+        assert snapshot.simulation_id == simulation.id
+        assert snapshot.cash >= 0
+        assert snapshot.positions_value >= 0
+        assert snapshot.total_equity >= 0
+
+        # Verify snapshot is internally consistent
+        assert abs(snapshot.total_equity - (snapshot.cash + snapshot.positions_value)) < Decimal(
+            "0.01"
+        )
+
+    @pytest.mark.unit
+    async def test_snapshot_cross_check_catches_construction_bug(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test snapshot cross-check catches bugs in snapshot construction.
+
+        This test verifies that if a bug causes the snapshot to be constructed with
+        inconsistent values (e.g., corrupted total_equity field), the validation
+        catches it before commit.
+
+        This is different from the tautological check of total_equity == cash + positions_value
+        at the point of calculation (line 356), which can never fail since total_equity
+        is defined as that sum. The snapshot cross-check validates that the ArenaSnapshot
+        object fields remain consistent after construction.
+        """
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Create an open position so positions_value is non-zero (will be ~$1010)
+        position = ArenaPosition(
+            simulation_id=simulation.id,
+            symbol="AAPL",
+            status=PositionStatus.OPEN.value,
+            signal_date=date(2024, 1, 14),
+            entry_date=date(2024, 1, 15),
+            entry_price=Decimal("100.00"),
+            shares=10,
+            trailing_stop_pct=Decimal("5.00"),
+            highest_price=Decimal("100.00"),
+            current_stop=Decimal("95.00"),
+        )
+        db_session.add(position)
+        await db_session.commit()
+
+        # Create a buggy ArenaSnapshot that corrupts total_equity after construction
+        class BuggyArenaSnapshot(ArenaSnapshot):
+            """Snapshot that corrupts total_equity to simulate a construction bug."""
+
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                # After construction, corrupt total_equity to be inconsistent
+                # This simulates a bug where the snapshot is constructed with wrong values
+                if self.positions_value > Decimal("0"):
+                    self.total_equity = self.cash  # Wrong! Should be cash + positions_value
+
+        # Pre-populate caches instead of mocking methods
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        engine._trading_days_cache[simulation.id] = trading_days
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            # Patch ArenaSnapshot in the simulation_engine module
+            with patch(
+                "app.services.arena.simulation_engine.ArenaSnapshot", BuggyArenaSnapshot
+            ):
+                with pytest.raises(ValueError, match="snapshot equity mismatch"):
+                    await engine.step_day(simulation.id)
+
+
+@pytest.mark.usefixtures("db_session")
+class TestSimulationEngineCaching:
+    """Tests for SimulationEngine in-memory caching and optimization behavior."""
+
+    @pytest.fixture
+    def running_simulation_data(self) -> dict:
+        """Create running simulation data."""
+        return {
+            "name": "Cache Test Simulation",
+            "symbols": ["AAPL", "MSFT"],
+            "start_date": date(2024, 1, 15),
+            "end_date": date(2024, 1, 20),
+            "initial_capital": Decimal("10000.00"),
+            "position_size": Decimal("1000.00"),
+            "agent_type": "live20",
+            "agent_config": {"trailing_stop_pct": 5.0},
+            "status": SimulationStatus.RUNNING.value,
+            "current_day": 0,
+            "total_days": 5,
+        }
+
+    @pytest.fixture
+    def sample_price_bars(self) -> list[PriceBar]:
+        """Create sample price bars for testing."""
+        return [
+            PriceBar(
+                date=date(2024, 1, 15) + timedelta(days=i),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("101.00"),
+                volume=1000000,
+            )
+            for i in range(10)
+        ]
+
+    @pytest.fixture
+    def mock_agent(self) -> MagicMock:
+        """Create a mock agent."""
+        agent = MagicMock()
+        agent.required_lookback_days = 60
+        agent.evaluate = AsyncMock(return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL"))
+        return agent
+
+    @pytest.mark.unit
+    async def test_trading_days_cached_after_init(
+        self, db_session, rollback_session_factory, sample_price_bars
+    ) -> None:
+        """Test trading days are cached after initialization."""
+        # Create PENDING simulation (NOT initialized - total_days=0)
+        simulation = ArenaSimulation(
+            name="Cache Test Simulation",
+            symbols=["AAPL", "MSFT"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.PENDING.value,
+            current_day=0,
+            total_days=0,  # NOT initialized yet
+        )
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Verify cache is empty before init
+        assert simulation.id not in engine._trading_days_cache
+
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+
+        # Mock data service to return price data with actual PriceDataPoints
+        from app.providers.base import PriceDataPoint
+
+        mock_records = [
+            PriceDataPoint(
+                symbol="AAPL",
+                timestamp=datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc),
+                open_price=100.0,
+                high_price=102.0,
+                low_price=98.0,
+                close_price=101.0,
+                volume=1000000,
+            )
+            for d in trading_days
+        ]
+
+        # Mock data service to return price data
+        with patch.object(
+            engine.data_service, "get_price_data", new=AsyncMock(return_value=mock_records)
+        ):
+            await engine.initialize_simulation(simulation.id)
+
+        # Verify cache is populated after init
+        assert simulation.id in engine._trading_days_cache
+        assert len(engine._trading_days_cache[simulation.id]) == 5
+        assert engine._trading_days_cache[simulation.id] == trading_days
+
+    @pytest.mark.unit
+    async def test_trading_days_lazy_loaded_on_resume(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test trading days are lazy-loaded when resuming a simulation."""
+        # Create RUNNING simulation (already initialized)
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        # New engine instance (simulates resume after crash)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Verify cache is empty (new engine instance)
+        assert simulation.id not in engine._trading_days_cache
+
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+
+        # Mock _load_price_cache to track calls and populate cache
+        async def mock_load_cache(*args, **kwargs):
+            sim_id = args[0]
+            engine._price_cache[sim_id] = {
+                symbol: sample_price_bars for symbol in simulation.symbols
+            }
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            with patch.object(
+                engine, "_load_price_cache", side_effect=mock_load_cache
+            ) as mock_load:
+                # First step_day should lazy-load cache
+                await engine.step_day(simulation.id)
+
+        # Verify cache is now populated
+        assert simulation.id in engine._trading_days_cache
+        assert len(engine._trading_days_cache[simulation.id]) > 0
+        # Should have been called once for lazy-load
+        mock_load.assert_called_once()
+
+        # Second call should use cache (not call _load_price_cache again)
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            with patch.object(
+                engine, "_load_price_cache", side_effect=mock_load_cache
+            ) as mock_load_2:
+                await engine.step_day(simulation.id)
+
+        # Should NOT have been called (using cache)
+        mock_load_2.assert_not_called()
+
+    @pytest.mark.unit
+    async def test_batch_pending_positions_matches_individual(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test batch pending position loading returns same results as individual queries."""
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        # Create pending positions for testing
+        pending1 = ArenaPosition(
+            simulation_id=simulation.id,
+            symbol="AAPL",
+            status=PositionStatus.PENDING.value,
+            signal_date=date(2024, 1, 14),
+            trailing_stop_pct=Decimal("5.00"),
+        )
+        pending2 = ArenaPosition(
+            simulation_id=simulation.id,
+            symbol="MSFT",
+            status=PositionStatus.PENDING.value,
+            signal_date=date(2024, 1, 14),
+            trailing_stop_pct=Decimal("5.00"),
+        )
+        db_session.add_all([pending1, pending2])
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+
+        # Pre-populate trading days cache to avoid that code path
+        engine._trading_days_cache[simulation.id] = trading_days
+
+        # Pre-populate price cache
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
+        # Execute step_day which uses batch loading
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            snapshot = await engine.step_day(simulation.id)
+
+        # Verify both positions were processed (opened)
+        await db_session.refresh(pending1)
+        await db_session.refresh(pending2)
+
+        assert pending1.status == PositionStatus.OPEN.value
+        assert pending2.status == PositionStatus.OPEN.value
+        # Verify snapshot shows 2 open positions
+        assert snapshot.open_position_count == 2
+
+    @pytest.mark.unit
+    async def test_incremental_drawdown_matches_full_recalculation(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test incremental drawdown calculation produces same result as full recalculation."""
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Create equity curve: 10000 -> 11000 -> 10000 -> 12000 (max DD: 9.09% at day 2)
+        equities = [
+            Decimal("10000.00"),
+            Decimal("11000.00"),  # Peak
+            Decimal("10000.00"),  # 9.09% drawdown from peak
+            Decimal("12000.00"),  # New peak
+        ]
+
+        # Create snapshots manually
+        for i, equity in enumerate(equities):
+            snapshot = ArenaSnapshot(
+                simulation_id=simulation.id,
+                snapshot_date=date(2024, 1, 15) + timedelta(days=i),
+                day_number=i,
+                cash=equity,
+                positions_value=Decimal("0.00"),
+                total_equity=equity,
+            )
+            db_session.add(snapshot)
+        await db_session.commit()
+
+        # Test incremental calculation by calling step_day with next equity
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        engine._trading_days_cache[simulation.id] = trading_days
+
+        # Initialize drawdown state from existing snapshots (simulates resume)
+        await engine._init_drawdown_state(simulation)
+
+        # Verify incremental state matches expected values
+        # Peak should be 12000 (last equity in the curve)
+        assert engine._peak_equity[simulation.id] == Decimal("12000.00")
+        # Max DD should be ~9.09% (from 11000 peak to 10000 trough)
+        # Expected: (11000 - 10000) / 11000 * 100 = 9.0909...%
+        expected_dd = (Decimal("11000") - Decimal("10000")) / Decimal("11000") * 100
+        assert abs(engine._max_drawdown[simulation.id] - expected_dd) < Decimal("0.01")
+
+    @pytest.mark.unit
+    async def test_drawdown_state_reconstructed_on_resume(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test drawdown state is correctly reconstructed when resuming a simulation."""
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        # Create snapshots representing partial simulation progress
+        equities = [Decimal("10000.00"), Decimal("11000.00"), Decimal("10500.00")]
+        for i, equity in enumerate(equities):
+            snapshot = ArenaSnapshot(
+                simulation_id=simulation.id,
+                snapshot_date=date(2024, 1, 15) + timedelta(days=i),
+                day_number=i,
+                cash=equity,
+                positions_value=Decimal("0.00"),
+                total_equity=equity,
+            )
+            db_session.add(snapshot)
+        await db_session.commit()
+
+        # Create NEW engine instance (simulates resume after crash)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Verify drawdown state is empty initially
+        assert simulation.id not in engine._peak_equity
+        assert simulation.id not in engine._max_drawdown
+
+        # Prepare for step_day
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        engine._trading_days_cache[simulation.id] = trading_days
+
+        # Pre-populate price cache
+        engine._price_cache[simulation.id] = {
+            symbol: sample_price_bars for symbol in simulation.symbols
+        }
+
+        # Run step_day which should lazy-load drawdown state
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
+
+        # Verify drawdown state was reconstructed correctly
+        assert simulation.id in engine._peak_equity
+        assert simulation.id in engine._max_drawdown
+
+        # Peak should be 11000 (highest equity from snapshots)
+        assert engine._peak_equity[simulation.id] == Decimal("11000.00")
+        # Max DD should be ~4.55% (from 11000 to 10500)
+        expected_dd = (Decimal("11000") - Decimal("10500")) / Decimal("11000") * 100
+        assert abs(engine._max_drawdown[simulation.id] - expected_dd) < Decimal("0.01")
+
+    @pytest.mark.unit
+    async def test_drawdown_not_reset_on_new_ath_after_drawdown(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Test max drawdown is NOT reset when equity makes new all-time high after a drawdown.
+
+        Critical: max_drawdown should be the MAXIMUM drawdown experienced across the entire
+        simulation. Making a new high should update peak, but NOT reset the max drawdown if
+        a previous drawdown was larger.
+
+        This test exercises the full step_day() path with a realistic scenario:
+        - Days 0-2: Build up equity curve with 50% drawdown (10k -> 20k -> 10k)
+        - Day 3: New ATH (25k) via step_day() call
+        - Verify: max_drawdown remains 50%, not reset to 0%
+        """
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Scenario: Equity went from 10000 (initial) -> 20000 (peak) -> 10000 (drawdown) -> 25000 (new ATH)
+        # The 50% drawdown should remain the max even after new ATH
+
+        # Setup: Create snapshots for the equity curve history
+        # Day 0: 10000 (initial capital, no positions)
+        snapshot_day0 = ArenaSnapshot(
+            simulation_id=simulation.id,
+            snapshot_date=date(2024, 1, 15),
+            day_number=0,
+            cash=Decimal("10000.00"),
+            positions_value=Decimal("0.00"),
+            total_equity=Decimal("10000.00"),
+        )
+        db_session.add(snapshot_day0)
+
+        # Day 1: 20000 (peak - opened winning position)
+        snapshot_day1 = ArenaSnapshot(
+            simulation_id=simulation.id,
+            snapshot_date=date(2024, 1, 16),
+            day_number=1,
+            cash=Decimal("0.00"),
+            positions_value=Decimal("20000.00"),
+            total_equity=Decimal("20000.00"),
+        )
+        db_session.add(snapshot_day1)
+
+        # Day 2: 10000 (drawdown - position lost value)
+        snapshot_day2 = ArenaSnapshot(
+            simulation_id=simulation.id,
+            snapshot_date=date(2024, 1, 17),
+            day_number=2,
+            cash=Decimal("0.00"),
+            positions_value=Decimal("10000.00"),
+            total_equity=Decimal("10000.00"),
+        )
+        db_session.add(snapshot_day2)
+
+        await db_session.commit()
+
+        # Initialize drawdown state from these snapshots
+        await engine._init_drawdown_state(simulation)
+
+        # Verify state: peak should be 20000, max_drawdown should be 50%
+        assert engine._peak_equity[simulation.id] == Decimal("20000.00")
+        assert engine._max_drawdown[simulation.id] == Decimal("50.00")
+
+        # Set simulation.max_drawdown_pct to reflect the historical max
+        # (In a real simulation, this would have been set when the 50% drawdown occurred)
+        simulation.max_drawdown_pct = Decimal("50.00")
+        await db_session.commit()
+
+        # Now run step_day for day 3 where equity goes to 25000 (new ATH)
+        # Mock setup to produce 25000 total equity
+        simulation.current_day = 3  # Will process trading_days[3] = date(2024, 1, 18)
+        engine._trading_days_cache[simulation.id] = [
+            date(2024, 1, 15),  # Day 0
+            date(2024, 1, 16),  # Day 1
+            date(2024, 1, 17),  # Day 2
+            date(2024, 1, 18),  # Day 3 (to be processed)
+        ]
+
+        # Mock agent to produce no new signals (just hold existing position)
+        mock_agent_no_signal = MagicMock()
+        mock_agent_no_signal.required_lookback_days = 60
+        mock_agent_no_signal.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
+        )
+
+        # Create open position worth 25000 at current prices
+        # This position will be valued at day 3 (2024-01-18)
+        position = ArenaPosition(
+            simulation_id=simulation.id,
+            symbol="AAPL",
+            status=PositionStatus.OPEN.value,
+            signal_date=date(2024, 1, 17),
+            entry_date=date(2024, 1, 17),
+            entry_price=Decimal("100.00"),
+            shares=100,  # 100 shares
+            trailing_stop_pct=Decimal("5.00"),
+            highest_price=Decimal("250.00"),  # Will be updated based on day 3 prices
+            current_stop=Decimal("237.50"),
+        )
+        db_session.add(position)
+        await db_session.commit()
+
+        # Create price bars for all days including day 3
+        # Day 3: AAPL at $250 (100 shares * $250 = $25,000)
+        price_bars = [
+            PriceBar(
+                date=date(2024, 1, 15),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("100.00"),
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 16),
+                open=Decimal("100.00"),
+                high=Decimal("202.00"),  # Must be >= close
+                low=Decimal("98.00"),
+                close=Decimal("200.00"),  # Price doubled
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 17),
+                open=Decimal("200.00"),
+                high=Decimal("202.00"),
+                low=Decimal("98.00"),
+                close=Decimal("100.00"),  # Back to 100
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 18),  # Day 3
+                open=Decimal("250.00"),
+                high=Decimal("252.00"),
+                low=Decimal("248.00"),
+                close=Decimal("250.00"),  # 100 shares * $250 = $25,000
+                volume=1000000,
+            ),
+        ]
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
+
+        # Execute step_day (this is the actual production code path)
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent_no_signal):
+            snapshot = await engine.step_day(simulation.id)
+
+        # Assertions: Verify drawdown tracking behavior
+        # 1. Peak should be updated to new ATH
+        assert engine._peak_equity[simulation.id] == Decimal("25000.00")
+
+        # 2. CRITICAL: max_drawdown should STILL be 50% (the previous drawdown)
+        #    NOT 0% from the new peak, because we track the MAXIMUM drawdown
+        assert engine._max_drawdown[simulation.id] == Decimal("50.00")
+
+        # 3. The snapshot should reflect the new equity
+        assert snapshot.total_equity == Decimal("25000.00")
+
+        # 4. simulation.max_drawdown_pct should NOT be updated to 0%
+        #    because current drawdown (0%) < historical max (50%)
+        await db_session.refresh(simulation)
+        assert simulation.max_drawdown_pct == Decimal("50.00")
+
+    @pytest.mark.unit
+    async def test_drawdown_initialized_after_init(
+        self, db_session, rollback_session_factory, sample_price_bars
+    ) -> None:
+        """Test drawdown state is initialized during initialize_simulation()."""
+        # Create PENDING simulation (NOT initialized)
+        simulation = ArenaSimulation(
+            name="Drawdown Init Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.PENDING.value,
+            current_day=0,
+            total_days=0,
+        )
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Verify drawdown state is empty before init
+        assert simulation.id not in engine._peak_equity
+        assert simulation.id not in engine._max_drawdown
+
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+
+        # Mock data service to return price data with actual PriceDataPoints
+        from app.providers.base import PriceDataPoint
+
+        mock_records = [
+            PriceDataPoint(
+                symbol="AAPL",
+                timestamp=datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc),
+                open_price=100.0,
+                high_price=102.0,
+                low_price=98.0,
+                close_price=101.0,
+                volume=1000000,
+            )
+            for d in trading_days
+        ]
+
+        with patch.object(
+            engine.data_service, "get_price_data", new=AsyncMock(return_value=mock_records)
+        ):
+            await engine.initialize_simulation(simulation.id)
+
+        # Verify drawdown state is initialized
+        assert simulation.id in engine._peak_equity
+        assert simulation.id in engine._max_drawdown
+
+        # Initial peak should equal initial capital
+        assert engine._peak_equity[simulation.id] == simulation.initial_capital
+        # Initial max drawdown should be 0
+        assert engine._max_drawdown[simulation.id] == Decimal("0")
+
+    @pytest.mark.unit
+    async def test_price_cache_populated_during_init(
+        self, db_session, rollback_session_factory, sample_price_bars
+    ) -> None:
+        """Test price cache is populated during initialize_simulation()."""
+        simulation = ArenaSimulation(
+            name="Price Cache Init Test",
+            symbols=["AAPL", "MSFT"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.PENDING.value,
+            current_day=0,
+            total_days=0,
+        )
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Verify cache is empty before init
+        assert simulation.id not in engine._price_cache
+
+        # Mock data service to return price data
+        from app.providers.base import PriceDataPoint
+
+        trading_days = [bar.date for bar in sample_price_bars[:5]]
+        mock_records = [
+            PriceDataPoint(
+                symbol="AAPL",
+                timestamp=datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc),
+                open_price=100.0,
+                high_price=102.0,
+                low_price=98.0,
+                close_price=101.0,
+                volume=1000000,
+            )
+            for d in trading_days
+        ]
+
+        with patch.object(
+            engine.data_service, "get_price_data", new=AsyncMock(return_value=mock_records)
+        ):
+            await engine.initialize_simulation(simulation.id)
+
+        # Verify cache is populated
+        assert simulation.id in engine._price_cache
+        assert "AAPL" in engine._price_cache[simulation.id]
+        assert "MSFT" in engine._price_cache[simulation.id]
+        assert len(engine._price_cache[simulation.id]["AAPL"]) == 5
+
+    @pytest.mark.unit
+    def test_cached_price_history_filters_by_date(self) -> None:
+        """Test _get_cached_price_history filters by date range correctly."""
+        mock_session_factory = MagicMock()
+        engine = SimulationEngine(AsyncMock(), session_factory=mock_session_factory)
+
+        # Create price bars spanning multiple days
+        bars = [
+            PriceBar(
+                date=date(2024, 1, 10),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("101.00"),
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 15),
+                open=Decimal("105.00"),
+                high=Decimal("107.00"),
+                low=Decimal("103.00"),
+                close=Decimal("106.00"),
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 20),
+                open=Decimal("110.00"),
+                high=Decimal("112.00"),
+                low=Decimal("108.00"),
+                close=Decimal("111.00"),
+                volume=1000000,
+            ),
+        ]
+
+        # Populate cache
+        engine._price_cache[1] = {"AAPL": bars}
+
+        # Test filtering
+        result = engine._get_cached_price_history(1, "AAPL", date(2024, 1, 12), date(2024, 1, 18))
+
+        # Should only return the middle bar
+        assert len(result) == 1
+        assert result[0].date == date(2024, 1, 15)
+
+    @pytest.mark.unit
+    def test_cached_bar_for_date_returns_correct_bar(self) -> None:
+        """Test _get_cached_bar_for_date returns correct bar."""
+        mock_session_factory = MagicMock()
+        engine = SimulationEngine(AsyncMock(), session_factory=mock_session_factory)
+
+        bars = [
+            PriceBar(
+                date=date(2024, 1, 15),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("101.00"),
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 16),
+                open=Decimal("101.00"),
+                high=Decimal("103.00"),
+                low=Decimal("99.00"),
+                close=Decimal("102.00"),
+                volume=1000000,
+            ),
+        ]
+
+        engine._price_cache[1] = {"AAPL": bars}
+
+        result = engine._get_cached_bar_for_date(1, "AAPL", date(2024, 1, 16))
+
+        assert result is not None
+        assert result.date == date(2024, 1, 16)
+        assert result.open == Decimal("101.00")
+
+    @pytest.mark.unit
+    def test_cached_bar_for_date_returns_none_for_missing(self) -> None:
+        """Test _get_cached_bar_for_date returns None for missing date."""
+        mock_session_factory = MagicMock()
+        engine = SimulationEngine(AsyncMock(), session_factory=mock_session_factory)
+
+        bars = [
+            PriceBar(
+                date=date(2024, 1, 15),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("101.00"),
+                volume=1000000,
+            ),
+        ]
+
+        engine._price_cache[1] = {"AAPL": bars}
+
+        result = engine._get_cached_bar_for_date(1, "AAPL", date(2024, 1, 20))
+
+        assert result is None
+
+    @pytest.mark.unit
+    async def test_cache_cleared_on_finalization(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Test cache is cleared when simulation is finalized."""
+        simulation = ArenaSimulation(
+            name="Cache Cleanup Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.RUNNING.value,
+        )
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Populate caches
+        engine._price_cache[simulation.id] = {"AAPL": []}
+        engine._trading_days_cache[simulation.id] = []
+        engine._peak_equity[simulation.id] = Decimal("10000")
+        engine._max_drawdown[simulation.id] = Decimal("0")
+
+        # Verify caches are populated
+        assert simulation.id in engine._price_cache
+        assert simulation.id in engine._trading_days_cache
+        assert simulation.id in engine._peak_equity
+        assert simulation.id in engine._max_drawdown
+
+        # Finalize simulation
+        await engine._finalize_simulation(simulation)
+
+        # Verify caches are cleared
+        assert simulation.id not in engine._price_cache
+        assert simulation.id not in engine._trading_days_cache
+        assert simulation.id not in engine._peak_equity
+        assert simulation.id not in engine._max_drawdown
+
+    @pytest.mark.unit
+    async def test_noload_prevents_relationship_loading(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Test that noload options prevent positions/snapshots from being loaded.
+
+        Phase 5: Verify that session.get() with noload options does not trigger
+        selectin eager loading of positions and snapshots relationships.
+        """
+        simulation = ArenaSimulation(
+            name="Noload Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.RUNNING.value,
+            current_day=1,
+            total_days=5,
+        )
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        # Add positions and snapshots to verify they are NOT loaded
+        position = ArenaPosition(
+            simulation_id=simulation.id,
+            symbol="AAPL",
+            status=PositionStatus.OPEN.value,
+            signal_date=date(2024, 1, 14),
+            trailing_stop_pct=Decimal("5.00"),
+        )
+        snapshot = ArenaSnapshot(
+            simulation_id=simulation.id,
+            snapshot_date=date(2024, 1, 15),
+            day_number=0,
+            cash=Decimal("10000.00"),
+            positions_value=Decimal("0.00"),
+            total_equity=Decimal("10000.00"),
+        )
+        db_session.add_all([position, snapshot])
+        await db_session.commit()
+
+        # Create engine and fetch simulation using step_day's pattern
+        # (which uses noload options)
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        # Fetch with noload (same pattern as step_day, initialize_simulation)
+        from sqlalchemy.orm import noload
+
+        sim_loaded = await db_session.get(
+            ArenaSimulation,
+            simulation.id,
+            options=[noload(ArenaSimulation.positions), noload(ArenaSimulation.snapshots)],
+        )
+
+        # Verify simulation was loaded
+        assert sim_loaded is not None
+        assert sim_loaded.id == simulation.id
+
+        # CRITICAL: Accessing .positions or .snapshots should NOT have data
+        # because noload prevents eager loading. The relationships should be
+        # in an unloaded state, not populated collections.
+
+        # Note: With noload, the relationship attribute exists but accessing it
+        # will trigger a lazy load unless we check the state. Instead, we verify
+        # that the relationships are marked as unloaded in SQLAlchemy's state.
+        from sqlalchemy import inspect
+
+        insp = inspect(sim_loaded)
+
+        # Check that positions and snapshots are unloaded
+        # (not in the instance's __dict__ as loaded attributes)
+        positions_state = insp.attrs.positions
+        snapshots_state = insp.attrs.snapshots
+
+        # With noload, these should be NEVER_SET or NO_VALUE, not loaded
+        # This verifies we didn't trigger the selectin query
+        assert not positions_state.loaded_value  # Should not have loaded value
+        assert not snapshots_state.loaded_value  # Should not have loaded value

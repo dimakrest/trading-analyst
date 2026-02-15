@@ -10,6 +10,7 @@ from decimal import Decimal
 from pydantic import Field
 from pydantic import field_validator
 
+from app.core.config import get_settings
 from app.schemas.base import StrictBaseModel
 
 
@@ -36,8 +37,7 @@ class CreateSimulationRequest(StrictBaseModel):
     symbols: list[str] = Field(
         ...,
         min_length=1,
-        max_length=50,
-        description="List of stock symbols to trade (1-50)",
+        description="List of stock symbols to trade",
     )
     start_date: date = Field(..., description="Simulation start date")
     end_date: date = Field(..., description="Simulation end date")
@@ -75,6 +75,17 @@ class CreateSimulationRequest(StrictBaseModel):
         if not v:
             return v
         return [s.strip().upper() for s in v if s and s.strip()]
+
+    @field_validator("symbols")
+    @classmethod
+    def validate_symbols_count(cls, v: list[str]) -> list[str]:
+        """Validate that symbols count doesn't exceed configured maximum."""
+        settings = get_settings()
+        max_symbols = settings.arena_max_symbols
+        if len(v) > max_symbols:
+            msg = f"Maximum {max_symbols} symbols allowed, got {len(v)}"
+            raise ValueError(msg)
+        return v
 
     @field_validator("end_date")
     @classmethod
