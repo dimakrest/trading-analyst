@@ -1855,6 +1855,11 @@ class TestSimulationEngineCaching:
         Critical: max_drawdown should be the MAXIMUM drawdown experienced across the entire
         simulation. Making a new high should update peak, but NOT reset the max drawdown if
         a previous drawdown was larger.
+
+        This test exercises the full step_day() path with a realistic scenario:
+        - Days 0-2: Build up equity curve with 50% drawdown (10k -> 20k -> 10k)
+        - Day 3: New ATH (25k) via step_day() call
+        - Verify: max_drawdown remains 50%, not reset to 0%
         """
         simulation = ArenaSimulation(**running_simulation_data)
         db_session.add(simulation)
@@ -1863,75 +1868,150 @@ class TestSimulationEngineCaching:
 
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
-        # Initialize drawdown state with a significant drawdown
-        # Equity curve: 10000 -> 20000 -> 10000 (50% drawdown) -> 25000 (new ATH)
+        # Scenario: Equity went from 10000 (initial) -> 20000 (peak) -> 10000 (drawdown) -> 25000 (new ATH)
         # The 50% drawdown should remain the max even after new ATH
-        engine._peak_equity[simulation.id] = Decimal("20000.00")
-        engine._max_drawdown[simulation.id] = Decimal("50.00")  # 50% drawdown
 
-        trading_days = [date(2024, 1, 15)]
-        engine._trading_days_cache[simulation.id] = trading_days
-
-        # Create a snapshot at the previous low (10000)
-        snapshot = ArenaSnapshot(
+        # Setup: Create snapshots for the equity curve history
+        # Day 0: 10000 (initial capital, no positions)
+        snapshot_day0 = ArenaSnapshot(
             simulation_id=simulation.id,
-            snapshot_date=date(2024, 1, 14),
+            snapshot_date=date(2024, 1, 15),
             day_number=0,
             cash=Decimal("10000.00"),
             positions_value=Decimal("0.00"),
             total_equity=Decimal("10000.00"),
         )
-        db_session.add(snapshot)
+        db_session.add(snapshot_day0)
+
+        # Day 1: 20000 (peak - opened winning position)
+        snapshot_day1 = ArenaSnapshot(
+            simulation_id=simulation.id,
+            snapshot_date=date(2024, 1, 16),
+            day_number=1,
+            cash=Decimal("0.00"),
+            positions_value=Decimal("20000.00"),
+            total_equity=Decimal("20000.00"),
+        )
+        db_session.add(snapshot_day1)
+
+        # Day 2: 10000 (drawdown - position lost value)
+        snapshot_day2 = ArenaSnapshot(
+            simulation_id=simulation.id,
+            snapshot_date=date(2024, 1, 17),
+            day_number=2,
+            cash=Decimal("0.00"),
+            positions_value=Decimal("10000.00"),
+            total_equity=Decimal("10000.00"),
+        )
+        db_session.add(snapshot_day2)
+
         await db_session.commit()
 
-        # Now simulate a day where equity makes new ATH (25000)
-        # This should update peak but NOT reset max_drawdown
+        # Initialize drawdown state from these snapshots
+        await engine._init_drawdown_state(simulation)
 
-        # Pre-populate price cache
-        engine._price_cache[simulation.id] = {
-            symbol: sample_price_bars for symbol in simulation.symbols
-        }
+        # Verify state: peak should be 20000, max_drawdown should be 50%
+        assert engine._peak_equity[simulation.id] == Decimal("20000.00")
+        assert engine._max_drawdown[simulation.id] == Decimal("50.00")
 
-        mock_agent_ath = MagicMock()
-        mock_agent_ath.required_lookback_days = 60
-        mock_agent_ath.evaluate = AsyncMock(
+        # Set simulation.max_drawdown_pct to reflect the historical max
+        # (In a real simulation, this would have been set when the 50% drawdown occurred)
+        simulation.max_drawdown_pct = Decimal("50.00")
+        await db_session.commit()
+
+        # Now run step_day for day 3 where equity goes to 25000 (new ATH)
+        # Mock setup to produce 25000 total equity
+        simulation.current_day = 3  # Will process trading_days[3] = date(2024, 1, 18)
+        engine._trading_days_cache[simulation.id] = [
+            date(2024, 1, 15),  # Day 0
+            date(2024, 1, 16),  # Day 1
+            date(2024, 1, 17),  # Day 2
+            date(2024, 1, 18),  # Day 3 (to be processed)
+        ]
+
+        # Mock agent to produce no new signals (just hold existing position)
+        mock_agent_no_signal = MagicMock()
+        mock_agent_no_signal.required_lookback_days = 60
+        mock_agent_no_signal.evaluate = AsyncMock(
             return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
         )
 
-        # Patch _get_latest_snapshot to return high equity
-        mock_snapshot = MagicMock()
-        mock_snapshot.cash = Decimal("25000.00")
-        mock_snapshot.total_equity = Decimal("25000.00")
+        # Create open position worth 25000 at current prices
+        # This position will be valued at day 3 (2024-01-18)
+        position = ArenaPosition(
+            simulation_id=simulation.id,
+            symbol="AAPL",
+            status=PositionStatus.OPEN.value,
+            signal_date=date(2024, 1, 17),
+            entry_date=date(2024, 1, 17),
+            entry_price=Decimal("100.00"),
+            shares=100,  # 100 shares
+            trailing_stop_pct=Decimal("5.00"),
+            highest_price=Decimal("250.00"),  # Will be updated based on day 3 prices
+            current_stop=Decimal("237.50"),
+        )
+        db_session.add(position)
+        await db_session.commit()
 
-        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent_ath):
-            with patch.object(engine, "_get_latest_snapshot", return_value=mock_snapshot):
-                # Manually trigger the incremental drawdown logic
-                # Simulate what happens in step_day
-                total_equity = Decimal("25000.00")
-                sim_id = simulation.id
+        # Create price bars for all days including day 3
+        # Day 3: AAPL at $250 (100 shares * $250 = $25,000)
+        price_bars = [
+            PriceBar(
+                date=date(2024, 1, 15),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("100.00"),
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 16),
+                open=Decimal("100.00"),
+                high=Decimal("202.00"),  # Must be >= close
+                low=Decimal("98.00"),
+                close=Decimal("200.00"),  # Price doubled
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 17),
+                open=Decimal("200.00"),
+                high=Decimal("202.00"),
+                low=Decimal("98.00"),
+                close=Decimal("100.00"),  # Back to 100
+                volume=1000000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 18),  # Day 3
+                open=Decimal("250.00"),
+                high=Decimal("252.00"),
+                low=Decimal("248.00"),
+                close=Decimal("250.00"),  # 100 shares * $250 = $25,000
+                volume=1000000,
+            ),
+        ]
+        engine._price_cache[simulation.id] = {
+            symbol: price_bars for symbol in simulation.symbols
+        }
 
-                # This is the code from step_day
-                peak = engine._peak_equity[sim_id]
-                if total_equity > peak:
-                    peak = total_equity
-                    engine._peak_equity[sim_id] = peak
-                if peak > 0:
-                    dd = (peak - total_equity) / peak * 100
-                    current_max = engine._max_drawdown.get(sim_id, Decimal("0"))
-                    if dd > current_max:
-                        engine._max_drawdown[sim_id] = dd
-                        simulation.max_drawdown_pct = dd
+        # Execute step_day (this is the actual production code path)
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent_no_signal):
+            snapshot = await engine.step_day(simulation.id)
 
-        # Verify peak was updated to new ATH
+        # Assertions: Verify drawdown tracking behavior
+        # 1. Peak should be updated to new ATH
         assert engine._peak_equity[simulation.id] == Decimal("25000.00")
 
-        # CRITICAL: max_drawdown should STILL be 50% (the previous drawdown)
-        # NOT 0% from the new peak, because we track the MAXIMUM drawdown
+        # 2. CRITICAL: max_drawdown should STILL be 50% (the previous drawdown)
+        #    NOT 0% from the new peak, because we track the MAXIMUM drawdown
         assert engine._max_drawdown[simulation.id] == Decimal("50.00")
 
-        # The simulation object should not have been updated since current DD is 0%
-        # (we're at peak), which is less than the historical max of 50%
-        assert simulation.max_drawdown_pct != Decimal("0.00")
+        # 3. The snapshot should reflect the new equity
+        assert snapshot.total_equity == Decimal("25000.00")
+
+        # 4. simulation.max_drawdown_pct should NOT be updated to 0%
+        #    because current drawdown (0%) < historical max (50%)
+        await db_session.refresh(simulation)
+        assert simulation.max_drawdown_pct == Decimal("50.00")
 
     @pytest.mark.unit
     async def test_drawdown_initialized_after_init(
