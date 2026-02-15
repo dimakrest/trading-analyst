@@ -36,8 +36,8 @@ class CreateSimulationRequest(StrictBaseModel):
     symbols: list[str] = Field(
         ...,
         min_length=1,
-        max_length=50,
-        description="List of stock symbols to trade (1-50)",
+        max_length=200,
+        description="List of stock symbols to trade (1-200)",
     )
     start_date: date = Field(..., description="Simulation start date")
     end_date: date = Field(..., description="Simulation end date")
