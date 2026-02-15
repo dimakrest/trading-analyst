@@ -88,6 +88,12 @@ class Settings(BaseSettings):
         default=10, description="Number of symbols to process concurrently in Live20 analysis"
     )
 
+    # Arena Configuration
+    arena_max_symbols: int = Field(
+        default=600,
+        description="Maximum number of symbols allowed in Arena simulations"
+    )
+
     # Market Data Provider Configuration
     market_data_provider: str = Field(
         default="yahoo",
