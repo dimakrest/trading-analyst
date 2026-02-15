@@ -9,6 +9,7 @@ trading simulations. It manages:
 - Performance metrics calculation
 """
 
+import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -550,14 +551,25 @@ class SimulationEngine:
             start_date: Simulation start date.
             end_date: Simulation end date.
             lookback_days: Agent's required lookback period.
+
+        Raises:
+            ValueError: If any symbol fails to load (fail-fast approach).
         """
         if simulation_id in self._price_cache:
             return  # Already loaded
 
         data_start = start_date - timedelta(days=lookback_days + 30)
-        cache: dict[str, list[PriceBar]] = {}
 
-        for symbol in symbols:
+        # Create inner function for parallel fetching
+        async def fetch_symbol_data(symbol: str) -> tuple[str, list[PriceBar]]:
+            """Fetch and transform data for a single symbol.
+
+            Returns:
+                Tuple of (symbol, price_bars)
+
+            Raises:
+                Exception: Any error during fetch/transform propagates
+            """
             records = await self.data_service.get_price_data(
                 symbol=symbol,
                 start_date=datetime.combine(
@@ -568,7 +580,7 @@ class SimulationEngine:
                 ),
                 interval="1d",
             )
-            cache[symbol] = [
+            price_bars = [
                 PriceBar(
                     date=r.timestamp.date(),
                     open=Decimal(str(r.open_price)),
@@ -579,7 +591,14 @@ class SimulationEngine:
                 )
                 for r in records
             ]
+            return (symbol, price_bars)
 
+        # Execute all fetches concurrently (fail-fast on any error)
+        tasks = [fetch_symbol_data(symbol) for symbol in symbols]
+        results = await asyncio.gather(*tasks)
+
+        # Build cache from results
+        cache: dict[str, list[PriceBar]] = {symbol: bars for symbol, bars in results}
         self._price_cache[simulation_id] = cache
 
     def _get_cached_price_history(
