@@ -111,7 +111,9 @@ async def test_engine(test_settings: Settings):
         },
     )
 
+    # Drop and recreate all tables to pick up schema changes
     async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
     # One-time cleanup at session start (safe - no concurrent tests yet)

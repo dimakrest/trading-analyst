@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { LayoutDashboard, Search, List, Swords } from 'lucide-react';
+import { LayoutDashboard, Search, List, Swords, Bot } from 'lucide-react';
 
 /**
  * Navigation Item Interface
@@ -29,6 +29,11 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/arena',
     label: 'Arena',
     icon: Swords,
+  },
+  {
+    path: '/agents',
+    label: 'Agents',
+    icon: Bot,
   },
   {
     path: '/lists',

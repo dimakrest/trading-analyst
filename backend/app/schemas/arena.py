@@ -6,6 +6,7 @@ which manages simulation creation, status tracking, and result retrieval.
 from datetime import date
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import Field
 from pydantic import field_validator
@@ -66,6 +67,14 @@ class CreateSimulationRequest(StrictBaseModel):
         ge=20,
         le=100,
         description="Minimum score (20-100) to generate BUY signal (default: 60 = 3/5 criteria aligned)",
+    )
+    agent_config_id: int | None = Field(
+        None,
+        description="ID of agent configuration to use. Overrides scoring_algorithm if provided.",
+    )
+    scoring_algorithm: Literal["cci", "rsi2"] = Field(
+        default="cci",
+        description="Scoring algorithm for momentum criterion: 'cci' (default) or 'rsi2'. Overridden by agent_config_id if provided.",
     )
 
     @field_validator("symbols", mode="before")
@@ -222,6 +231,7 @@ class SimulationResponse(StrictBaseModel):
     agent_type: str
     trailing_stop_pct: Decimal | None = None
     min_buy_score: int | None = None
+    scoring_algorithm: str | None = None
     status: str
     current_day: int
     total_days: int

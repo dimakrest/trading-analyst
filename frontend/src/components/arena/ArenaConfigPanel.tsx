@@ -84,7 +84,16 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
           <ConfigItem
             icon={<Settings2 className="h-3.5 w-3.5" />}
             label="Agent"
-            value={<span className="text-text-primary">{simulation.agent_type}</span>}
+            value={
+              <div className="flex flex-col gap-0.5">
+                <span className="text-text-primary">{simulation.agent_type}</span>
+                {simulation.scoring_algorithm && (
+                  <span className="text-[10px] uppercase text-text-muted font-mono">
+                    {simulation.scoring_algorithm}
+                  </span>
+                )}
+              </div>
+            }
           />
 
           <ConfigItem

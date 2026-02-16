@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Integer, JSON, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -70,6 +70,20 @@ class Live20Run(Base):
         JSONB,
         nullable=True,
         doc="Array of source lists when multiple lists combined: [{id: int, name: str}, ...]",
+    )
+
+    # Agent configuration tracking
+    agent_config_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("agent_configs.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Agent config used for this run (nullable for legacy runs)"
+    )
+
+    # Scoring algorithm tracking (denormalized for query efficiency)
+    scoring_algorithm: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, server_default="cci",
+        doc="Scoring algorithm: 'cci' or 'rsi2'"
     )
 
     # Queue management columns for PostgreSQL-based job queue

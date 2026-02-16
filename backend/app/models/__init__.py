@@ -14,6 +14,7 @@ from app.models.recommendation import Recommendation, RecommendationDecision, Re
 from app.models.live20_run import Live20Run
 from app.models.stock_list import StockList
 from app.models.stock_sector import StockSector
+from app.models.agent_config import AgentConfig
 from app.models.arena import (
     ArenaSimulation,
     ArenaPosition,
@@ -35,6 +36,7 @@ __all__ = [
     "Live20Run",
     "StockList",
     "StockSector",
+    "AgentConfig",
     "ArenaSimulation",
     "ArenaPosition",
     "ArenaSnapshot",

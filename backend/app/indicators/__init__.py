@@ -49,6 +49,10 @@ from .cci_analysis import (
     CCIAnalysis,
     analyze_cci,
 )
+from .rsi2_analysis import (
+    RSI2Analysis,
+    analyze_rsi2,
+)
 from .three_candle_patterns import (
     ThreeCandlePattern,
     ThreeCandleAnalysis,
@@ -103,6 +107,8 @@ __all__ = [
     "CCISignalType",
     "CCIAnalysis",
     "analyze_cci",
+    "RSI2Analysis",
+    "analyze_rsi2",
     "ThreeCandlePattern",
     "ThreeCandleAnalysis",
     "analyze_three_candles",

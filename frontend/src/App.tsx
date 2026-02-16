@@ -11,6 +11,7 @@ import { StockAnalysis } from './pages/StockAnalysis/StockAnalysis';
 import { Live20Dashboard } from './components/live20/Live20Dashboard';
 import { Live20RunDetail } from './pages/Live20RunDetail';
 import { StockLists } from './pages/StockLists';
+import { Agents } from './pages/Agents';
 import { Arena } from './pages/Arena';
 import { ArenaSimulationDetail } from './pages/ArenaSimulationDetail';
 import './index.css';
@@ -42,6 +43,7 @@ function App() {
                     <Route path="/stock/:symbol" element={<StockAnalysis />} />
                     <Route path="/live-20" element={<Live20Dashboard />} />
                     <Route path="/live-20/runs/:id" element={<Live20RunDetail />} />
+                    <Route path="/agents" element={<Agents />} />
                     <Route path="/lists" element={<StockLists />} />
                     <Route path="/arena" element={<Arena />} />
                     <Route path="/arena/:id" element={<ArenaSimulationDetail />} />

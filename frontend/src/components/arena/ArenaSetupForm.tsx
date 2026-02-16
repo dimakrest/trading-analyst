@@ -5,6 +5,7 @@
  * Supports symbol input, date range, capital settings, and trailing stop.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { Play } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -13,9 +14,12 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Slider } from '../ui/slider';
 import { Textarea } from '../ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
+import { agentConfigService } from '../../services/agentConfigService';
 import type { CreateSimulationRequest } from '../../types/arena';
+import type { AgentConfig } from '../../types/agentConfig';
 
 // Arena configuration constants
 const MAX_ARENA_SYMBOLS = 600;
@@ -36,14 +40,19 @@ interface ArenaSetupFormProps {
     min_buy_score: number;
     stock_list_id?: number | null;
     stock_list_name?: string | null;
+    agent_config_id?: number | null;
   };
 }
 
-/** Minimum buy score configuration constants */
+/** Minimum buy score configuration constants
+ *
+ * CRITICAL: STEP=5 supports graduated scoring (RSI-2)
+ * MIN=0 allows any score threshold (aligns with 0-100 range)
+ */
 const MIN_BUY_SCORE_CONFIG = {
-  MIN: 20,
+  MIN: 0,
   MAX: 100,
-  STEP: 20,
+  STEP: 5,
   DEFAULT: 60,
 } as const;
 
@@ -68,21 +77,28 @@ const isValidMinBuyScore = (score: number): boolean => {
 };
 
 /**
- * Get dynamic help text based on minimum buy score
+ * Get dynamic help text based on minimum buy score and algorithm
  *
  * Shows how many criteria must align for the agent to buy.
+ * Context-aware: different text for CCI (multiples of 20) vs RSI-2 (multiples of 5).
  */
-const getMinBuyScoreHelpText = (score: number): string => {
+const getMinBuyScoreHelpText = (score: number, scoringAlgorithm: 'cci' | 'rsi2' | null): string => {
+  if (scoringAlgorithm === 'rsi2') {
+    // RSI-2 uses graduated scoring (0/5/10/15/20 per criterion)
+    return 'Minimum total score required to trigger a buy signal. With RSI-2, criteria contribute graduated scores (5/10/15/20 pts), so total scores can be any multiple of 5.';
+  }
+
+  // CCI uses binary 20-point scoring
   if (score >= 80) {
-    return 'Agent buys when at least 4 of 5 criteria align. Higher values = more selective.';
+    return 'Agent buys when at least 4 of 5 criteria align. Each criterion contributes 20 points.';
   }
   if (score >= 60) {
-    return 'Agent buys when at least 3 of 5 criteria align. Higher values = more selective.';
+    return 'Agent buys when at least 3 of 5 criteria align. Each criterion contributes 20 points.';
   }
   if (score >= 40) {
-    return 'Agent buys when at least 2 of 5 criteria align. Higher values = more selective.';
+    return 'Agent buys when at least 2 of 5 criteria align. Each criterion contributes 20 points.';
   }
-  return 'Agent buys when at least 1 of 5 criteria align. Higher values = more selective.';
+  return 'Agent buys when at least 1 of 5 criteria align. Each criterion contributes 20 points.';
 };
 
 /**
@@ -109,11 +125,34 @@ export const ArenaSetupForm = ({
   const [trailingStopPct, setTrailingStopPct] = useState('5');
   const [minBuyScore, setMinBuyScore] = useState(MIN_BUY_SCORE_CONFIG.DEFAULT.toString());
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const [selectedAgentConfigId, setSelectedAgentConfigId] = useState<number | undefined>();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch stock lists
   const { lists, isLoading: listsLoading, error: listsError } = useStockLists();
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null;
+
+  // Fetch agent configs
+  const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
+  const [agentConfigsLoading, setAgentConfigsLoading] = useState(true);
+
+  useEffect(() => {
+    const loadConfigs = async () => {
+      try {
+        const response = await agentConfigService.getConfigs();
+        setAgentConfigs(response.items);
+        // Default to first config if none selected
+        if (response.items.length > 0) {
+          setSelectedAgentConfigId((prev) => prev ?? response.items[0].id);
+        }
+      } catch {
+        toast.error('Failed to load agent configurations');
+      } finally {
+        setAgentConfigsLoading(false);
+      }
+    };
+    loadConfigs();
+  }, []);
 
   // Populate form when initialValues are provided (e.g., from replay)
   useEffect(() => {
@@ -127,6 +166,10 @@ export const ArenaSetupForm = ({
       setMinBuyScore(initialValues.min_buy_score.toString());
       // Always set list ID (including null for custom symbols)
       setSelectedListId(initialValues.stock_list_id ?? null);
+      // Set agent config ID from replay if available
+      if (initialValues.agent_config_id) {
+        setSelectedAgentConfigId(initialValues.agent_config_id);
+      }
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -161,8 +204,9 @@ export const ArenaSetupForm = ({
       min_buy_score: parseFloat(minBuyScore),
       stock_list_id: selectedList?.id,
       stock_list_name: selectedList?.name,
+      agent_config_id: selectedAgentConfigId,
     });
-  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, onSubmit]);
+  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, onSubmit]);
 
   const symbolList = parseSymbols(symbols);
   const hasValidSymbols = symbolList.length > 0 && symbolList.length <= MAX_ARENA_SYMBOLS;
@@ -312,6 +356,33 @@ export const ArenaSetupForm = ({
             </Badge>
           </div>
 
+          {/* Agent Config Selector */}
+          <div className="space-y-2">
+            <Label htmlFor="arena-agent-config">Agent</Label>
+            <Select
+              value={selectedAgentConfigId?.toString()}
+              onValueChange={(value) => setSelectedAgentConfigId(Number(value))}
+              disabled={agentConfigsLoading || isLoading}
+            >
+              <SelectTrigger id="arena-agent-config">
+                <SelectValue placeholder="Select agent..." />
+              </SelectTrigger>
+              <SelectContent>
+                {agentConfigs.map((config) => (
+                  <SelectItem key={config.id} value={config.id.toString()}>
+                    {config.name}
+                    <span className="text-xs text-muted-foreground ml-2">
+                      ({config.scoring_algorithm.toUpperCase()})
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Scoring algorithm used for momentum criterion evaluation
+            </p>
+          </div>
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="arena-min-buy-score-input">Minimum Buy Score</Label>
@@ -349,7 +420,10 @@ export const ArenaSetupForm = ({
             />
 
             <p className="text-xs text-muted-foreground mt-2">
-              {getMinBuyScoreHelpText(parseFloat(minBuyScore))}
+              {getMinBuyScoreHelpText(
+                parseFloat(minBuyScore),
+                agentConfigs.find((c) => c.id === selectedAgentConfigId)?.scoring_algorithm ?? null
+              )}
             </p>
           </div>
         </div>

@@ -51,6 +51,9 @@ class Live20ResultResponse(StrictBaseModel):
     cci_value: Decimal | None = None
     cci_zone: str | None = None
     cci_aligned: bool | None = None
+    scoring_algorithm: str | None = None  # "cci" or "rsi2"
+    rsi2_value: Decimal | None = None
+    rsi2_score: int | None = None
     criteria_aligned: int | None = None
     direction: str | None = None  # LONG, SHORT, NO_SETUP
     sector_etf: str | None = None  # SPDR sector ETF symbol
@@ -113,13 +116,16 @@ class Live20ResultResponse(StrictBaseModel):
             cci_value=rec.live20_cci_value,
             cci_zone=rec.live20_cci_zone,
             cci_aligned=rec.live20_cci_aligned,
+            scoring_algorithm=rec.live20_scoring_algorithm,
+            rsi2_value=rec.live20_rsi2_value,
+            rsi2_score=rec.live20_rsi2_score,
             criteria_aligned=rec.live20_criteria_aligned,
             direction=rec.live20_direction,
             sector_etf=rec.live20_sector_etf,
         )
 
     @field_serializer(
-        "ma20_distance_pct", "atr", "rvol", "cci_value", when_used="json"
+        "ma20_distance_pct", "atr", "rvol", "cci_value", "rsi2_value", when_used="json"
     )
     def serialize_decimal_as_float(self, value: Decimal | None) -> float | None:
         """Serialize decimal fields as float for JSON."""
@@ -151,6 +157,14 @@ class Live20AnalyzeRequest(StrictBaseModel):
         None,
         max_length=10,
         description="Array of source lists when multiple lists combined (max 10 lists)",
+    )
+    agent_config_id: int | None = Field(
+        None,
+        description="ID of agent configuration to use. If not provided, uses scoring_algorithm or defaults to CCI.",
+    )
+    scoring_algorithm: Literal["cci", "rsi2"] = Field(
+        default="cci",
+        description="Scoring algorithm for momentum criterion: 'cci' (default) or 'rsi2'. Overridden by agent_config_id if provided.",
     )
 
     @model_validator(mode="after")

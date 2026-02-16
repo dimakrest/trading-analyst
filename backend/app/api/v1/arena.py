@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
 from app.models.arena import ArenaSimulation, SimulationStatus
+from app.repositories.agent_config_repository import AgentConfigRepository
 from app.schemas.arena import (
     AgentInfo,
     CreateSimulationRequest,
@@ -40,6 +41,7 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     agent_config = simulation.agent_config or {}
     trailing_stop_pct = agent_config.get("trailing_stop_pct")
     min_buy_score = agent_config.get("min_buy_score")
+    scoring_algorithm = agent_config.get("scoring_algorithm", "cci")
 
     return SimulationResponse(
         id=simulation.id,
@@ -54,6 +56,7 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         agent_type=simulation.agent_type,
         trailing_stop_pct=trailing_stop_pct,
         min_buy_score=min_buy_score,
+        scoring_algorithm=scoring_algorithm,
         status=simulation.status,
         current_day=simulation.current_day,
         total_days=simulation.total_days,
@@ -122,10 +125,24 @@ async def create_simulation(
     Raises:
         HTTPException: If validation fails
     """
+    # Look up agent config if provided
+    if request.agent_config_id:
+        config_repo = AgentConfigRepository(session)
+        agent_config_obj = await config_repo.get_by_id(request.agent_config_id)
+        if not agent_config_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Agent config {request.agent_config_id} not found",
+            )
+        scoring_algorithm = agent_config_obj.scoring_algorithm
+    else:
+        scoring_algorithm = request.scoring_algorithm
+
     # Build agent_config dictionary from request parameters
     agent_config = {
         "trailing_stop_pct": request.trailing_stop_pct,
         "min_buy_score": request.min_buy_score,
+        "scoring_algorithm": scoring_algorithm,
     }
 
     # Create simulation record

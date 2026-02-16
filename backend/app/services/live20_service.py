@@ -8,7 +8,9 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models.recommendation import Recommendation, RecommendationSource
+from app.indicators.cci_analysis import CCIAnalysis
+from app.indicators.rsi2_analysis import RSI2Analysis
+from app.models.recommendation import Recommendation, RecommendationSource, ScoringAlgorithm
 from app.services.data_service import DataService
 from app.services.live20_evaluator import (
     Live20Direction,
@@ -45,14 +47,20 @@ class Live20Service:
     See Live20Evaluator for details on the 5 criteria and scoring logic.
     """
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        scoring_algorithm: str = "cci"
+    ) -> None:
         """Initialize Live20Service with database session factory.
 
         Args:
             session_factory: Factory for creating async database sessions.
+            scoring_algorithm: Scoring algorithm to use ('cci' or 'rsi2', default 'cci')
         """
         self.session_factory = session_factory
         self._evaluator = Live20Evaluator()
+        self._scoring_algorithm = ScoringAlgorithm(scoring_algorithm)
 
     async def _analyze_symbol(self, symbol: str) -> Live20Result:
         """Analyze a single symbol and save result."""
@@ -100,9 +108,12 @@ class Live20Service:
             (
                 criteria,
                 volume_signal,
-                cci_analysis,
+                momentum_analysis,
                 candle_explanation,
-            ) = self._evaluator.evaluate_criteria(opens, highs, lows, closes, volumes)
+            ) = self._evaluator.evaluate_criteria(
+                opens, highs, lows, closes, volumes,
+                scoring_algorithm=self._scoring_algorithm,
+            )
 
             # Determine direction based on aligned criteria
             direction, score = self._evaluator.determine_direction_and_score(criteria)
@@ -116,14 +127,15 @@ class Live20Service:
                 # Non-critical - don't fail analysis if sector lookup fails
                 logger.warning(f"Failed to fetch sector ETF for {symbol}: {e}")
 
-            # Create recommendation
+            # Create recommendation with common fields
             recommendation = Recommendation(
                 stock=symbol,
                 source=RecommendationSource.LIVE_20.value,
                 recommendation=direction,  # Maps to recommendation field
                 confidence_score=score,
                 reasoning="Live 20 mean reversion analysis",
-                # Live 20 specific fields
+                # Common Live 20 specific fields
+                live20_scoring_algorithm=self._scoring_algorithm.value,
                 live20_trend_direction=criteria[0].value,
                 live20_trend_aligned=(
                     (direction == Live20Direction.LONG and criteria[0].aligned_for_long)
@@ -148,13 +160,6 @@ class Live20Service:
                 live20_volume_approach=volume_signal.approach.value,
                 live20_atr=Decimal(str(round(atr_percentage, 4))) if atr_percentage is not None else None,
                 live20_rvol=Decimal(str(volume_signal.rvol)) if math.isfinite(volume_signal.rvol) else None,
-                live20_cci_direction=cci_analysis.direction.value,
-                live20_cci_value=Decimal(str(cci_analysis.value)),
-                live20_cci_zone=cci_analysis.zone.value,
-                live20_cci_aligned=(
-                    (direction == Live20Direction.LONG and criteria[4].aligned_for_long)
-                    or (direction == Live20Direction.SHORT and criteria[4].aligned_for_short)
-                ),
                 live20_criteria_aligned=sum(
                     1
                     for c in criteria
@@ -164,6 +169,43 @@ class Live20Service:
                 live20_direction=direction,
                 live20_sector_etf=sector_etf,
             )
+
+            # Algorithm-specific fields (mutually exclusive — never cross-populate)
+            if isinstance(momentum_analysis, CCIAnalysis):
+                recommendation.live20_cci_direction = momentum_analysis.direction.value
+                recommendation.live20_cci_value = Decimal(str(momentum_analysis.value))
+                recommendation.live20_cci_zone = momentum_analysis.zone.value
+                # Find the momentum criterion using name-based lookup (not hardcoded index)
+                momentum_criterion = next(
+                    (c for c in criteria if c.name in ("cci", "momentum")),
+                    None
+                )
+                if momentum_criterion is None:
+                    raise ValueError("Momentum criterion not found in criteria list")
+                recommendation.live20_cci_aligned = (
+                    (direction == Live20Direction.LONG and momentum_criterion.aligned_for_long)
+                    or (direction == Live20Direction.SHORT and momentum_criterion.aligned_for_short)
+                )
+                # RSI-2 fields stay NULL
+            elif isinstance(momentum_analysis, RSI2Analysis):
+                recommendation.live20_rsi2_value = Decimal(str(momentum_analysis.value))
+                # Store direction-appropriate score (mirrors CCI's direction-aware aligned field)
+                if direction == Live20Direction.LONG:
+                    recommendation.live20_rsi2_score = momentum_analysis.long_score
+                elif direction == Live20Direction.SHORT:
+                    recommendation.live20_rsi2_score = momentum_analysis.short_score
+                else:
+                    # NO_SETUP: store the higher score (matches determine_direction_and_score logic)
+                    recommendation.live20_rsi2_score = max(
+                        momentum_analysis.long_score, momentum_analysis.short_score
+                    )
+                # CCI fields stay NULL (no phantom alignment data)
+
+            # NOTE: Storing only a single rsi2_score loses directional information.
+            # For RSI-2 with graduated scoring, we could store both live20_rsi2_long_score
+            # and live20_rsi2_short_score to preserve full context, similar to CCI's
+            # separate direction/zone/aligned fields. Current design stores only the
+            # direction-appropriate score. This is a known limitation - see ticket for details.
 
             # Save to database using separate short-lived session
             async with self.session_factory() as session:

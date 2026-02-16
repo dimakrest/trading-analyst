@@ -5,6 +5,8 @@
  * Agents compete by making trading decisions on historical data.
  */
 
+import type { ScoringAlgorithm } from './live20';
+
 /** Simulation lifecycle states */
 export type SimulationStatus = 'pending' | 'running' | 'paused' | 'completed' | 'cancelled' | 'failed';
 
@@ -38,6 +40,7 @@ export interface Simulation {
   agent_type: string;
   trailing_stop_pct: string | null;
   min_buy_score: number | null;
+  scoring_algorithm: ScoringAlgorithm | null;
   status: SimulationStatus;
   current_day: number;
   total_days: number;
@@ -130,6 +133,10 @@ export interface CreateSimulationRequest {
   trailing_stop_pct?: number;
   /** Minimum score to generate BUY signal (20-100, default: 60) */
   min_buy_score?: number;
+  /** Agent configuration ID to use for this simulation */
+  agent_config_id?: number;
+  /** Scoring algorithm (fallback if no agent_config_id) */
+  scoring_algorithm?: ScoringAlgorithm;
 }
 
 /** Response from step endpoint */

@@ -6,7 +6,7 @@ direction based on criteria alignment.
 
 Usage:
     evaluator = Live20Evaluator()
-    criteria, volume_signal, cci_analysis, candle_explanation = evaluator.evaluate_criteria(
+    criteria, volume_signal, momentum_analysis, candle_explanation = evaluator.evaluate_criteria(
         opens, highs, lows, closes, volumes
     )
     direction, score = evaluator.determine_direction_and_score(criteria)
@@ -18,8 +18,15 @@ from enum import Enum
 from app.indicators.cci_analysis import CCIAnalysis, CCIDirection, CCIZone, analyze_cci
 from app.indicators.ma_analysis import analyze_ma_distance
 from app.indicators.multi_day_patterns import analyze_multi_day_patterns
+from app.indicators.rsi2_analysis import RSI2Analysis, analyze_rsi2
 from app.indicators.trend import TrendDirection, detect_trend
 from app.indicators.volume import VolumeSignalAnalysis, detect_volume_signal
+from app.models.recommendation import ScoringAlgorithm
+
+# Union type for momentum analysis (CCI or RSI-2)
+# Note: Union type is intentional for 2 algorithms. If a third algorithm is
+# ever added, refactor to a Protocol with common interface. See ticket 011.
+MomentumAnalysis = CCIAnalysis | RSI2Analysis
 
 
 class Live20Direction(str, Enum):
@@ -35,18 +42,20 @@ class CriterionResult:
     """Result of evaluating a single Live20 criterion.
 
     Attributes:
-        name: Criterion identifier (trend, ma20_distance, candle, volume, cci)
+        name: Criterion identifier (trend, ma20_distance, candle, volume, momentum)
         value: Display value for UI (e.g., "bearish", "-7.2%", "hammer", "1.5x")
         aligned_for_long: Whether criterion supports LONG setup
         aligned_for_short: Whether criterion supports SHORT setup
-        score: Point value (always 20 in current implementation)
+        score_for_long: Points awarded when direction is LONG (0-20)
+        score_for_short: Points awarded when direction is SHORT (0-20)
     """
 
     name: str
     value: str
     aligned_for_long: bool
     aligned_for_short: bool
-    score: int
+    score_for_long: int
+    score_for_short: int
 
 
 class Live20Evaluator:
@@ -57,7 +66,7 @@ class Live20Evaluator:
     2. MA20 Distance - Price stretched from moving average (>5%)
     3. Candle Pattern - Reversal patterns (multi-day: Morning Star, Piercing Line, etc.)
     4. Volume (Dual Approach) - Exhaustion OR Accumulation/Distribution
-    5. CCI - Momentum confirmation (zone + direction)
+    5. Momentum (CCI or RSI-2) - Momentum confirmation
 
     Mean Reversion Logic:
     - LONG: Downtrend + far below MA20 (expecting bounce)
@@ -81,7 +90,8 @@ class Live20Evaluator:
         lows: list[float],
         closes: list[float],
         volumes: list[float],
-    ) -> tuple[list[CriterionResult], VolumeSignalAnalysis, CCIAnalysis, str]:
+        scoring_algorithm: ScoringAlgorithm = ScoringAlgorithm.CCI,
+    ) -> tuple[list[CriterionResult], VolumeSignalAnalysis, MomentumAnalysis, str]:
         """Evaluate all 5 criteria for mean reversion strategy.
 
         Args:
@@ -90,12 +100,13 @@ class Live20Evaluator:
             lows: Low prices
             closes: Closing prices
             volumes: Volume data
+            scoring_algorithm: Scoring algorithm for momentum criterion (default CCI)
 
         Returns:
             Tuple of:
                 - criteria: List of 5 CriterionResult objects
                 - volume_signal: VolumeSignalAnalysis with RVOL and approach
-                - cci_analysis: CCIAnalysis with value, zone, and direction
+                - momentum_analysis: CCIAnalysis or RSI2Analysis (depends on algorithm)
                 - candle_explanation: Human-readable pattern explanation
         """
         criteria = []
@@ -108,7 +119,8 @@ class Live20Evaluator:
                 value=trend.value,
                 aligned_for_long=trend == TrendDirection.BEARISH,
                 aligned_for_short=trend == TrendDirection.BULLISH,
-                score=self.WEIGHT_PER_CRITERION,
+                score_for_long=self.WEIGHT_PER_CRITERION,
+                score_for_short=self.WEIGHT_PER_CRITERION,
             )
         )
 
@@ -123,7 +135,8 @@ class Live20Evaluator:
                 value=f"{distance_pct:+.1f}%",
                 aligned_for_long=is_far_below,
                 aligned_for_short=is_far_above,
-                score=self.WEIGHT_PER_CRITERION,
+                score_for_long=self.WEIGHT_PER_CRITERION,
+                score_for_short=self.WEIGHT_PER_CRITERION,
             )
         )
 
@@ -135,7 +148,8 @@ class Live20Evaluator:
                 value=multi_day_result.pattern_name,
                 aligned_for_long=multi_day_result.aligned_for_long,
                 aligned_for_short=multi_day_result.aligned_for_short,
-                score=self.WEIGHT_PER_CRITERION,
+                score_for_long=self.WEIGHT_PER_CRITERION,
+                score_for_short=self.WEIGHT_PER_CRITERION,
             )
         )
         candle_explanation = multi_day_result.explanation
@@ -148,43 +162,76 @@ class Live20Evaluator:
                 value=f"{volume_signal.rvol}x",
                 aligned_for_long=volume_signal.aligned_for_long,
                 aligned_for_short=volume_signal.aligned_for_short,
-                score=self.WEIGHT_PER_CRITERION,
+                score_for_long=self.WEIGHT_PER_CRITERION,
+                score_for_short=self.WEIGHT_PER_CRITERION,
             )
         )
 
-        # 5. CCI - Momentum confirmation (zone + direction awareness)
-        cci_analysis = analyze_cci(highs, lows, closes, period=14)
+        # 5. Momentum criterion - CCI or RSI-2
+        # NOTE: Criterion name standardization - both use "momentum" for consistency
+        # in name-based lookups. Alternative: keep algorithm-specific names ("cci"/"rsi2")
+        # Current choice: "momentum" for both (generic, algorithm-agnostic)
+        if scoring_algorithm == ScoringAlgorithm.RSI2:
+            rsi2_analysis = analyze_rsi2(closes)
 
-        # LONG: oversold (rising/flat direction) or neutral (rising direction)
-        aligned_for_long = (
-            cci_analysis.zone == CCIZone.OVERSOLD
-            and cci_analysis.direction in (CCIDirection.RISING, CCIDirection.FLAT)
-        ) or (
-            cci_analysis.zone == CCIZone.NEUTRAL and cci_analysis.direction == CCIDirection.RISING
-        )
-
-        # SHORT: overbought (falling/flat direction) or neutral (falling direction)
-        aligned_for_short = (
-            cci_analysis.zone == CCIZone.OVERBOUGHT
-            and cci_analysis.direction in (CCIDirection.FALLING, CCIDirection.FLAT)
-        ) or (
-            cci_analysis.zone == CCIZone.NEUTRAL and cci_analysis.direction == CCIDirection.FALLING
-        )
-
-        criteria.append(
-            CriterionResult(
-                name="cci",
-                value=cci_analysis.zone.value,
-                aligned_for_long=aligned_for_long,
-                aligned_for_short=aligned_for_short,
-                score=self.WEIGHT_PER_CRITERION,
+            criteria.append(
+                CriterionResult(
+                    name="momentum",  # Standardized name (same as CCI below)
+                    value=f"RSI-2: {rsi2_analysis.value:.0f}",
+                    aligned_for_long=rsi2_analysis.long_score > 0,
+                    aligned_for_short=rsi2_analysis.short_score > 0,
+                    score_for_long=rsi2_analysis.long_score,
+                    score_for_short=rsi2_analysis.short_score,
+                )
             )
-        )
+            momentum_analysis: MomentumAnalysis = rsi2_analysis
+        else:
+            # Existing CCI logic (unchanged)
+            cci_analysis = analyze_cci(highs, lows, closes, period=14)
 
-        return criteria, volume_signal, cci_analysis, candle_explanation
+            # LONG alignment logic (existing, unchanged)
+            aligned_for_long = (
+                cci_analysis.zone == CCIZone.OVERSOLD
+                and cci_analysis.direction in (CCIDirection.RISING, CCIDirection.FLAT)
+            ) or (
+                cci_analysis.zone == CCIZone.NEUTRAL and cci_analysis.direction == CCIDirection.RISING
+            )
+
+            # SHORT alignment logic (existing, unchanged)
+            aligned_for_short = (
+                cci_analysis.zone == CCIZone.OVERBOUGHT
+                and cci_analysis.direction in (CCIDirection.FALLING, CCIDirection.FLAT)
+            ) or (
+                cci_analysis.zone == CCIZone.NEUTRAL and cci_analysis.direction == CCIDirection.FALLING
+            )
+
+            criteria.append(
+                CriterionResult(
+                    name="momentum",  # Changed from "cci" to "momentum" for consistency
+                    value=cci_analysis.zone.value,
+                    aligned_for_long=aligned_for_long,
+                    aligned_for_short=aligned_for_short,
+                    score_for_long=self.WEIGHT_PER_CRITERION,
+                    score_for_short=self.WEIGHT_PER_CRITERION,
+                )
+            )
+            momentum_analysis = cci_analysis
+
+        return criteria, volume_signal, momentum_analysis, candle_explanation
 
     def determine_direction_and_score(self, criteria: list[CriterionResult]) -> tuple[str, int]:
         """Determine direction and calculate score based on criteria alignment.
+
+        Sums the direction-appropriate score for each aligned criterion.
+        For binary criteria (CCI, trend, etc.), score_for_long == score_for_short == 20.
+        For graduated criteria (RSI-2), scores may differ per direction.
+
+        Backward compatible: for CCI, sum of aligned scores == aligned_count * 20.
+
+        NOTE: Direction is determined by ALIGNED COUNT (not score sum).
+        The score is then calculated by summing scores for that direction.
+        This preserves the original behavior where 3 aligned criteria = setup,
+        even if one criterion contributes only 5 points instead of 20.
 
         Args:
             criteria: List of CriterionResult from evaluate_criteria()
@@ -195,18 +242,18 @@ class Live20Evaluator:
         long_aligned = sum(1 for c in criteria if c.aligned_for_long)
         short_aligned = sum(1 for c in criteria if c.aligned_for_short)
 
-        # Determine direction
         if long_aligned >= self.MIN_CRITERIA_FOR_SETUP and long_aligned > short_aligned:
             direction = Live20Direction.LONG
-            aligned_count = long_aligned
+            score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
         elif short_aligned >= self.MIN_CRITERIA_FOR_SETUP and short_aligned > long_aligned:
             direction = Live20Direction.SHORT
-            aligned_count = short_aligned
+            score = sum(c.score_for_short for c in criteria if c.aligned_for_short)
         else:
             direction = Live20Direction.NO_SETUP
-            aligned_count = max(long_aligned, short_aligned)
+            long_score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
+            short_score = sum(c.score_for_short for c in criteria if c.aligned_for_short)
+            score = max(long_score, short_score)
 
-        score = aligned_count * self.WEIGHT_PER_CRITERION
         return direction, score
 
     def get_ma20_distance(self, closes: list[float]) -> float:
