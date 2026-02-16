@@ -275,37 +275,47 @@ export function Live20HistoryTab() {
                       className="border-b border-subtle hover:bg-bg-tertiary cursor-pointer transition-colors"
                     >
                       <td className="px-5 py-4 whitespace-nowrap">
-                        <span className="text-[13px] text-text-secondary">
-                          {formatDate(run.created_at)}
-                        </span>
-                        {run.source_lists?.length ? (
-                          run.source_lists.length === 1 ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[13px] text-text-secondary">
+                            {formatDate(run.created_at)}
+                          </span>
+                          <div className="flex items-center gap-1.5">
                             <Badge
                               variant="outline"
-                              className="ml-2 text-xs inline-flex items-center gap-1 border-[rgba(167,139,250,0.3)] bg-[rgba(167,139,250,0.12)] text-[#c4b5fd]"
+                              className="text-[10px] px-1.5 font-mono"
                             >
-                              <List className="h-3 w-3" aria-hidden="true" />
-                              {run.source_lists[0].name}
+                              {run.scoring_algorithm?.toUpperCase() || 'CCI'}
                             </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="ml-2 text-xs inline-flex items-center gap-1 border-[rgba(167,139,250,0.3)] bg-[rgba(167,139,250,0.12)] text-[#c4b5fd]"
-                              title={run.source_lists.map((list) => list.name).join(', ')}
-                            >
-                              <List className="h-3 w-3" aria-hidden="true" />
-                              {run.source_lists.length} lists combined
-                            </Badge>
-                          )
-                        ) : run.stock_list_name ? (
-                          <Badge
-                            variant="outline"
-                            className="ml-2 text-xs inline-flex items-center gap-1 border-[rgba(167,139,250,0.3)] bg-[rgba(167,139,250,0.12)] text-[#c4b5fd]"
-                          >
-                            <List className="h-3 w-3" aria-hidden="true" />
-                            {run.stock_list_name}
-                          </Badge>
-                        ) : null}
+                            {run.source_lists?.length ? (
+                              run.source_lists.length === 1 ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs inline-flex items-center gap-1 border-[rgba(167,139,250,0.3)] bg-[rgba(167,139,250,0.12)] text-[#c4b5fd]"
+                                >
+                                  <List className="h-3 w-3" aria-hidden="true" />
+                                  {run.source_lists[0].name}
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs inline-flex items-center gap-1 border-[rgba(167,139,250,0.3)] bg-[rgba(167,139,250,0.12)] text-[#c4b5fd]"
+                                  title={run.source_lists.map((list) => list.name).join(', ')}
+                                >
+                                  <List className="h-3 w-3" aria-hidden="true" />
+                                  {run.source_lists.length} lists combined
+                                </Badge>
+                              )
+                            ) : run.stock_list_name ? (
+                              <Badge
+                                variant="outline"
+                                className="text-xs inline-flex items-center gap-1 border-[rgba(167,139,250,0.3)] bg-[rgba(167,139,250,0.12)] text-[#c4b5fd]"
+                              >
+                                <List className="h-3 w-3" aria-hidden="true" />
+                                {run.stock_list_name}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap font-mono text-[13px] font-semibold text-text-primary">
                         {run.symbol_count}

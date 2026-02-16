@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.database import get_db_session, get_session_factory
 from app.models.live20_run import Live20RunStatus
 from app.models.recommendation import Recommendation, RecommendationSource
+from app.repositories.agent_config_repository import AgentConfigRepository
 from app.repositories.live20_run_repository import Live20RunRepository
 from app.schemas.live20 import (
     Live20AnalyzeRequest,
@@ -73,6 +74,20 @@ async def analyze_symbols(
 
     # Create run with status='pending' for async processing
     async with session_factory() as session:
+        # Look up agent config if provided
+        agent_config = None
+        if request.agent_config_id:
+            config_repo = AgentConfigRepository(session)
+            agent_config = await config_repo.get_by_id(request.agent_config_id)
+            if not agent_config:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Agent config {request.agent_config_id} not found",
+                )
+
+        # Determine scoring algorithm: agent_config_id takes precedence
+        scoring_algorithm = agent_config.scoring_algorithm if agent_config else request.scoring_algorithm
+
         repo = Live20RunRepository(session)
         run = await repo.create(
             input_symbols=normalized_symbols,
@@ -81,6 +96,8 @@ async def analyze_symbols(
             stock_list_id=request.stock_list_id,
             stock_list_name=request.stock_list_name,
             source_lists=source_lists_dict,
+            scoring_algorithm=scoring_algorithm,
+            agent_config_id=request.agent_config_id,
         )
         run_id = run.id
         await session.commit()
@@ -278,6 +295,8 @@ async def get_run(
         stock_list_id=run.stock_list_id,
         stock_list_name=run.stock_list_name,
         source_lists=run.source_lists,
+        agent_config_id=run.agent_config_id,
+        scoring_algorithm=run.scoring_algorithm,
         results=[Live20ResultResponse.from_recommendation(r) for r in recommendations],
         failed_symbols=run.failed_symbols or {},
     )

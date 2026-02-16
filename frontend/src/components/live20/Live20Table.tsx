@@ -334,8 +334,40 @@ export function Live20Table({ results }: Live20TableProps) {
       },
       {
         accessorKey: 'cci_aligned',
-        header: 'CCI',
+        header: 'Momentum',
         cell: ({ row }) => {
+          const algo = row.original.scoring_algorithm ?? 'cci';
+
+          if (algo === 'rsi2') {
+            const rsi2Value = row.original.rsi2_value;
+            const rsi2Score = row.original.rsi2_score ?? 0;
+
+            // Score-based color mapping using design system tokens
+            // 15-20 pts = high (green), 10 pts = medium (yellow), 0-5 pts = low (red)
+            const scoreColor = rsi2Score >= 15 ? 'text-score-high' :
+                               rsi2Score >= 10 ? 'text-score-medium' : 'text-score-low';
+
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1 cursor-help">
+                    <AlignmentIcon aligned={rsi2Score > 0} />
+                    <span className={`font-mono text-xs ${scoreColor}`}>
+                      {rsi2Value?.toFixed(0) ?? '-'}
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="font-medium">RSI-2: {rsi2Value?.toFixed(1) ?? '-'}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Score: {rsi2Score}/20 pts (graduated)
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            );
+          }
+
+          // CCI display (existing logic, unchanged)
           const direction = row.original.cci_direction;
           const DirectionIcon = direction === 'rising' ? TrendingUp :
                                direction === 'falling' ? TrendingDown : Minus;

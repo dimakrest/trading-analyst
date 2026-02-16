@@ -3,10 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { MultiListSelector } from '@/components/molecules/MultiListSelector';
 import { TrendingUp, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStockLists } from '@/hooks/useStockLists';
+import type { AgentConfig } from '@/types/agentConfig';
 
 /** Maximum allowed symbols */
 const MAX_SYMBOLS = 500;
@@ -24,6 +26,14 @@ interface Live20InputProps {
   ) => void;
   /** Whether analysis is currently in progress */
   isAnalyzing: boolean;
+  /** Available agent configurations */
+  agentConfigs: AgentConfig[];
+  /** Currently selected agent config ID */
+  selectedAgentConfigId?: number;
+  /** Callback when agent config selection changes */
+  onAgentConfigChange: (id: number) => void;
+  /** Whether agent configs are loading */
+  isLoadingConfigs?: boolean;
 }
 
 /**
@@ -32,9 +42,16 @@ interface Live20InputProps {
  * Provides a textarea for entering comma/space/newline-separated stock symbols
  * with validation (max 500 symbols, max 10 chars per symbol). Shows symbol count
  * and validation feedback. Optionally allows selecting multiple stock lists to
- * populate symbols from (with deduplication).
+ * populate symbols from (with deduplication). Includes agent config selector.
  */
-export function Live20Input({ onAnalyze, isAnalyzing }: Live20InputProps) {
+export function Live20Input({
+  onAnalyze,
+  isAnalyzing,
+  agentConfigs,
+  selectedAgentConfigId,
+  onAgentConfigChange,
+  isLoadingConfigs = false,
+}: Live20InputProps) {
   const [input, setInput] = useState('');
   const [selectedListIds, setSelectedListIds] = useState<number[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -185,6 +202,32 @@ or paste one symbol per line"
 
         {/* Right Column - Sidebar Controls */}
         <div className="flex flex-col gap-4 lg:border-l lg:border-subtle lg:pl-5 pt-4 lg:pt-0 border-t lg:border-t-0 border-subtle">
+          {/* Agent Config Selector */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              Agent
+            </label>
+            <Select
+              value={selectedAgentConfigId?.toString()}
+              onValueChange={(value) => onAgentConfigChange(Number(value))}
+              disabled={isLoadingConfigs || isAnalyzing}
+            >
+              <SelectTrigger className="bg-bg-tertiary border-default">
+                <SelectValue placeholder="Select agent..." />
+              </SelectTrigger>
+              <SelectContent>
+                {agentConfigs.map((config) => (
+                  <SelectItem key={config.id} value={config.id.toString()}>
+                    {config.name}
+                    <span className="text-xs text-muted-foreground ml-2">
+                      ({config.scoring_algorithm.toUpperCase()})
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Multi-List Selector */}
           <div className="flex flex-col gap-2">
             <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">

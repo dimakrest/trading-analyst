@@ -8,30 +8,37 @@ const API_BASE = '/v1/live-20';
  *
  * Submits a list of stock symbols to the Live 20 analysis API to evaluate
  * mean reversion trading criteria including trend, MA20 position, candle patterns,
- * volume, and CCI indicators.
+ * volume, and momentum (CCI or RSI-2 based on agent config).
  *
  * @param symbols - Array of stock symbols to analyze (max 500)
  * @param sourceLists - Optional array of source list objects with id and name (for tracking)
+ * @param agentConfigId - Optional agent configuration ID (determines scoring algorithm)
  * @param signal - Optional AbortSignal to cancel the request
  * @returns Promise resolving to analysis results with recommendations and errors
  * @throws Error if the API request fails
  *
  * @example
- * const response = await analyzeSymbols(['AAPL', 'MSFT', 'NVDA']);
+ * const response = await analyzeSymbols(['AAPL', 'MSFT', 'NVDA'], null, 1);
  * console.log(`${response.successful}/${response.total} analyzed successfully`);
  */
 export const analyzeSymbols = async (
   symbols: string[],
   sourceLists: Array<{ id: number; name: string }> | null = null,
+  agentConfigId?: number,
   signal?: AbortSignal
 ): Promise<Live20AnalyzeResponse> => {
   const body: {
     symbols: string[];
     source_lists?: Array<{ id: number; name: string }>;
+    agent_config_id?: number;
   } = { symbols };
 
   if (sourceLists !== null && sourceLists.length > 0) {
     body.source_lists = sourceLists;
+  }
+
+  if (agentConfigId !== undefined) {
+    body.agent_config_id = agentConfigId;
   }
 
   const response = await apiClient.post<Live20AnalyzeResponse>(

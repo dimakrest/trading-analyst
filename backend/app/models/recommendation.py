@@ -44,6 +44,13 @@ class RecommendationSource(str, Enum):
     LIVE_20 = "live_20"
 
 
+class ScoringAlgorithm(str, Enum):
+    """Available scoring algorithms for the Live20 momentum criterion."""
+
+    CCI = "cci"
+    RSI2 = "rsi2"
+
+
 class Recommendation(Base):
     """Trading recommendation from Live20 deterministic evaluator."""
 
@@ -134,6 +141,16 @@ class Recommendation(Base):
     )
     live20_cci_aligned: Mapped[bool | None] = mapped_column(
         Boolean, nullable=True, doc="Whether CCI aligns with direction"
+    )
+    live20_scoring_algorithm: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, server_default="cci",
+        doc="Scoring algorithm: 'cci' or 'rsi2'"
+    )
+    live20_rsi2_value: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2), nullable=True, doc="RSI-2 indicator value (0-100)"
+    )
+    live20_rsi2_score: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, doc="RSI-2 graduated score (0, 5, 10, 15, or 20)"
     )
     live20_criteria_aligned: Mapped[int | None] = mapped_column(
         Integer, nullable=True, doc="Number of criteria aligned (0-5)"

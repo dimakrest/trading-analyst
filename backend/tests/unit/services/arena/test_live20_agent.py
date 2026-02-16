@@ -459,7 +459,7 @@ class TestLive20ArenaAgentCriteria:
     async def test_cci_criterion_in_reasoning(
         self, agent: Live20ArenaAgent
     ) -> None:
-        """Test that CCI criterion appears in reasoning."""
+        """Test that momentum criterion appears in reasoning."""
         bars = [
             self._create_price_bar(i, 100.0, 101.0, 99.0, 100.0) for i in range(30)
         ]
@@ -472,7 +472,7 @@ class TestLive20ArenaAgentCriteria:
         )
 
         assert decision.reasoning is not None
-        assert "cci" in decision.reasoning.lower()
+        assert "momentum" in decision.reasoning.lower()
 
     @pytest.mark.unit
     @pytest.mark.asyncio

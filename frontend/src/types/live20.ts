@@ -1,5 +1,6 @@
 export type Live20Direction = 'LONG' | 'SHORT' | 'NO_SETUP';
 export type VolumeApproach = 'exhaustion' | 'accumulation' | 'distribution' | null;
+export type ScoringAlgorithm = 'cci' | 'rsi2';
 
 export interface Live20Result {
   id: number;
@@ -28,6 +29,11 @@ export interface Live20Result {
   criteria_aligned: number | null;
   direction: Live20Direction | null;
   sector_etf: string | null;
+
+  // Scoring algorithm fields
+  scoring_algorithm: ScoringAlgorithm | null;
+  rsi2_value: number | null;
+  rsi2_score: number | null;
 }
 
 /**
@@ -72,6 +78,7 @@ export interface Live20RunSummary {
   stock_list_id: number | null;
   stock_list_name: string | null;
   source_lists?: Array<{ id: number; name: string }> | null;
+  scoring_algorithm: ScoringAlgorithm | null;
 }
 
 export interface Live20RunListResponse {
@@ -98,4 +105,5 @@ export interface Live20RunDetail {
   results: Live20Result[];
   error_message?: string | null;
   failed_symbols?: Record<string, string>;
+  scoring_algorithm: ScoringAlgorithm | null;
 }

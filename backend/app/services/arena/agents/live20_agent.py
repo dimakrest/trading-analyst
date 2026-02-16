@@ -8,6 +8,7 @@ import logging
 from datetime import date
 from typing import ClassVar
 
+from app.models.recommendation import ScoringAlgorithm
 from app.services.arena.agent_protocol import AgentDecision, BaseAgent, PriceBar
 from app.services.live20_evaluator import Live20Evaluator
 
@@ -35,10 +36,24 @@ class Live20ArenaAgent(BaseAgent):
         Args:
             config: Optional configuration dict. Supported keys:
                 - min_buy_score: Minimum score threshold for BUY signal (default: 60)
+                - scoring_algorithm: Scoring algorithm ('cci' or 'rsi2', default: 'cci')
         """
         super().__init__(config)
         self._evaluator = Live20Evaluator()
         self._min_buy_score = self._config.get("min_buy_score", self.DEFAULT_MIN_BUY_SCORE)
+
+        # Validate and convert scoring_algorithm with error handling
+        scoring_algorithm_str = self._config.get("scoring_algorithm", "cci")
+        try:
+            self._scoring_algorithm = ScoringAlgorithm(scoring_algorithm_str)
+        except ValueError:
+            # Invalid algorithm in config - log error and fall back to CCI
+            # This prevents arena simulations from crashing on bad config
+            logger.error(
+                f"Invalid scoring_algorithm in agent config: {scoring_algorithm_str}. "
+                f"Falling back to CCI."
+            )
+            self._scoring_algorithm = ScoringAlgorithm.CCI
 
     # Expose constants for backward compatibility (used in tests)
     @property
@@ -123,11 +138,15 @@ class Live20ArenaAgent(BaseAgent):
         volumes = [float(bar.volume) for bar in price_history]
 
         # Evaluate criteria using shared evaluator
-        criteria, _, _, _ = self._evaluator.evaluate_criteria(opens, highs, lows, closes, volumes)
+        criteria, _, _, _ = self._evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=self._scoring_algorithm,
+        )
 
-        # Count LONG-aligned criteria only (agent is LONG-only)
+        # Sum-based scoring to support graduated algorithms (equivalent to count*20 for CCI)
+        # NOTE: Arena agent is LONG-only by design (no SHORT signal support)
         aligned_count = sum(1 for c in criteria if c.aligned_for_long)
-        score = aligned_count * self._evaluator.WEIGHT_PER_CRITERION
+        score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
 
         # Build reasoning
         aligned_criteria = [c.name for c in criteria if c.aligned_for_long]

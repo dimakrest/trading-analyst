@@ -87,13 +87,16 @@ export function ExpandedRowContent({ result }: ExpandedRowContentProps) {
           });
 
           // Merge indicator data into price data by matching dates
+          // For RSI-2 algorithm, omit CCI data (not relevant to the scoring)
+          const isRsi2 = result.scoring_algorithm === 'rsi2';
           return pricesData.prices.map((price) => {
             const indicators = indicatorMap.get(price.date);
             return {
               ...price,
               ma_20: indicators?.ma_20,
-              cci: indicators?.cci,
-              cci_signal: indicators?.cci_signal,
+              // Only include CCI data if using CCI algorithm
+              cci: isRsi2 ? undefined : indicators?.cci,
+              cci_signal: isRsi2 ? undefined : indicators?.cci_signal,
             };
           });
         })(),
@@ -114,7 +117,7 @@ export function ExpandedRowContent({ result }: ExpandedRowContentProps) {
         setLoading(false);
       }
     }
-  }, [result.stock, result.sector_etf]);
+  }, [result.stock, result.sector_etf, result.scoring_algorithm]);
 
   useEffect(() => {
     const abortController = new AbortController();

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PullToRefresh } from '@/components/ui/pull-to-refresh';
@@ -8,6 +9,7 @@ import { AlertCircle } from 'lucide-react';
 import type { Live20Direction } from '@/types/live20';
 import { useLive20 } from '@/hooks/useLive20';
 import { useResponsive } from '@/hooks/useResponsive';
+import { useAgentConfigs } from '@/hooks/useAgentConfigs';
 import { Live20Input } from './Live20Input';
 import { Live20Filters } from './Live20Filters';
 import { Live20Table } from './Live20Table';
@@ -40,6 +42,22 @@ export function Live20Dashboard() {
   const [wasCancelled, setWasCancelled] = useState(false);
   const { isMobile } = useResponsive();
 
+  // Agent configs state
+  const {
+    configs: agentConfigs,
+    selectedConfigId: selectedAgentConfigId,
+    setSelectedConfigId: setSelectedAgentConfigId,
+    isLoading: isLoadingConfigs,
+    error: configsError,
+  } = useAgentConfigs();
+
+  // Show toast if configs fail to load
+  useEffect(() => {
+    if (configsError) {
+      toast.error(configsError);
+    }
+  }, [configsError]);
+
   const {
     results,
     counts,
@@ -60,7 +78,7 @@ export function Live20Dashboard() {
   ) => {
     setSymbolCount(symbols.length);
     setWasCancelled(false);
-    await analyzeSymbols(symbols, sourceLists);
+    await analyzeSymbols(symbols, sourceLists, selectedAgentConfigId);
   };
 
   // Track if the current analysis was cancelled
@@ -112,7 +130,14 @@ export function Live20Dashboard() {
       </div>
 
       {/* Input Section */}
-      <Live20Input onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} />
+      <Live20Input
+        onAnalyze={handleAnalyze}
+        isAnalyzing={isAnalyzing}
+        agentConfigs={agentConfigs}
+        selectedAgentConfigId={selectedAgentConfigId}
+        onAgentConfigChange={setSelectedAgentConfigId}
+        isLoadingConfigs={isLoadingConfigs}
+      />
 
       {/* Cancelled State Alert */}
       {wasCancelled && !isAnalyzing && results.length > 0 && (

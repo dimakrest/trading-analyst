@@ -55,8 +55,11 @@ class Live20Worker(JobWorker[Live20Run]):
             logger.info(f"[{worker_id}] Run {run.id}: All symbols already processed")
             return
 
-        # Create Live20Service for analysis
-        service = Live20Service(self.session_factory)
+        # Create Live20Service for analysis (algorithm is run-level, not per-symbol)
+        service = Live20Service(
+            self.session_factory,
+            scoring_algorithm=run.scoring_algorithm or "cci",
+        )
 
         # Track counts for updating run at the end
         # Recalculate from existing recommendations to ensure accuracy on resume

@@ -7,6 +7,9 @@ from app.services.live20_evaluator import (
     Live20Direction,
     Live20Evaluator,
 )
+from app.indicators.cci_analysis import CCIAnalysis
+from app.indicators.rsi2_analysis import RSI2Analysis
+from app.models.recommendation import ScoringAlgorithm
 
 
 class TestLive20EvaluatorConstants:
@@ -74,7 +77,7 @@ class TestLive20EvaluatorEvaluateCriteria:
         assert len(criteria) == 5
 
     def test_criteria_names(self, evaluator, sample_price_data):
-        """Verify criteria names are trend, ma20_distance, candle, volume, cci."""
+        """Verify criteria names are trend, ma20_distance, candle, volume, momentum."""
         # Arrange
         opens, highs, lows, closes, volumes = sample_price_data
 
@@ -83,19 +86,20 @@ class TestLive20EvaluatorEvaluateCriteria:
 
         # Assert
         names = [c.name for c in criteria]
-        assert names == ["trend", "ma20_distance", "candle", "volume", "cci"]
+        assert names == ["trend", "ma20_distance", "candle", "volume", "momentum"]
 
-    def test_all_criteria_have_score_20(self, evaluator, sample_price_data):
-        """Verify each criterion has a score of 20."""
+    def test_all_criteria_have_binary_scores_20(self, evaluator, sample_price_data):
+        """Verify each criterion has binary scores of 20 for CCI (default)."""
         # Arrange
         opens, highs, lows, closes, volumes = sample_price_data
 
         # Act
         criteria, _, _, _ = evaluator.evaluate_criteria(opens, highs, lows, closes, volumes)
 
-        # Assert
+        # Assert - with default CCI, all criteria have score_for_long and score_for_short = 20
         for c in criteria:
-            assert c.score == 20, f"Criterion {c.name} has score {c.score}, expected 20"
+            assert c.score_for_long == 20, f"Criterion {c.name} has score_for_long {c.score_for_long}, expected 20"
+            assert c.score_for_short == 20, f"Criterion {c.name} has score_for_short {c.score_for_short}, expected 20"
 
     def test_returns_volume_signal(self, evaluator, sample_price_data):
         """Verify volume_signal has aligned_for_long, aligned_for_short, rvol attributes."""
@@ -149,11 +153,11 @@ class TestLive20EvaluatorDetermineDirection:
         """Test 3 criteria aligned for LONG returns direction=LONG, score=60."""
         # Arrange
         criteria = [
-            CriterionResult("trend", "bearish", True, False, 20),
-            CriterionResult("ma20", "-6%", True, False, 20),
-            CriterionResult("candle", "hammer", True, False, 20),
-            CriterionResult("volume", "1.5x", False, False, 20),
-            CriterionResult("cci", "oversold", False, False, 20),
+            CriterionResult("trend", "bearish", True, False, 20, 20),
+            CriterionResult("ma20", "-6%", True, False, 20, 20),
+            CriterionResult("candle", "hammer", True, False, 20, 20),
+            CriterionResult("volume", "1.5x", False, False, 20, 20),
+            CriterionResult("cci", "oversold", False, False, 20, 20),
         ]
 
         # Act
@@ -167,11 +171,11 @@ class TestLive20EvaluatorDetermineDirection:
         """Test 3 criteria aligned for SHORT returns direction=SHORT, score=60."""
         # Arrange
         criteria = [
-            CriterionResult("trend", "bullish", False, True, 20),
-            CriterionResult("ma20", "+6%", False, True, 20),
-            CriterionResult("candle", "shooting_star", False, True, 20),
-            CriterionResult("volume", "1.5x", False, False, 20),
-            CriterionResult("cci", "overbought", False, False, 20),
+            CriterionResult("trend", "bullish", False, True, 20, 20),
+            CriterionResult("ma20", "+6%", False, True, 20, 20),
+            CriterionResult("candle", "shooting_star", False, True, 20, 20),
+            CriterionResult("volume", "1.5x", False, False, 20, 20),
+            CriterionResult("cci", "overbought", False, False, 20, 20),
         ]
 
         # Act
@@ -185,11 +189,11 @@ class TestLive20EvaluatorDetermineDirection:
         """Test only 1 aligned returns direction=NO_SETUP, score=20."""
         # Arrange
         criteria = [
-            CriterionResult("trend", "bearish", True, False, 20),
-            CriterionResult("ma20", "-2%", False, False, 20),
-            CriterionResult("candle", "doji", False, False, 20),
-            CriterionResult("volume", "1.0x", False, False, 20),
-            CriterionResult("cci", "neutral", False, False, 20),
+            CriterionResult("trend", "bearish", True, False, 20, 20),
+            CriterionResult("ma20", "-2%", False, False, 20, 20),
+            CriterionResult("candle", "doji", False, False, 20, 20),
+            CriterionResult("volume", "1.0x", False, False, 20, 20),
+            CriterionResult("cci", "neutral", False, False, 20, 20),
         ]
 
         # Act
@@ -203,11 +207,11 @@ class TestLive20EvaluatorDetermineDirection:
         """Test 4 LONG, 1 SHORT returns LONG, score=80."""
         # Arrange
         criteria = [
-            CriterionResult("trend", "bearish", True, False, 20),
-            CriterionResult("ma20", "-6%", True, False, 20),
-            CriterionResult("candle", "hammer", True, False, 20),
-            CriterionResult("volume", "1.5x", True, False, 20),
-            CriterionResult("cci", "overbought", False, True, 20),  # SHORT aligned
+            CriterionResult("trend", "bearish", True, False, 20, 20),
+            CriterionResult("ma20", "-6%", True, False, 20, 20),
+            CriterionResult("candle", "hammer", True, False, 20, 20),
+            CriterionResult("volume", "1.5x", True, False, 20, 20),
+            CriterionResult("cci", "overbought", False, True, 20, 20),  # SHORT aligned
         ]
 
         # Act
@@ -221,11 +225,11 @@ class TestLive20EvaluatorDetermineDirection:
         """Test 5 aligned returns score=100."""
         # Arrange
         criteria = [
-            CriterionResult("trend", "bearish", True, False, 20),
-            CriterionResult("ma20", "-6%", True, False, 20),
-            CriterionResult("candle", "hammer", True, False, 20),
-            CriterionResult("volume", "1.5x", True, False, 20),
-            CriterionResult("cci", "oversold", True, False, 20),
+            CriterionResult("trend", "bearish", True, False, 20, 20),
+            CriterionResult("ma20", "-6%", True, False, 20, 20),
+            CriterionResult("candle", "hammer", True, False, 20, 20),
+            CriterionResult("volume", "1.5x", True, False, 20, 20),
+            CriterionResult("cci", "oversold", True, False, 20, 20),
         ]
 
         # Act
@@ -239,11 +243,11 @@ class TestLive20EvaluatorDetermineDirection:
         """Test when LONG and SHORT have equal alignment (both 2), returns NO_SETUP."""
         # Arrange
         criteria = [
-            CriterionResult("trend", "bearish", True, False, 20),  # LONG
-            CriterionResult("ma20", "+6%", False, True, 20),  # SHORT
-            CriterionResult("candle", "hammer", True, False, 20),  # LONG
-            CriterionResult("volume", "1.5x", False, True, 20),  # SHORT
-            CriterionResult("cci", "neutral", False, False, 20),  # Neither
+            CriterionResult("trend", "bearish", True, False, 20, 20),  # LONG
+            CriterionResult("ma20", "+6%", False, True, 20, 20),  # SHORT
+            CriterionResult("candle", "hammer", True, False, 20, 20),  # LONG
+            CriterionResult("volume", "1.5x", False, True, 20, 20),  # SHORT
+            CriterionResult("cci", "neutral", False, False, 20, 20),  # Neither
         ]
 
         # Act
@@ -257,11 +261,11 @@ class TestLive20EvaluatorDetermineDirection:
         """Test 4 SHORT, 1 LONG returns SHORT, score=80."""
         # Arrange
         criteria = [
-            CriterionResult("trend", "bullish", False, True, 20),  # SHORT
-            CriterionResult("ma20", "+6%", False, True, 20),  # SHORT
-            CriterionResult("candle", "shooting_star", False, True, 20),  # SHORT
-            CriterionResult("volume", "0.8x", False, True, 20),  # SHORT
-            CriterionResult("cci", "oversold", True, False, 20),  # LONG
+            CriterionResult("trend", "bullish", False, True, 20, 20),  # SHORT
+            CriterionResult("ma20", "+6%", False, True, 20, 20),  # SHORT
+            CriterionResult("candle", "shooting_star", False, True, 20, 20),  # SHORT
+            CriterionResult("volume", "0.8x", False, True, 20, 20),  # SHORT
+            CriterionResult("cci", "oversold", True, False, 20, 20),  # LONG
         ]
 
         # Act
@@ -336,7 +340,8 @@ class TestCriterionResultDataclass:
             value="test_value",
             aligned_for_long=True,
             aligned_for_short=False,
-            score=20,
+            score_for_long=20,
+            score_for_short=15,
         )
 
         # Assert
@@ -344,13 +349,14 @@ class TestCriterionResultDataclass:
         assert criterion.value == "test_value"
         assert criterion.aligned_for_long is True
         assert criterion.aligned_for_short is False
-        assert criterion.score == 20
+        assert criterion.score_for_long == 20
+        assert criterion.score_for_short == 15
 
     def test_criterion_result_equality(self):
         """Verify CriterionResult equality comparison works."""
         # Arrange
-        criterion1 = CriterionResult("trend", "bearish", True, False, 20)
-        criterion2 = CriterionResult("trend", "bearish", True, False, 20)
+        criterion1 = CriterionResult("trend", "bearish", True, False, 20, 20)
+        criterion2 = CriterionResult("trend", "bearish", True, False, 20, 20)
 
         # Assert
         assert criterion1 == criterion2
@@ -562,3 +568,252 @@ class TestMultiDayPatternIntegration:
         assert candle_criterion.value == "bullish_harami"
         assert candle_criterion.aligned_for_long is True
         assert "2-day" in candle_explanation
+
+
+class TestRSI2Integration:
+    """Test RSI-2 algorithm integration in evaluator."""
+
+    @pytest.fixture
+    def evaluator(self):
+        """Create Live20Evaluator instance."""
+        return Live20Evaluator()
+
+    @pytest.fixture
+    def sample_price_data(self):
+        """Generate sample price data for testing."""
+        # 30 days of downtrend (for RSI-2 oversold)
+        base_price = 100.0
+        opens = []
+        highs = []
+        lows = []
+        closes = []
+        volumes = []
+
+        for i in range(30):
+            price = base_price - (i * 0.5)
+            opens.append(price + 0.5)
+            highs.append(price + 1.0)
+            lows.append(price - 0.5)
+            closes.append(price)
+            volumes.append(1000000)
+
+        return opens, highs, lows, closes, volumes
+
+    def test_evaluate_with_rsi2_returns_rsi2_analysis(self, evaluator, sample_price_data):
+        """Test that RSI-2 algorithm returns RSI2Analysis instance."""
+        opens, highs, lows, closes, volumes = sample_price_data
+
+        criteria, _, momentum_analysis, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=ScoringAlgorithm.RSI2
+        )
+
+        assert isinstance(momentum_analysis, RSI2Analysis)
+        assert hasattr(momentum_analysis, "value")
+        assert hasattr(momentum_analysis, "long_score")
+        assert hasattr(momentum_analysis, "short_score")
+
+    def test_evaluate_with_cci_returns_cci_analysis(self, evaluator, sample_price_data):
+        """Test that CCI algorithm (default) returns CCIAnalysis instance."""
+        opens, highs, lows, closes, volumes = sample_price_data
+
+        criteria, _, momentum_analysis, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=ScoringAlgorithm.CCI
+        )
+
+        assert isinstance(momentum_analysis, CCIAnalysis)
+        assert hasattr(momentum_analysis, "zone")
+        assert hasattr(momentum_analysis, "direction")
+        assert hasattr(momentum_analysis, "value")
+
+    def test_momentum_criterion_name_is_momentum_for_both_algorithms(self, evaluator, sample_price_data):
+        """Test that both CCI and RSI-2 use criterion name 'momentum'."""
+        opens, highs, lows, closes, volumes = sample_price_data
+
+        # Test CCI
+        criteria_cci, _, _, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=ScoringAlgorithm.CCI
+        )
+        momentum_cci = [c for c in criteria_cci if c.name == "momentum"]
+        assert len(momentum_cci) == 1
+
+        # Test RSI-2
+        criteria_rsi2, _, _, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=ScoringAlgorithm.RSI2
+        )
+        momentum_rsi2 = [c for c in criteria_rsi2 if c.name == "momentum"]
+        assert len(momentum_rsi2) == 1
+
+    def test_cci_regression_sum_equals_count_times_20(self, evaluator, sample_price_data):
+        """Test CCI backward compatibility: sum of aligned scores == aligned_count * 20."""
+        opens, highs, lows, closes, volumes = sample_price_data
+
+        criteria, _, _, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=ScoringAlgorithm.CCI
+        )
+
+        direction, score = evaluator.determine_direction_and_score(criteria)
+
+        # Count aligned criteria
+        if direction == "LONG":
+            aligned_count = sum(1 for c in criteria if c.aligned_for_long)
+            expected_score = aligned_count * 20
+        elif direction == "SHORT":
+            aligned_count = sum(1 for c in criteria if c.aligned_for_short)
+            expected_score = aligned_count * 20
+        else:
+            long_count = sum(1 for c in criteria if c.aligned_for_long)
+            short_count = sum(1 for c in criteria if c.aligned_for_short)
+            expected_score = max(long_count, short_count) * 20
+
+        assert score == expected_score, f"CCI regression failed: score={score}, expected={expected_score}"
+
+    def test_rsi2_graduated_scoring_example(self, evaluator):
+        """Test RSI-2 graduated scoring with specific example."""
+        # Create data with specific RSI-2 value to produce 15 pts
+        # Strong oversold (5-15 range)
+        closes = [100.0] * 5 + [98.0, 96.0, 94.0, 92.0, 90.0]
+        opens = [c + 0.5 for c in closes]
+        highs = [c + 1.0 for c in closes]
+        lows = [c - 0.5 for c in closes]
+        volumes = [1000000] * len(closes)
+
+        criteria, _, momentum_analysis, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=ScoringAlgorithm.RSI2
+        )
+
+        # Find momentum criterion
+        momentum_criterion = [c for c in criteria if c.name == "momentum"][0]
+
+        # RSI-2 should have graduated score (not binary 0/20)
+        assert isinstance(momentum_analysis, RSI2Analysis)
+        assert momentum_analysis.long_score in [0, 5, 10, 15, 20]
+        # Downtrend should produce oversold RSI-2
+        assert momentum_analysis.long_score > 0
+
+    def test_rsi2_alignment_based_on_score_gt_zero(self, evaluator, sample_price_data):
+        """Test that RSI-2 alignment is determined by score > 0."""
+        opens, highs, lows, closes, volumes = sample_price_data
+
+        criteria, _, momentum_analysis, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=ScoringAlgorithm.RSI2
+        )
+
+        momentum_criterion = [c for c in criteria if c.name == "momentum"][0]
+
+        # Alignment should match score > 0
+        assert momentum_criterion.aligned_for_long == (momentum_analysis.long_score > 0)
+        assert momentum_criterion.aligned_for_short == (momentum_analysis.short_score > 0)
+
+
+class TestGraduatedScoring:
+    """Test graduated scoring behavior with RSI-2."""
+
+    @pytest.fixture
+    def evaluator(self):
+        """Create Live20Evaluator instance."""
+        return Live20Evaluator()
+
+    def test_direction_determined_by_count_not_score(self, evaluator):
+        """Test that direction is determined by aligned COUNT, not score sum."""
+        # 3 binary criteria aligned for LONG (20 pts each) + 1 RSI-2 (5 pts) = 65 total
+        # vs 2 binary criteria aligned for SHORT (20 pts each) = 40 total
+        # Direction should be LONG (3 > 2 count), even though we could imagine
+        # a scenario where SHORT has higher score
+
+        criteria = [
+            CriterionResult("trend", "bearish", True, False, 20, 20),  # LONG
+            CriterionResult("ma20", "-6%", True, False, 20, 20),  # LONG
+            CriterionResult("candle", "hammer", True, False, 20, 20),  # LONG
+            CriterionResult("volume", "1.5x", False, False, 20, 20),  # Neither
+            CriterionResult("momentum", "RSI-2: 35", True, False, 5, 0),  # LONG 5pts
+        ]
+
+        direction, score = evaluator.determine_direction_and_score(criteria)
+
+        # Direction is LONG (4 aligned count)
+        assert direction == Live20Direction.LONG
+        # Score is 20+20+20+5 = 65
+        assert score == 65
+
+    def test_graduated_scoring_total(self, evaluator):
+        """Test that total score correctly sums graduated scores."""
+        # 2 binary (20 each) + 1 RSI-2 (15) + 2 binary (20 each) = 95
+        criteria = [
+            CriterionResult("trend", "bearish", True, False, 20, 20),
+            CriterionResult("ma20", "-6%", True, False, 20, 20),
+            CriterionResult("candle", "hammer", True, False, 20, 20),
+            CriterionResult("volume", "1.5x", True, False, 20, 20),
+            CriterionResult("momentum", "RSI-2: 10", True, False, 15, 0),  # 15pts
+        ]
+
+        direction, score = evaluator.determine_direction_and_score(criteria)
+
+        assert direction == Live20Direction.LONG
+        assert score == 95  # 20+20+20+20+15
+
+    def test_no_setup_uses_max_score(self, evaluator):
+        """Test NO_SETUP uses max(long_score, short_score)."""
+        # Only 2 aligned for LONG, 1 for SHORT = NO_SETUP
+        # But scores differ: LONG=45, SHORT=20
+        criteria = [
+            CriterionResult("trend", "bearish", True, False, 20, 20),  # LONG 20
+            CriterionResult("ma20", "-2%", False, False, 20, 20),  # Neither
+            CriterionResult("candle", "doji", False, False, 20, 20),  # Neither
+            CriterionResult("volume", "1.0x", False, True, 20, 20),  # SHORT 20
+            CriterionResult("momentum", "RSI-2: 10", True, False, 15, 0),  # LONG 15
+        ]
+
+        direction, score = evaluator.determine_direction_and_score(criteria)
+
+        assert direction == Live20Direction.NO_SETUP
+        # max(20+15, 20) = 35
+        assert score == 35
+
+
+class TestCriterionNames:
+    """Test criterion names are standardized."""
+
+    @pytest.fixture
+    def evaluator(self):
+        """Create Live20Evaluator instance."""
+        return Live20Evaluator()
+
+    def test_cci_criterion_name_is_momentum(self, evaluator):
+        """Test CCI criterion uses name 'momentum' not 'cci'."""
+        closes = [100.0] * 30
+        opens = [c + 0.5 for c in closes]
+        highs = [c + 1.0 for c in closes]
+        lows = [c - 0.5 for c in closes]
+        volumes = [1000000] * 30
+
+        criteria, _, _, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes,
+            scoring_algorithm=ScoringAlgorithm.CCI
+        )
+
+        names = [c.name for c in criteria]
+        assert "momentum" in names
+        assert "cci" not in names
+
+    def test_all_criteria_names(self, evaluator):
+        """Test all 5 criteria have expected names."""
+        closes = [100.0] * 30
+        opens = [c + 0.5 for c in closes]
+        highs = [c + 1.0 for c in closes]
+        lows = [c - 0.5 for c in closes]
+        volumes = [1000000] * 30
+
+        criteria, _, _, _ = evaluator.evaluate_criteria(
+            opens, highs, lows, closes, volumes
+        )
+
+        names = [c.name for c in criteria]
+        expected = ["trend", "ma20_distance", "candle", "volume", "momentum"]
+        assert names == expected

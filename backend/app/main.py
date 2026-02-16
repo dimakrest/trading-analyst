@@ -16,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.api.v1 import account
+from app.api.v1 import agent_configs
 from app.api.v1 import arena
 from app.api.v1 import health
 from app.api.v1 import indicators
@@ -308,6 +309,12 @@ def create_app() -> FastAPI:
         stock_lists.router,
         prefix=f"{settings.api_v1_prefix}/stock-lists",
         tags=["stock-lists"],
+    )
+
+    app.include_router(
+        agent_configs.router,
+        prefix=f"{settings.api_v1_prefix}/agent-configs",
+        tags=["agent-configs"],
     )
 
     app.include_router(

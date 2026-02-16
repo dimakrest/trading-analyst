@@ -33,6 +33,8 @@ class Live20RunSummary(StrictBaseModel):
         None,
         description="Array of source lists when multiple lists combined",
     )
+    agent_config_id: int | None = None
+    scoring_algorithm: str | None = None
     failed_count: int = Field(
         default=0, description="Number of symbols that failed analysis"
     )
@@ -97,6 +99,8 @@ class Live20RunSummary(StrictBaseModel):
             stock_list_id=getattr(obj, "stock_list_id", None),
             stock_list_name=getattr(obj, "stock_list_name", None),
             source_lists=getattr(obj, "source_lists", None),
+            agent_config_id=getattr(obj, "agent_config_id", None),
+            scoring_algorithm=getattr(obj, "scoring_algorithm", None),
             failed_count=failed_count,
         )
 
@@ -137,6 +141,8 @@ class Live20RunDetailResponse(StrictBaseModel):
         None,
         description="Array of source lists when multiple lists combined",
     )
+    agent_config_id: int | None = None
+    scoring_algorithm: str | None = None
     results: list[Live20ResultResponse]
     failed_symbols: dict[str, str] = Field(
         default_factory=dict,
