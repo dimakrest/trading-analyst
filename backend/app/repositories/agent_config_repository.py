@@ -32,7 +32,7 @@ class AgentConfigRepository(BaseRepository[AgentConfig]):
             .where(AgentConfig.name == name)
             .where(AgentConfig.deleted_at.is_(None))
         )
-        if exclude_id:
+        if exclude_id is not None:
             query = query.where(AgentConfig.id != exclude_id)
 
         result = await self.session.execute(query)

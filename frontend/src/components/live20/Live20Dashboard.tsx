@@ -7,10 +7,9 @@ import { PullToRefresh } from '@/components/ui/pull-to-refresh';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 import type { Live20Direction } from '@/types/live20';
-import type { AgentConfig } from '@/types/agentConfig';
 import { useLive20 } from '@/hooks/useLive20';
 import { useResponsive } from '@/hooks/useResponsive';
-import { agentConfigService } from '@/services/agentConfigService';
+import { useAgentConfigs } from '@/hooks/useAgentConfigs';
 import { Live20Input } from './Live20Input';
 import { Live20Filters } from './Live20Filters';
 import { Live20Table } from './Live20Table';
@@ -44,29 +43,20 @@ export function Live20Dashboard() {
   const { isMobile } = useResponsive();
 
   // Agent configs state
-  const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
-  const [selectedAgentConfigId, setSelectedAgentConfigId] = useState<number | undefined>();
-  const [isLoadingConfigs, setIsLoadingConfigs] = useState(true);
+  const {
+    configs: agentConfigs,
+    selectedConfigId: selectedAgentConfigId,
+    setSelectedConfigId: setSelectedAgentConfigId,
+    isLoading: isLoadingConfigs,
+    error: configsError,
+  } = useAgentConfigs();
 
-  // Load agent configs on mount
+  // Show toast if configs fail to load
   useEffect(() => {
-    const loadConfigs = async () => {
-      setIsLoadingConfigs(true);
-      try {
-        const res = await agentConfigService.getConfigs();
-        setAgentConfigs(res.items);
-        // Default to first config
-        if (res.items.length > 0) {
-          setSelectedAgentConfigId((prev) => prev ?? res.items[0].id);
-        }
-      } catch {
-        toast.error('Failed to load agent configurations');
-      } finally {
-        setIsLoadingConfigs(false);
-      }
-    };
-    loadConfigs();
-  }, []);
+    if (configsError) {
+      toast.error(configsError);
+    }
+  }, [configsError]);
 
   const {
     results,

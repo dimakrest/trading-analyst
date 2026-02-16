@@ -10,6 +10,8 @@ class AgentConfig(Base):
 
     Stores reusable agent settings that can be selected when running
     Live20 evaluations or Arena simulations.
+
+    Inherits id, created_at, updated_at, deleted_at, notes from Base.
     """
 
     __tablename__ = "agent_configs"

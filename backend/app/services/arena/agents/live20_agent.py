@@ -143,7 +143,7 @@ class Live20ArenaAgent(BaseAgent):
             scoring_algorithm=self._scoring_algorithm,
         )
 
-        # CRITICAL FIX: Use sum-based scoring instead of count-based
+        # Sum-based scoring to support graduated algorithms (equivalent to count*20 for CCI)
         # NOTE: Arena agent is LONG-only by design (no SHORT signal support)
         aligned_count = sum(1 for c in criteria if c.aligned_for_long)
         score = sum(c.score_for_long for c in criteria if c.aligned_for_long)

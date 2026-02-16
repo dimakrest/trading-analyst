@@ -144,6 +144,8 @@ async def create_simulation(
         "min_buy_score": request.min_buy_score,
         "scoring_algorithm": scoring_algorithm,
     }
+    if request.agent_config_id is not None:
+        agent_config["agent_config_id"] = request.agent_config_id
 
     # Create simulation record
     simulation = ArenaSimulation(

@@ -17,9 +17,8 @@ import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
-import { agentConfigService } from '../../services/agentConfigService';
+import { useAgentConfigs } from '../../hooks/useAgentConfigs';
 import type { CreateSimulationRequest } from '../../types/arena';
-import type { AgentConfig } from '../../types/agentConfig';
 
 // Arena configuration constants
 const MAX_ARENA_SYMBOLS = 600;
@@ -47,10 +46,10 @@ interface ArenaSetupFormProps {
 /** Minimum buy score configuration constants
  *
  * CRITICAL: STEP=5 supports graduated scoring (RSI-2)
- * MIN=0 allows any score threshold (aligns with 0-100 range)
+ * MIN=5 provides safety guard against meaningless "buy everything" simulations
  */
 const MIN_BUY_SCORE_CONFIG = {
-  MIN: 0,
+  MIN: 5,
   MAX: 100,
   STEP: 5,
   DEFAULT: 60,
@@ -125,7 +124,6 @@ export const ArenaSetupForm = ({
   const [trailingStopPct, setTrailingStopPct] = useState('5');
   const [minBuyScore, setMinBuyScore] = useState(MIN_BUY_SCORE_CONFIG.DEFAULT.toString());
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
-  const [selectedAgentConfigId, setSelectedAgentConfigId] = useState<number | undefined>();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch stock lists
@@ -133,26 +131,20 @@ export const ArenaSetupForm = ({
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null;
 
   // Fetch agent configs
-  const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
-  const [agentConfigsLoading, setAgentConfigsLoading] = useState(true);
+  const {
+    configs: agentConfigs,
+    selectedConfigId: selectedAgentConfigId,
+    setSelectedConfigId: setSelectedAgentConfigId,
+    isLoading: agentConfigsLoading,
+    error: agentConfigsError,
+  } = useAgentConfigs();
 
+  // Show toast if configs fail to load
   useEffect(() => {
-    const loadConfigs = async () => {
-      try {
-        const response = await agentConfigService.getConfigs();
-        setAgentConfigs(response.items);
-        // Default to first config if none selected
-        if (response.items.length > 0) {
-          setSelectedAgentConfigId((prev) => prev ?? response.items[0].id);
-        }
-      } catch {
-        toast.error('Failed to load agent configurations');
-      } finally {
-        setAgentConfigsLoading(false);
-      }
-    };
-    loadConfigs();
-  }, []);
+    if (agentConfigsError) {
+      toast.error(agentConfigsError);
+    }
+  }, [agentConfigsError]);
 
   // Populate form when initialValues are provided (e.g., from replay)
   useEffect(() => {
