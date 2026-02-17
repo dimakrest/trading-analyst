@@ -186,7 +186,7 @@ class TestATRAccuracy:
         )
 
     def test_atr_manual_calculation(self):
-        """Test ATR with simple manual calculation."""
+        """Test ATR with simple manual calculation using Wilder's EMA."""
         dates = pd.date_range(end="2024-01-05", periods=5, freq="D")
 
         # Simple data for manual verification
@@ -195,7 +195,10 @@ class TestATRAccuracy:
         # Day 3: TR = max(4, |103-102|=1, |99-102|=3) = 4
         # Day 4: TR = max(4, |106-101|=5, |102-101|=1) = 5
         # Day 5: TR = max(4, |105-104|=1, |101-104|=3) = 4
-        # 3-period ATR at day 5 = (4 + 5 + 4) / 3 = 4.33
+        # Wilder's EMA (alpha=1/3, adjust=False):
+        #   Day 3 seed (ewm from day 1): approaches ~4.0
+        #   Day 4: 4.0 * (2/3) + 5 * (1/3) ≈ 4.33
+        #   Day 5: 4.33 * (2/3) + 4 * (1/3) ≈ 4.22
         data = pd.DataFrame(
             {
                 "High": [102.0, 104.0, 103.0, 106.0, 105.0],
@@ -209,9 +212,9 @@ class TestATRAccuracy:
 
         atr = calculate_atr(data, period=3)
 
-        # Verify ATR at last period (approximately 4.33)
+        # Verify ATR at last period (approximately 4.22 with Wilder's EMA)
         # Allow some tolerance for floating point arithmetic
-        expected_atr = 4.33
+        expected_atr = 4.22
         actual_atr = atr.iloc[-1]
 
         assert abs(actual_atr - expected_atr) < 0.5, (

@@ -92,10 +92,10 @@ class TestCalculateATR:
         atr = calculate_atr(sample_price_data, period=14)
 
         assert len(atr) == len(sample_price_data)
-        # First value will be NaN (needs shift)
-        assert pd.isna(atr.iloc[0])
-        # After warmup period should have values
-        assert not pd.isna(atr.iloc[14:]).any()
+        # Wilder's EMA computes from first value — no NaN warmup period
+        assert not pd.isna(atr.iloc[0])
+        # All values should be non-NaN
+        assert not pd.isna(atr).any()
 
     def test_calculate_atr_positive(self, sample_price_data):
         """Test that ATR values are always positive."""
