@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useLive20Filters } from '../hooks/useLive20Filters';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Trash2, XCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Trash2, XCircle, BarChart2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { CancelAnalysisDialog, DeleteAnalysisDialog } from '../components/common';
+import { RecommendPortfolioDialog } from '../components/live20/RecommendPortfolioDialog';
 import { Live20Filters } from '../components/live20/Live20Filters';
 import { Live20Table } from '../components/live20/Live20Table';
 import { cancelRun, deleteRun, getRunDetail } from '../services/live20Service';
@@ -43,6 +44,7 @@ export function Live20RunDetail() {
 
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isRecommendDialogOpen, setIsRecommendDialogOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
@@ -270,7 +272,20 @@ export function Live20RunDetail() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Results</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Results</CardTitle>
+            {!isRunActive && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsRecommendDialogOpen(true)}
+                aria-label="Recommend portfolio from this run"
+              >
+                <BarChart2 className="h-4 w-4 mr-2" />
+                Recommend Portfolio
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
@@ -309,6 +324,14 @@ export function Live20RunDetail() {
         isDeleting={isProcessing}
         analysisType="analysis run"
       />
+
+      {run && (
+        <RecommendPortfolioDialog
+          open={isRecommendDialogOpen}
+          onOpenChange={setIsRecommendDialogOpen}
+          runId={run.id}
+        />
+      )}
     </div>
   );
 }
