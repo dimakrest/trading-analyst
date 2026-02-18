@@ -21,6 +21,16 @@ vi.mock('../../hooks/useStockLists', () => ({
   })),
 }));
 
+vi.mock('../../hooks/useAgentConfigs', () => ({
+  useAgentConfigs: vi.fn(() => ({
+    configs: [],
+    selectedConfigId: undefined,
+    setSelectedConfigId: vi.fn(),
+    isLoading: false,
+    error: null,
+  })),
+}));
+
 describe('ArenaSetupForm', () => {
   const mockOnSubmit = vi.fn();
 
@@ -230,7 +240,7 @@ describe('ArenaSetupForm', () => {
       );
     });
 
-    it('should disable submit when value is below 20', () => {
+    it('should disable submit when value is below minimum (5)', () => {
       render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
 
       // Fill valid data
@@ -242,9 +252,9 @@ describe('ArenaSetupForm', () => {
       fireEvent.change(startDateInput, { target: { value: '2024-01-01' } });
       fireEvent.change(endDateInput, { target: { value: '2024-01-15' } });
 
-      // Set invalid min buy score
+      // Set invalid min buy score (below MIN of 5)
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
-      fireEvent.change(minBuyScoreInput, { target: { value: '10' } });
+      fireEvent.change(minBuyScoreInput, { target: { value: '3' } });
 
       expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
     });
@@ -294,8 +304,8 @@ describe('ArenaSetupForm', () => {
   it('should disable submit when too many symbols', () => {
     render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
 
-    // Create 51 symbols (more than max 50)
-    const symbols = Array.from({ length: 51 }, (_, i) => `SYM${i}`).join(', ');
+    // Create 601 symbols (more than max 600)
+    const symbols = Array.from({ length: 601 }, (_, i) => `SYM${i}`).join(', ');
 
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
     fireEvent.change(textarea, { target: { value: symbols } });
@@ -392,7 +402,7 @@ describe('ArenaSetupForm', () => {
       render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
 
       // Before selecting a list - shows symbol count
-      expect(screen.getByText(/0 symbols \(max 50\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/0 symbols \(max 600\)/i)).toBeInTheDocument();
 
       // Select a list
       await user.click(screen.getByRole('combobox', { name: /select a stock list/i }));
