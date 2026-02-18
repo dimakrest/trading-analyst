@@ -9,8 +9,8 @@ import {
 
 describe('navigationConfig', () => {
   describe('NAV_ITEMS', () => {
-    it('contains all 4 navigation items', () => {
-      expect(NAV_ITEMS).toHaveLength(4);
+    it('contains all 5 navigation items', () => {
+      expect(NAV_ITEMS).toHaveLength(5);
     });
 
     it('contains Analysis as first item', () => {
@@ -28,9 +28,14 @@ describe('navigationConfig', () => {
       expect(NAV_ITEMS[2].label).toBe('Arena');
     });
 
-    it('contains Lists as fourth item', () => {
-      expect(NAV_ITEMS[3].path).toBe('/lists');
-      expect(NAV_ITEMS[3].label).toBe('Lists');
+    it('contains Agents as fourth item', () => {
+      expect(NAV_ITEMS[3].path).toBe('/agents');
+      expect(NAV_ITEMS[3].label).toBe('Agents');
+    });
+
+    it('contains Lists as fifth item', () => {
+      expect(NAV_ITEMS[4].path).toBe('/lists');
+      expect(NAV_ITEMS[4].label).toBe('Lists');
     });
 
     it('each item has an icon component', () => {
@@ -55,13 +60,18 @@ describe('navigationConfig', () => {
   });
 
   describe('MORE_NAV_ITEMS', () => {
-    it('contains one additional navigation item (Lists)', () => {
-      expect(MORE_NAV_ITEMS).toHaveLength(1);
+    it('contains two additional navigation items (Agents, Lists)', () => {
+      expect(MORE_NAV_ITEMS).toHaveLength(2);
     });
 
-    it('includes Lists', () => {
-      expect(MORE_NAV_ITEMS[0].label).toBe('Lists');
-      expect(MORE_NAV_ITEMS[0].path).toBe('/lists');
+    it('includes Agents as first item', () => {
+      expect(MORE_NAV_ITEMS[0].label).toBe('Agents');
+      expect(MORE_NAV_ITEMS[0].path).toBe('/agents');
+    });
+
+    it('includes Lists as second item', () => {
+      expect(MORE_NAV_ITEMS[1].label).toBe('Lists');
+      expect(MORE_NAV_ITEMS[1].path).toBe('/lists');
     });
   });
 
@@ -99,6 +109,10 @@ describe('navigationConfig', () => {
       expect(isMoreMenuActive('/live-20')).toBe(false);
       expect(isMoreMenuActive('/arena')).toBe(false);
       expect(isMoreMenuActive('/stock/AAPL')).toBe(false);
+    });
+
+    it('returns true when on agents path', () => {
+      expect(isMoreMenuActive('/agents')).toBe(true);
     });
 
     it('returns true when on lists path', () => {

@@ -20,6 +20,12 @@ const getMultiListSelectorButton = () => {
   return screen.getByRole('button', { name: /Select (stock )?lists|selected/i });
 };
 
+/** Default props required by the component beyond the ones under test */
+const defaultProps = {
+  agentConfigs: [],
+  onAgentConfigChange: vi.fn(),
+};
+
 describe('Live20Input', () => {
   beforeEach(() => {
     vi.mocked(useStockListsModule.useStockLists).mockReturnValue({
@@ -39,7 +45,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
     // Open the multi-list selector and select Tech Watchlist
     await user.click(getMultiListSelectorButton());
@@ -64,7 +70,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
     // Select a list
     await user.click(getMultiListSelectorButton());
@@ -99,7 +105,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
     // Type symbols manually
     await user.type(screen.getByRole('textbox'), 'NVDA, AMD');
@@ -116,7 +122,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
     // Select first list
     await user.click(getMultiListSelectorButton());
@@ -149,7 +155,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
     await user.click(getMultiListSelectorButton());
     await waitFor(() => {
@@ -172,7 +178,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
     // Select first list
     await user.click(getMultiListSelectorButton());
@@ -210,7 +216,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
     // Select a list
     await user.click(getMultiListSelectorButton());
@@ -255,7 +261,7 @@ describe('Live20Input', () => {
     });
 
     // Act
-    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
     // Assert
     expect(screen.getByText('Failed to load stock lists')).toBeInTheDocument();
@@ -263,7 +269,7 @@ describe('Live20Input', () => {
 
   it('should render component title', () => {
     // Act
-    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
     // Assert - The component now has a label and button with "Analyze Symbols" text
     expect(screen.getByText('Enter Symbols')).toBeInTheDocument();
@@ -272,7 +278,7 @@ describe('Live20Input', () => {
 
   it('should disable textarea and button when analyzing', () => {
     // Act
-    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={true} />);
+    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={true} {...defaultProps} />);
 
     // Assert
     expect(screen.getByRole('textbox')).toBeDisabled();
@@ -285,7 +291,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
     await user.type(screen.getByRole('textbox'), 'AAPL, MSFT');
 
     // Assert - Symbol count is now shown as inline text "2 symbols entered"
@@ -300,7 +306,7 @@ describe('Live20Input', () => {
     const user = userEvent.setup();
 
     // Act
-    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+    render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
     // Initially shows example text (when no symbols entered)
     expect(screen.getByText('Example: AAPL, MSFT, TSLA, NVDA, AMD')).toBeInTheDocument();
@@ -329,7 +335,7 @@ describe('Live20Input', () => {
       const user = userEvent.setup();
 
       // Act
-      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
       // Select a list
       await user.click(getMultiListSelectorButton());
@@ -364,7 +370,7 @@ describe('Live20Input', () => {
       const user = userEvent.setup();
 
       // Act
-      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
       // Select a list
       await user.click(getMultiListSelectorButton());
@@ -404,7 +410,7 @@ describe('Live20Input', () => {
       const user = userEvent.setup();
 
       // Act
-      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
       // Select a list
       await user.click(getMultiListSelectorButton());
@@ -444,7 +450,7 @@ describe('Live20Input', () => {
       const user = userEvent.setup();
 
       // Act
-      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
       // Select a list
       await user.click(getMultiListSelectorButton());
@@ -484,7 +490,7 @@ describe('Live20Input', () => {
       const user = userEvent.setup();
 
       // Act
-      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={onAnalyze} isAnalyzing={false} {...defaultProps} />);
 
       // Select a list
       await user.click(getMultiListSelectorButton());
@@ -527,7 +533,7 @@ describe('Live20Input', () => {
       const largeSymbolList = Array.from({ length: 460 }, (_, i) => `SYM${i}`).join(', ');
 
       // Act
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
       const textarea = screen.getByRole('textbox');
       await user.click(textarea);
       await user.paste(largeSymbolList);
@@ -546,7 +552,7 @@ describe('Live20Input', () => {
       const largeSymbolList = Array.from({ length: 510 }, (_, i) => `SYM${i}`).join(', ');
 
       // Act
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
       const textarea = screen.getByRole('textbox');
       await user.click(textarea);
       await user.paste(largeSymbolList);
@@ -565,7 +571,7 @@ describe('Live20Input', () => {
       const largeSymbolList = Array.from({ length: 510 }, (_, i) => `SYM${i}`).join(', ');
 
       // Act
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
       const textarea = screen.getByRole('textbox');
       await user.click(textarea);
       await user.paste(largeSymbolList);
@@ -597,7 +603,7 @@ describe('Live20Input', () => {
       const user = userEvent.setup();
 
       // Act
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
       // Select first list
       await user.click(getMultiListSelectorButton());
@@ -637,7 +643,7 @@ describe('Live20Input', () => {
     it('should clear symbols when all lists are unselected via clear all button', async () => {
       // Arrange
       const user = userEvent.setup();
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
       // Select a list
       await user.click(getMultiListSelectorButton());
@@ -673,7 +679,7 @@ describe('Live20Input', () => {
     it('should clear symbols when last list is deselected', async () => {
       // Arrange
       const user = userEvent.setup();
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
       // Select a list
       await user.click(getMultiListSelectorButton());
@@ -706,7 +712,7 @@ describe('Live20Input', () => {
     it('should disable analyze button when symbols are cleared', async () => {
       // Arrange
       const user = userEvent.setup();
-      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} />);
+      render(<Live20Input onAnalyze={vi.fn()} isAnalyzing={false} {...defaultProps} />);
 
       // Select a list
       await user.click(getMultiListSelectorButton());
