@@ -2256,12 +2256,14 @@ class TestSimulationEngineCaching:
         engine._trading_days_cache[simulation.id] = []
         engine._peak_equity[simulation.id] = Decimal("10000")
         engine._max_drawdown[simulation.id] = Decimal("0")
+        engine._sector_cache[simulation.id] = {"AAPL": "Technology"}
 
         # Verify caches are populated
         assert simulation.id in engine._price_cache
         assert simulation.id in engine._trading_days_cache
         assert simulation.id in engine._peak_equity
         assert simulation.id in engine._max_drawdown
+        assert simulation.id in engine._sector_cache
 
         # Finalize simulation
         await engine._finalize_simulation(simulation)
@@ -2271,6 +2273,7 @@ class TestSimulationEngineCaching:
         assert simulation.id not in engine._trading_days_cache
         assert simulation.id not in engine._peak_equity
         assert simulation.id not in engine._max_drawdown
+        assert simulation.id not in engine._sector_cache
 
     @pytest.mark.unit
     async def test_noload_prevents_relationship_loading(
@@ -2354,3 +2357,369 @@ class TestSimulationEngineCaching:
         # This verifies we didn't trigger the selectin query
         assert not positions_state.loaded_value  # Should not have loaded value
         assert not snapshots_state.loaded_value  # Should not have loaded value
+
+
+@pytest.mark.usefixtures("db_session")
+class TestSimulationEnginePortfolioSelection:
+    """Tests for portfolio selection integration in SimulationEngine.
+
+    Verifies that the portfolio selector is applied correctly when processing
+    BUY signals, including score-based ranking, sector caps, position limits,
+    and backward compatibility with the default FIFO behavior.
+    """
+
+    def _make_price_bars(self, start_date: date, count: int = 30) -> list[PriceBar]:
+        """Create price bars starting from start_date.
+
+        Returns 30 bars by default — enough for ATR calculation (14-period
+        Wilder's EMA requires at least 15 data points).
+        """
+        return [
+            PriceBar(
+                date=start_date + timedelta(days=i),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("101.00"),
+                volume=1_000_000,
+            )
+            for i in range(count)
+        ]
+
+    def _make_simulation(self, agent_config: dict | None = None) -> dict:
+        """Return base simulation kwargs. Extra agent_config keys are merged."""
+        config = {"trailing_stop_pct": 5.0}
+        if agent_config:
+            config.update(agent_config)
+        return {
+            "name": "Portfolio Selection Test",
+            "symbols": ["AAPL", "MSFT", "GOOGL"],
+            "start_date": date(2024, 1, 15),
+            "end_date": date(2024, 1, 20),
+            "initial_capital": Decimal("50000.00"),
+            "position_size": Decimal("1000.00"),
+            "agent_type": "live20",
+            "agent_config": config,
+            "status": SimulationStatus.RUNNING.value,
+            "current_day": 0,
+            "total_days": 5,
+        }
+
+    @pytest.mark.unit
+    async def test_no_portfolio_config_defaults_to_fifo_and_creates_all_pending(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Simulation with no portfolio config uses FIFO — all BUY signals get PENDING.
+
+        This verifies backward compatibility: existing simulations that have no
+        portfolio_strategy key in agent_config must behave identically to before
+        this change was introduced.
+        """
+        simulation = ArenaSimulation(**self._make_simulation())
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        price_bars = self._make_price_bars(date(2024, 1, 14))
+        trading_day = date(2024, 1, 15)
+        engine._trading_days_cache[simulation.id] = [trading_day]
+        engine._price_cache[simulation.id] = {
+            sym: price_bars for sym in simulation.symbols
+        }
+        # No sector cache — FIFO selector doesn't need it, and missing cache
+        # returns empty dict which means all sectors are None (never blocked).
+        engine._sector_cache[simulation.id] = {}
+
+        # All three symbols return BUY
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(
+                symbol="ANY", action="BUY", score=70, reasoning="Signal"
+            )
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
+
+        result = await db_session.execute(
+            select(ArenaPosition).where(
+                ArenaPosition.simulation_id == simulation.id,
+                ArenaPosition.status == PositionStatus.PENDING.value,
+            )
+        )
+        pending_positions = result.scalars().all()
+        # All three BUY signals should create PENDING positions (FIFO = no filtering)
+        assert len(pending_positions) == 3
+        pending_symbols = {p.symbol for p in pending_positions}
+        assert pending_symbols == {"AAPL", "MSFT", "GOOGL"}
+
+    @pytest.mark.unit
+    async def test_score_sector_low_atr_selects_higher_score_first(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Simulation with score_sector_low_atr: higher-score symbols get PENDING first.
+
+        AAPL (score=90) and MSFT (score=60) both signal BUY with no sector cap.
+        Both should be selected — score ranking doesn't filter, just orders. With
+        max_open_positions=1, only the highest-score symbol should be selected.
+        """
+        simulation = ArenaSimulation(
+            **self._make_simulation(
+                {
+                    "portfolio_strategy": "score_sector_low_atr",
+                    "max_open_positions": 1,
+                }
+            )
+        )
+        simulation.symbols = ["MSFT", "AAPL"]  # Lower score listed first — order should be ignored
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        price_bars = self._make_price_bars(date(2024, 1, 14))
+        trading_day = date(2024, 1, 15)
+        engine._trading_days_cache[simulation.id] = [trading_day]
+        engine._price_cache[simulation.id] = {
+            sym: price_bars for sym in simulation.symbols
+        }
+        engine._sector_cache[simulation.id] = {
+            "MSFT": "Technology",
+            "AAPL": "Technology",
+        }
+
+        # MSFT score=60, AAPL score=90 — AAPL should win
+        def make_decision(symbol: str) -> AgentDecision:
+            score = 90 if symbol == "AAPL" else 60
+            return AgentDecision(symbol=symbol, action="BUY", score=score, reasoning="Signal")
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(side_effect=lambda sym, *a, **kw: make_decision(sym))
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            snapshot = await engine.step_day(simulation.id)
+
+        result = await db_session.execute(
+            select(ArenaPosition).where(
+                ArenaPosition.simulation_id == simulation.id,
+                ArenaPosition.status == PositionStatus.PENDING.value,
+            )
+        )
+        pending_positions = result.scalars().all()
+        # max_open_positions=1 → only highest-score symbol selected
+        assert len(pending_positions) == 1
+        assert pending_positions[0].symbol == "AAPL"
+        assert pending_positions[0].agent_score == 90
+
+        # Decisions snapshot must carry portfolio_selected flag
+        assert snapshot.decisions["AAPL"]["portfolio_selected"] is True
+        assert snapshot.decisions["MSFT"]["portfolio_selected"] is False
+
+    @pytest.mark.unit
+    async def test_max_per_sector_limits_positions_per_sector(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Simulation with max_per_sector=1: only 1 position per sector opened.
+
+        AAPL and MSFT are both Technology. GOOGL is Communication Services.
+        With max_per_sector=1, only 1 of {AAPL, MSFT} plus GOOGL should be selected
+        (2 total).
+        """
+        simulation = ArenaSimulation(
+            **self._make_simulation({"max_per_sector": 1})
+        )
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        price_bars = self._make_price_bars(date(2024, 1, 14))
+        trading_day = date(2024, 1, 15)
+        engine._trading_days_cache[simulation.id] = [trading_day]
+        engine._price_cache[simulation.id] = {
+            sym: price_bars for sym in simulation.symbols
+        }
+        engine._sector_cache[simulation.id] = {
+            "AAPL": "Technology",
+            "MSFT": "Technology",
+            "GOOGL": "Communication Services",
+        }
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(
+                symbol="ANY", action="BUY", score=70, reasoning="Signal"
+            )
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
+
+        result = await db_session.execute(
+            select(ArenaPosition).where(
+                ArenaPosition.simulation_id == simulation.id,
+                ArenaPosition.status == PositionStatus.PENDING.value,
+            )
+        )
+        pending_positions = result.scalars().all()
+        pending_symbols = {p.symbol for p in pending_positions}
+
+        # Only 1 Technology position + 1 Communication Services position = 2 total
+        assert len(pending_positions) == 2
+        assert "GOOGL" in pending_symbols
+        # Exactly one of AAPL/MSFT should be selected (FIFO picks first in list)
+        tech_selected = pending_symbols & {"AAPL", "MSFT"}
+        assert len(tech_selected) == 1
+
+    @pytest.mark.unit
+    async def test_max_open_positions_caps_total_new_pending(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Simulation with max_open_positions=3: at most 3 positions total.
+
+        Start with 2 existing open positions. Three BUY signals arrive.
+        With max_open_positions=3, only 1 new PENDING should be created.
+        """
+        simulation = ArenaSimulation(
+            **self._make_simulation({"max_open_positions": 3})
+        )
+        simulation.symbols = ["AAPL", "MSFT", "GOOGL"]
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        # Create 2 existing open positions for different symbols
+        for sym in ["NVDA", "TSLA"]:
+            pos = ArenaPosition(
+                simulation_id=simulation.id,
+                symbol=sym,
+                status=PositionStatus.OPEN.value,
+                signal_date=date(2024, 1, 14),
+                entry_date=date(2024, 1, 14),
+                entry_price=Decimal("100.00"),
+                shares=10,
+                trailing_stop_pct=Decimal("5.00"),
+                highest_price=Decimal("100.00"),
+                current_stop=Decimal("95.00"),
+            )
+            db_session.add(pos)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        price_bars = self._make_price_bars(date(2024, 1, 14))
+        trading_day = date(2024, 1, 15)
+        engine._trading_days_cache[simulation.id] = [trading_day]
+        # Include price bars for the simulation symbols and the open-position symbols
+        all_symbols = simulation.symbols + ["NVDA", "TSLA"]
+        engine._price_cache[simulation.id] = {
+            sym: price_bars for sym in all_symbols
+        }
+        engine._sector_cache[simulation.id] = {sym: None for sym in all_symbols}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(
+                symbol="ANY", action="BUY", score=70, reasoning="Signal"
+            )
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(simulation.id)
+
+        result = await db_session.execute(
+            select(ArenaPosition).where(
+                ArenaPosition.simulation_id == simulation.id,
+                ArenaPosition.status == PositionStatus.PENDING.value,
+            )
+        )
+        pending_positions = result.scalars().all()
+        # max_open_positions=3, current_open_count=2 → only 1 new PENDING
+        assert len(pending_positions) == 1
+
+    @pytest.mark.unit
+    async def test_decisions_snapshot_contains_portfolio_selected_flag_for_buy_signals(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Decisions snapshot must contain portfolio_selected for every BUY signal.
+
+        With max_open_positions=1 and two BUY signals, one is selected and one is
+        not. Both entries in the decisions dict must carry the portfolio_selected key.
+        Non-BUY decisions must NOT have this key.
+        """
+        simulation = ArenaSimulation(
+            **self._make_simulation(
+                {
+                    "portfolio_strategy": "none",
+                    "max_open_positions": 1,
+                }
+            )
+        )
+        simulation.symbols = ["AAPL", "MSFT", "GOOGL"]
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        price_bars = self._make_price_bars(date(2024, 1, 14))
+        trading_day = date(2024, 1, 15)
+        engine._trading_days_cache[simulation.id] = [trading_day]
+        engine._price_cache[simulation.id] = {
+            sym: price_bars for sym in simulation.symbols
+        }
+        engine._sector_cache[simulation.id] = {sym: None for sym in simulation.symbols}
+
+        # AAPL and MSFT → BUY, GOOGL → NO_SIGNAL
+        def make_decision(symbol: str) -> AgentDecision:
+            if symbol == "GOOGL":
+                return AgentDecision(symbol=symbol, action="NO_SIGNAL", score=40)
+            return AgentDecision(symbol=symbol, action="BUY", score=70, reasoning="Signal")
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(side_effect=lambda sym, *a, **kw: make_decision(sym))
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            snapshot = await engine.step_day(simulation.id)
+
+        # Both BUY signals must have portfolio_selected in their decision entry
+        assert "portfolio_selected" in snapshot.decisions["AAPL"]
+        assert "portfolio_selected" in snapshot.decisions["MSFT"]
+        # Non-BUY (NO_SIGNAL) decisions must NOT have the key
+        assert "portfolio_selected" not in snapshot.decisions["GOOGL"]
+
+        # Exactly one of the two BUY signals was selected (FIFO + max_open_positions=1)
+        buy_selected = [
+            sym for sym in ["AAPL", "MSFT"]
+            if snapshot.decisions[sym]["portfolio_selected"]
+        ]
+        assert len(buy_selected) == 1
+
+    @pytest.mark.unit
+    async def test_sector_cache_cleared_by_clear_simulation_cache(self) -> None:
+        """clear_simulation_cache() removes the sector cache entry."""
+        mock_session_factory = MagicMock()
+        engine = SimulationEngine(AsyncMock(), session_factory=mock_session_factory)
+
+        engine._sector_cache[42] = {"AAPL": "Technology"}
+        engine._price_cache[42] = {}
+        engine._trading_days_cache[42] = []
+        engine._peak_equity[42] = Decimal("10000")
+        engine._max_drawdown[42] = Decimal("0")
+
+        engine.clear_simulation_cache(42)
+
+        assert 42 not in engine._sector_cache
+        assert 42 not in engine._price_cache
+        assert 42 not in engine._trading_days_cache
+        assert 42 not in engine._peak_equity
+        assert 42 not in engine._max_drawdown

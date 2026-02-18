@@ -216,3 +216,60 @@ class Live20ResultsResponse(StrictBaseModel):
         ...,
         description="Direction counts: {long: int, short: int, no_setup: int}",
     )
+
+
+class PortfolioRecommendRequest(StrictBaseModel):
+    """Request to generate a portfolio recommendation from a live20 run.
+
+    Filters qualifying signals by minimum score, then applies the chosen
+    selection strategy (sector diversification + ATR preference).
+    """
+
+    min_score: int = Field(
+        default=60,
+        ge=5,
+        le=100,
+        description="Minimum confidence score to qualify (5-100)",
+    )
+    strategy: str = Field(
+        default="score_sector_low_atr",
+        description="Portfolio selection strategy name (e.g. 'score_sector_low_atr')",
+    )
+    max_per_sector: int | None = Field(
+        default=2,
+        ge=1,
+        description="Max positions per sector (None = unlimited)",
+    )
+    max_positions: int | None = Field(
+        default=None,
+        ge=1,
+        description="Max total positions selected (None = unlimited)",
+    )
+    directions: list[str] | None = Field(
+        default=None,
+        description="If provided, only include signals with these directions (e.g. ['LONG', 'SHORT']). None = no filter.",
+    )
+
+
+class PortfolioRecommendItem(StrictBaseModel):
+    """A single stock in the portfolio recommendation result."""
+
+    symbol: str
+    score: int
+    direction: str | None
+    sector: str | None
+    atr_pct: float | None
+
+
+class PortfolioRecommendResponse(StrictBaseModel):
+    """Response for the portfolio recommendation endpoint.
+
+    Contains the ordered list of recommended stocks along with
+    metadata about the selection strategy and counts.
+    """
+
+    strategy: str = Field(..., description="Strategy name used for selection")
+    strategy_description: str = Field(..., description="Human-readable strategy description")
+    items: list[PortfolioRecommendItem] = Field(..., description="Ordered list of recommended stocks")
+    total_qualifying: int = Field(..., description="Number of signals that met min_score before selection")
+    total_selected: int = Field(..., description="Number of signals selected after applying strategy constraints")

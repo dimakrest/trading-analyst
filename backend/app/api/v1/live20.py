@@ -24,6 +24,9 @@ from app.schemas.live20 import (
     Live20AnalyzeResponse,
     Live20ResultResponse,
     Live20ResultsResponse,
+    PortfolioRecommendRequest,
+    PortfolioRecommendResponse,
+    PortfolioRecommendItem,
 )
 from app.schemas.live20_run import (
     Live20RunDetailResponse,
@@ -394,3 +397,117 @@ async def delete_run(
         raise HTTPException(status_code=404, detail="Run not found")
     await db.commit()
     logger.info(f"Soft deleted Live20Run {run_id}")
+
+
+@router.post(
+    "/runs/{run_id}/recommend",
+    response_model=PortfolioRecommendResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Recommend Portfolio from Live20 Run",
+    description="Generate a portfolio recommendation from a live20 run's results. "
+    "Filters qualifying signals by minimum confidence score, then applies the chosen "
+    "portfolio selection strategy to produce an ordered list of recommended stocks.",
+    operation_id="recommend_live20_portfolio",
+    responses={
+        404: {"description": "Run not found"},
+        400: {"description": "Invalid strategy name"},
+    },
+)
+async def recommend_portfolio(
+    run_id: int,
+    request: PortfolioRecommendRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> PortfolioRecommendResponse:
+    """Generate a portfolio recommendation from a live20 run.
+
+    Fetches all recommendations for the run that meet the minimum score
+    threshold and have a non-NO_SETUP direction, then applies the chosen
+    portfolio selection strategy to rank and filter them.
+
+    Args:
+        run_id: Primary key of the live20 run
+        request: Strategy parameters including min_score, strategy, and constraints
+        db: Database session
+
+    Returns:
+        PortfolioRecommendResponse with ordered list of recommended stocks
+
+    Raises:
+        HTTPException: 404 if run not found or soft-deleted
+        HTTPException: 400 if strategy name is not recognized
+    """
+    from app.services.portfolio_selector import QualifyingSignal, get_selector
+
+    # Verify run exists (repo.get_by_id returns None for soft-deleted runs)
+    repo = Live20RunRepository(db)
+    run = await repo.get_by_id(run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    # Validate strategy name
+    selector = get_selector(request.strategy)
+    # get_selector falls back to 'none' on unknown names; detect explicit mismatch
+    if selector.name != request.strategy:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown portfolio strategy: {request.strategy}",
+        )
+
+    # Query recommendations for this run that qualify (score >= min_score, direction != NO_SETUP)
+    stmt = (
+        select(Recommendation)
+        .where(Recommendation.live20_run_id == run_id)
+        .where(Recommendation.confidence_score >= request.min_score)
+        .where(Recommendation.live20_direction != "NO_SETUP")
+        .where(Recommendation.live20_direction.is_not(None))
+        .order_by(Recommendation.confidence_score.desc())
+    )
+    if request.directions:
+        stmt = stmt.where(Recommendation.live20_direction.in_(request.directions))
+    result = await db.execute(stmt)
+    qualifying_recs = list(result.scalars().all())
+
+    # Build QualifyingSignal list from recommendation fields
+    # Keep direction alongside each signal so we can include it in the response
+    qualifying_signals: list[QualifyingSignal] = []
+    direction_by_symbol: dict[str, str | None] = {}
+    for rec in qualifying_recs:
+        atr_pct = float(rec.live20_atr) if rec.live20_atr is not None else None
+        qualifying_signals.append(
+            QualifyingSignal(
+                symbol=rec.stock,
+                score=rec.confidence_score,
+                sector=rec.live20_sector_etf,
+                atr_pct=atr_pct,
+            )
+        )
+        direction_by_symbol[rec.stock] = rec.live20_direction
+
+    # Apply portfolio selection strategy
+    # For live20 recommendations, no existing positions to account for
+    selected = selector.select(
+        signals=qualifying_signals,
+        existing_sector_counts={},
+        current_open_count=0,
+        max_per_sector=request.max_per_sector,
+        max_open_positions=request.max_positions,
+    )
+
+    items = [
+        PortfolioRecommendItem(
+            symbol=signal.symbol,
+            score=signal.score,
+            direction=direction_by_symbol.get(signal.symbol),
+            sector=signal.sector,
+            atr_pct=signal.atr_pct,
+        )
+        for signal in selected
+    ]
+
+    return PortfolioRecommendResponse(
+        strategy=selector.name,
+        strategy_description=selector.description,
+        items=items,
+        total_qualifying=len(qualifying_signals),
+        total_selected=len(selected),
+    )

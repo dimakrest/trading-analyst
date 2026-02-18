@@ -5,3 +5,4 @@ export { Live20Filters } from './Live20Filters';
 export { Live20Table } from './Live20Table';
 export { Live20HistoryTab } from './Live20HistoryTab';
 export { CandlestickIcon } from './CandlestickIcon';
+export { RecommendPortfolioDialog } from './RecommendPortfolioDialog';

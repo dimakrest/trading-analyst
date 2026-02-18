@@ -9,6 +9,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  LayoutGrid,
   Settings2,
   Target,
   TrendingDown,
@@ -70,7 +71,7 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
     <Card className="bg-bg-secondary border-border-subtle">
       <CardContent className="pt-5 pb-4">
         {/* Configuration Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4" data-testid="config-grid">
           <ConfigItem
             icon={<Calendar className="h-3.5 w-3.5" />}
             label="Date Range"
@@ -124,6 +125,41 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
             }
           />
         </div>
+
+        {/* Portfolio Strategy Row — only shown when a non-default strategy is configured */}
+        {simulation.portfolio_strategy && simulation.portfolio_strategy !== 'none' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 pt-3 border-t border-border-subtle">
+            <ConfigItem
+              icon={<LayoutGrid className="h-3.5 w-3.5" />}
+              label="Portfolio Strategy"
+              value={
+                <span className="text-text-primary">{simulation.portfolio_strategy}</span>
+              }
+            />
+            <ConfigItem
+              icon={<LayoutGrid className="h-3.5 w-3.5" />}
+              label="Max Per Sector"
+              value={
+                simulation.max_per_sector != null ? (
+                  <span className="text-text-primary">{simulation.max_per_sector}</span>
+                ) : (
+                  <span className="text-text-muted">—</span>
+                )
+              }
+            />
+            <ConfigItem
+              icon={<LayoutGrid className="h-3.5 w-3.5" />}
+              label="Max Positions"
+              value={
+                simulation.max_open_positions != null ? (
+                  <span className="text-text-primary">{simulation.max_open_positions}</span>
+                ) : (
+                  <span className="text-text-muted">Unlimited</span>
+                )
+              }
+            />
+          </div>
+        )}
 
         {/* Symbols Section */}
         <div className="pt-3 border-t border-border-subtle">

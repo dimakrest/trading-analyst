@@ -1,5 +1,7 @@
 export type Live20Direction = 'LONG' | 'SHORT' | 'NO_SETUP';
+
 export type VolumeApproach = 'exhaustion' | 'accumulation' | 'distribution' | null;
+
 export type ScoringAlgorithm = 'cci' | 'rsi2';
 
 export interface Live20Result {
@@ -106,4 +108,22 @@ export interface Live20RunDetail {
   error_message?: string | null;
   failed_symbols?: Record<string, string>;
   scoring_algorithm: ScoringAlgorithm | null;
+}
+
+/** Portfolio recommendation types -- used by Live20 Recommend Portfolio feature */
+
+export interface PortfolioRecommendItem {
+  symbol: string;
+  score: number;
+  direction: string | null;
+  sector: string | null;
+  atr_pct: number | null;
+}
+
+export interface PortfolioRecommendResponse {
+  strategy: string;
+  strategy_description: string;
+  items: PortfolioRecommendItem[];
+  total_qualifying: number;
+  total_selected: number;
 }

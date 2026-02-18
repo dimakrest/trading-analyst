@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
 import { useAgentConfigs } from '../../hooks/useAgentConfigs';
+import { PORTFOLIO_STRATEGIES } from '../../constants/portfolio';
 import type { CreateSimulationRequest } from '../../types/arena';
 
 // Arena configuration constants
@@ -40,6 +41,9 @@ interface ArenaSetupFormProps {
     stock_list_id?: number | null;
     stock_list_name?: string | null;
     agent_config_id?: number | null;
+    portfolio_strategy?: string;
+    max_per_sector?: number | null;
+    max_open_positions?: number | null;
   };
 }
 
@@ -124,6 +128,9 @@ export const ArenaSetupForm = ({
   const [trailingStopPct, setTrailingStopPct] = useState('5');
   const [minBuyScore, setMinBuyScore] = useState(MIN_BUY_SCORE_CONFIG.DEFAULT.toString());
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const [portfolioStrategy, setPortfolioStrategy] = useState('none');
+  const [maxPerSector, setMaxPerSector] = useState('2');
+  const [maxOpenPositions, setMaxOpenPositions] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch stock lists
@@ -162,6 +169,16 @@ export const ArenaSetupForm = ({
       if (initialValues.agent_config_id) {
         setSelectedAgentConfigId(initialValues.agent_config_id);
       }
+      // Set portfolio strategy fields if available
+      if (initialValues.portfolio_strategy != null) {
+        setPortfolioStrategy(initialValues.portfolio_strategy);
+      }
+      if (initialValues.max_per_sector != null) {
+        setMaxPerSector(initialValues.max_per_sector.toString());
+      }
+      if (initialValues.max_open_positions != null) {
+        setMaxOpenPositions(initialValues.max_open_positions.toString());
+      }
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -186,6 +203,9 @@ export const ArenaSetupForm = ({
     const symbolList = parseSymbols(symbols);
     if (symbolList.length === 0) return;
 
+    // Only send portfolio constraints when strategy is not "none"
+    const hasStrategy = portfolioStrategy !== 'none';
+
     await onSubmit({
       symbols: symbolList,
       start_date: startDate,
@@ -197,8 +217,11 @@ export const ArenaSetupForm = ({
       stock_list_id: selectedList?.id,
       stock_list_name: selectedList?.name,
       agent_config_id: selectedAgentConfigId,
+      portfolio_strategy: portfolioStrategy,
+      max_per_sector: hasStrategy && maxPerSector ? parseInt(maxPerSector, 10) : null,
+      max_open_positions: hasStrategy && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null,
     });
-  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, onSubmit]);
+  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, portfolioStrategy, maxPerSector, maxOpenPositions, onSubmit]);
 
   const symbolList = parseSymbols(symbols);
   const hasValidSymbols = symbolList.length > 0 && symbolList.length <= MAX_ARENA_SYMBOLS;
@@ -418,6 +441,70 @@ export const ArenaSetupForm = ({
               )}
             </p>
           </div>
+        </div>
+
+        {/* Portfolio Selection Strategy */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium">Portfolio Selection</h3>
+
+          <div className="space-y-2">
+            <Label htmlFor="arena-portfolio-strategy">Strategy</Label>
+            <Select
+              value={portfolioStrategy}
+              onValueChange={setPortfolioStrategy}
+              disabled={isLoading}
+            >
+              <SelectTrigger id="arena-portfolio-strategy">
+                <SelectValue placeholder="Select strategy..." />
+              </SelectTrigger>
+              <SelectContent>
+                {PORTFOLIO_STRATEGIES.map((strategy) => (
+                  <SelectItem key={strategy.name} value={strategy.name}>
+                    {strategy.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {PORTFOLIO_STRATEGIES.find((s) => s.name === portfolioStrategy)?.description}
+            </p>
+          </div>
+
+          {portfolioStrategy !== 'none' && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="arena-max-per-sector">Max Per Sector</Label>
+                <Input
+                  id="arena-max-per-sector"
+                  type="number"
+                  min="1"
+                  value={maxPerSector}
+                  onChange={(e) => setMaxPerSector(e.target.value)}
+                  className="mt-1"
+                  disabled={isLoading}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Max concurrent positions per sector
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="arena-max-open-positions">Max Open Positions</Label>
+                <Input
+                  id="arena-max-open-positions"
+                  type="number"
+                  min="1"
+                  value={maxOpenPositions}
+                  placeholder="Unlimited"
+                  onChange={(e) => setMaxOpenPositions(e.target.value)}
+                  className="mt-1"
+                  disabled={isLoading}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Overall position cap (optional)
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Submit Button */}

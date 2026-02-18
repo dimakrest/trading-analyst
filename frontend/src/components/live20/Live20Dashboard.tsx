@@ -5,7 +5,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PullToRefresh } from '@/components/ui/pull-to-refresh';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AlertCircle, BarChart2 } from 'lucide-react';
 import type { Live20Direction } from '@/types/live20';
 import { useLive20 } from '@/hooks/useLive20';
 import { useResponsive } from '@/hooks/useResponsive';
@@ -15,6 +16,7 @@ import { Live20Filters } from './Live20Filters';
 import { Live20Table } from './Live20Table';
 import { Live20Loading } from './Live20Loading';
 import { Live20HistoryTab } from './Live20HistoryTab';
+import { RecommendPortfolioDialog } from './RecommendPortfolioDialog';
 
 /**
  * Live 20 Dashboard
@@ -40,6 +42,7 @@ export function Live20Dashboard() {
   const [minRvol, setMinRvol] = useState(0);
   const [symbolCount, setSymbolCount] = useState(0);
   const [wasCancelled, setWasCancelled] = useState(false);
+  const [isRecommendDialogOpen, setIsRecommendDialogOpen] = useState(false);
   const { isMobile } = useResponsive();
 
   // Agent configs state
@@ -67,6 +70,7 @@ export function Live20Dashboard() {
     analyzeSymbols,
     fetchResults,
     progress,
+    completedRunId,
     cancelAnalysis,
     isCancelling,
     failedSymbols,
@@ -184,19 +188,44 @@ export function Live20Dashboard() {
       {/* Results Section */}
       {results.length > 0 && (
         <>
-          <Live20Filters
-            directionFilter={directionFilter}
-            onDirectionChange={setDirectionFilter}
-            counts={counts}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            minScore={minScore}
-            onMinScoreChange={setMinScore}
-            minRvol={minRvol}
-            onMinRvolChange={setMinRvol}
-          />
+          {/* Results Toolbar: filters + actions */}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <Live20Filters
+              directionFilter={directionFilter}
+              onDirectionChange={setDirectionFilter}
+              counts={counts}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              minScore={minScore}
+              onMinScoreChange={setMinScore}
+              minRvol={minRvol}
+              onMinRvolChange={setMinRvol}
+            />
+
+            {/* Recommend Portfolio button — only when analysis is complete */}
+            {!isAnalyzing && completedRunId != null && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsRecommendDialogOpen(true)}
+                aria-label="Recommend portfolio from current run"
+              >
+                <BarChart2 className="h-4 w-4" />
+                Recommend Portfolio
+              </Button>
+            )}
+          </div>
 
           <Live20Table results={filteredResults} />
+
+          {/* Recommend Portfolio Dialog */}
+          {completedRunId != null && (
+            <RecommendPortfolioDialog
+              open={isRecommendDialogOpen}
+              onOpenChange={setIsRecommendDialogOpen}
+              runId={completedRunId}
+            />
+          )}
         </>
       )}
 
