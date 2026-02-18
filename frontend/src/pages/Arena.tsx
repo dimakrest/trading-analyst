@@ -88,6 +88,9 @@ export const Arena = () => {
       min_buy_score: replaySimulation.min_buy_score ?? 60,
       stock_list_id: replaySimulation.stock_list_id,
       stock_list_name: replaySimulation.stock_list_name,
+      portfolio_strategy: replaySimulation.portfolio_strategy ?? undefined,
+      max_per_sector: replaySimulation.max_per_sector,
+      max_open_positions: replaySimulation.max_open_positions,
     };
   }, [replaySimulation]);
 

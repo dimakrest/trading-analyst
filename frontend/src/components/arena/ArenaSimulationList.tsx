@@ -119,6 +119,16 @@ export const ArenaSimulationList = ({
                         List: {sim.stock_list_name}
                       </div>
                     )}
+                    {sim.portfolio_strategy && sim.portfolio_strategy !== 'none' && (
+                      <div className="mt-0.5">
+                        <Badge
+                          variant="secondary"
+                          className="text-[10px] px-1.5 py-0 font-mono"
+                        >
+                          {sim.portfolio_strategy}
+                        </Badge>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className="text-sm font-mono">

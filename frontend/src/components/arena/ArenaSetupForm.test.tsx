@@ -132,17 +132,20 @@ describe('ArenaSetupForm', () => {
     const submitButton = screen.getByRole('button', { name: /start simulation/i });
     fireEvent.click(submitButton);
 
-    expect(mockOnSubmit).toHaveBeenCalledWith({
-      symbols: ['AAPL', 'NVDA'],
-      start_date: '2024-01-01',
-      end_date: '2024-01-15',
-      initial_capital: 50000,
-      position_size: 1000,
-      trailing_stop_pct: 5,
-      min_buy_score: 60,
-      stock_list_id: undefined,
-      stock_list_name: undefined,
-    });
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        symbols: ['AAPL', 'NVDA'],
+        start_date: '2024-01-01',
+        end_date: '2024-01-15',
+        initial_capital: 50000,
+        position_size: 1000,
+        trailing_stop_pct: 5,
+        min_buy_score: 60,
+        portfolio_strategy: 'none',
+        max_per_sector: null,
+        max_open_positions: null,
+      })
+    );
   });
 
   it('should disable form when loading', () => {
@@ -211,17 +214,20 @@ describe('ArenaSetupForm', () => {
       const submitButton = screen.getByRole('button', { name: /start simulation/i });
       fireEvent.click(submitButton);
 
-      expect(mockOnSubmit).toHaveBeenCalledWith({
-        symbols: ['AAPL'],
-        start_date: '2024-01-01',
-        end_date: '2024-01-15',
-        initial_capital: 10000,
-        position_size: 1000,
-        trailing_stop_pct: 5,
-        min_buy_score: 80,
-        stock_list_id: undefined,
-        stock_list_name: undefined,
-      });
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbols: ['AAPL'],
+          start_date: '2024-01-01',
+          end_date: '2024-01-15',
+          initial_capital: 10000,
+          position_size: 1000,
+          trailing_stop_pct: 5,
+          min_buy_score: 80,
+          portfolio_strategy: 'none',
+          max_per_sector: null,
+          max_open_positions: null,
+        })
+      );
     });
 
     it('should disable submit when value is below 20', () => {

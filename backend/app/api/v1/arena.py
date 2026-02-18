@@ -16,6 +16,7 @@ from app.repositories.agent_config_repository import AgentConfigRepository
 from app.schemas.arena import (
     AgentInfo,
     CreateSimulationRequest,
+    PortfolioStrategyInfo,
     PositionResponse,
     SimulationDetailResponse,
     SimulationListResponse,
@@ -42,6 +43,9 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     trailing_stop_pct = agent_config.get("trailing_stop_pct")
     min_buy_score = agent_config.get("min_buy_score")
     scoring_algorithm = agent_config.get("scoring_algorithm", "cci")
+    portfolio_strategy = agent_config.get("portfolio_strategy")
+    max_per_sector = agent_config.get("max_per_sector")
+    max_open_positions = agent_config.get("max_open_positions")
 
     return SimulationResponse(
         id=simulation.id,
@@ -57,6 +61,9 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         trailing_stop_pct=trailing_stop_pct,
         min_buy_score=min_buy_score,
         scoring_algorithm=scoring_algorithm,
+        portfolio_strategy=portfolio_strategy,
+        max_per_sector=max_per_sector,
+        max_open_positions=max_open_positions,
         status=simulation.status,
         current_day=simulation.current_day,
         total_days=simulation.total_days,
@@ -92,6 +99,25 @@ async def get_agents() -> list[AgentInfo]:
         )
         for agent in agents
     ]
+
+
+@router.get(
+    "/portfolio-strategies",
+    response_model=list[PortfolioStrategyInfo],
+    status_code=status.HTTP_200_OK,
+    summary="List Portfolio Selection Strategies",
+    description="Get a list of all available portfolio selection strategies for arena simulations.",
+    operation_id="list_portfolio_strategies",
+)
+async def list_portfolio_strategies() -> list[PortfolioStrategyInfo]:
+    """List all available portfolio selection strategies.
+
+    Returns:
+        List of strategy info including name and description.
+    """
+    from app.services.portfolio_selector import list_selectors
+
+    return [PortfolioStrategyInfo(**s) for s in list_selectors()]
 
 
 @router.post(
@@ -143,6 +169,9 @@ async def create_simulation(
         "trailing_stop_pct": request.trailing_stop_pct,
         "min_buy_score": request.min_buy_score,
         "scoring_algorithm": scoring_algorithm,
+        "portfolio_strategy": request.portfolio_strategy,
+        "max_per_sector": request.max_per_sector,
+        "max_open_positions": request.max_open_positions,
     }
     if request.agent_config_id is not None:
         agent_config["agent_config_id"] = request.agent_config_id

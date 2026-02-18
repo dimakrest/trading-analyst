@@ -1,5 +1,5 @@
 import { apiClient } from '../lib/apiClient';
-import type { Live20AnalyzeResponse, Live20ResultsResponse, Live20RunListResponse, Live20RunDetail } from '../types/live20';
+import type { Live20AnalyzeResponse, Live20ResultsResponse, Live20RunListResponse, Live20RunDetail, PortfolioRecommendResponse } from '../types/live20';
 
 const API_BASE = '/v1/live-20';
 
@@ -197,5 +197,46 @@ export interface SectorTrend {
  */
 export const fetchSectorTrend = async (sectorEtf: string): Promise<SectorTrend> => {
   const response = await apiClient.get<SectorTrend>(`/v1/stocks/${sectorEtf}/sector-trend`);
+  return response.data;
+};
+
+/**
+ * Get a portfolio recommendation from a completed Live 20 run
+ *
+ * Filters the run's results by minimum score, then applies the chosen
+ * portfolio selection strategy (ranking + sector/position caps) to produce
+ * a prioritized list of symbols to trade.
+ *
+ * @param runId - The ID of the completed Live 20 run
+ * @param params - Selection parameters
+ * @param params.min_score - Minimum confidence score threshold (5-100)
+ * @param params.strategy - Portfolio selection strategy name
+ * @param params.max_per_sector - Max positions per sector (null = unlimited)
+ * @param params.max_positions - Max total positions (null = unlimited)
+ * @returns Promise resolving to ranked recommendation list with summary counts
+ * @throws Error if the API request fails or the run is not found/completed
+ *
+ * @example
+ * const rec = await recommendPortfolio(42, {
+ *   min_score: 60,
+ *   strategy: 'score_sector_low_atr',
+ *   max_per_sector: 2,
+ *   max_positions: null,
+ * });
+ * console.log(`${rec.total_qualifying} qualifying → ${rec.total_selected} selected`);
+ */
+export const recommendPortfolio = async (
+  runId: number,
+  params: {
+    min_score: number;
+    strategy: string;
+    max_per_sector: number | null;
+    max_positions: number | null;
+  }
+): Promise<PortfolioRecommendResponse> => {
+  const response = await apiClient.post<PortfolioRecommendResponse>(
+    `${API_BASE}/runs/${runId}/recommend`,
+    params
+  );
   return response.data;
 };

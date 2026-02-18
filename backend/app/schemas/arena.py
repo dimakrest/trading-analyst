@@ -76,6 +76,20 @@ class CreateSimulationRequest(StrictBaseModel):
         default="cci",
         description="Scoring algorithm for momentum criterion: 'cci' (default) or 'rsi2'. Overridden by agent_config_id if provided.",
     )
+    portfolio_strategy: str = Field(
+        default="none",
+        description="Portfolio selection strategy: 'none', 'score_sector_low_atr', 'score_sector_high_atr', 'score_sector_moderate_atr'",
+    )
+    max_per_sector: int | None = Field(
+        default=None,
+        ge=1,
+        description="Max concurrent positions per sector (None = unlimited)",
+    )
+    max_open_positions: int | None = Field(
+        default=None,
+        ge=1,
+        description="Max total open positions (None = unlimited)",
+    )
 
     @field_validator("symbols", mode="before")
     @classmethod
@@ -117,6 +131,18 @@ class CreateSimulationRequest(StrictBaseModel):
             msg = f"Unknown agent type: {v}. Available: {available}"
             raise ValueError(msg)
         return v.lower()
+
+    @field_validator("portfolio_strategy")
+    @classmethod
+    def validate_portfolio_strategy(cls, v: str) -> str:
+        """Validate portfolio_strategy is a registered selector."""
+        from app.services.portfolio_selector import SELECTOR_REGISTRY
+
+        if v not in SELECTOR_REGISTRY:
+            available = ", ".join(SELECTOR_REGISTRY.keys())
+            msg = f"Unknown portfolio strategy: {v}. Available: {available}"
+            raise ValueError(msg)
+        return v
 
 
 class PositionResponse(StrictBaseModel):
@@ -232,6 +258,9 @@ class SimulationResponse(StrictBaseModel):
     trailing_stop_pct: Decimal | None = None
     min_buy_score: int | None = None
     scoring_algorithm: str | None = None
+    portfolio_strategy: str | None = None
+    max_per_sector: int | None = None
+    max_open_positions: int | None = None
     status: str
     current_day: int
     total_days: int
@@ -386,3 +415,13 @@ class AgentInfo(StrictBaseModel):
             ]
         }
     }
+
+
+class PortfolioStrategyInfo(StrictBaseModel):
+    """Information about an available portfolio selection strategy.
+
+    Used in list_portfolio_strategies endpoint.
+    """
+
+    name: str
+    description: str

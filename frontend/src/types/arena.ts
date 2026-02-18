@@ -41,6 +41,9 @@ export interface Simulation {
   trailing_stop_pct: string | null;
   min_buy_score: number | null;
   scoring_algorithm: ScoringAlgorithm | null;
+  portfolio_strategy: string | null;
+  max_per_sector: number | null;
+  max_open_positions: number | null;
   status: SimulationStatus;
   current_day: number;
   total_days: number;
@@ -137,6 +140,12 @@ export interface CreateSimulationRequest {
   agent_config_id?: number;
   /** Scoring algorithm (fallback if no agent_config_id) */
   scoring_algorithm?: ScoringAlgorithm;
+  /** Portfolio selection strategy */
+  portfolio_strategy?: string;
+  /** Max concurrent positions per sector (null = unlimited) */
+  max_per_sector?: number | null;
+  /** Max total open positions (null = unlimited) */
+  max_open_positions?: number | null;
 }
 
 /** Response from step endpoint */

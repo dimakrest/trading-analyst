@@ -27,10 +27,13 @@ from app.models.arena import (
     PositionStatus,
     SimulationStatus,
 )
-from app.services.arena.agent_protocol import PriceBar
+from app.models.stock_sector import StockSector
+from app.services.arena.agent_protocol import AgentDecision, PriceBar
 from app.services.arena.agent_registry import get_agent
 from app.services.arena.trailing_stop import FixedPercentTrailingStop
 from app.services.data_service import DataService
+from app.services.portfolio_selector import QualifyingSignal, get_selector
+from app.utils.technical_indicators import calculate_atr_percentage
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,8 @@ class SimulationEngine:
         self._max_drawdown: dict[int, Decimal] = {}
         # Price data cache: {simulation_id: {symbol: [PriceBar, ...]}}
         self._price_cache: dict[int, dict[str, list[PriceBar]]] = {}
+        # Sector cache: {simulation_id: {symbol: sector_name | None}}
+        self._sector_cache: dict[int, dict[str, str | None]] = {}
 
     async def initialize_simulation(
         self,
@@ -127,6 +132,7 @@ class SimulationEngine:
             simulation.end_date,
             lookback_days,
         )
+        await self._load_sector_cache(simulation.id, simulation.symbols)
 
         # Get trading days from cache
         trading_days = self._get_trading_days_from_cache(
@@ -216,6 +222,7 @@ class SimulationEngine:
                 simulation.end_date,
                 agent.required_lookback_days,
             )
+            await self._load_sector_cache(simulation_id, simulation.symbols)
 
         # Use cached trading days (lazy-load for resume case)
         if simulation_id not in self._trading_days_cache:
@@ -253,6 +260,8 @@ class SimulationEngine:
 
         # Process each symbol
         decisions: dict[str, dict] = {}
+        # Collect BUY signals for portfolio selection (processed after symbol loop)
+        buy_signals: list[tuple[str, AgentDecision]] = []
 
         for symbol in simulation.symbols:
             # Get price history up to current date
@@ -360,8 +369,53 @@ class SimulationEngine:
                 "reasoning": decision.reasoning,
             }
 
-            # Create pending position for BUY signals
+            # Collect BUY signals for portfolio selection (don't create PENDING yet)
             if decision.action == "BUY" and not has_position:
+                buy_signals.append((symbol, decision))
+
+        # --- Portfolio Selection ---
+        # Read strategy configuration from agent_config (defaults preserve original behavior)
+        strategy_name = simulation.agent_config.get("portfolio_strategy", "none")
+        max_per_sector: int | None = simulation.agent_config.get("max_per_sector")
+        max_open_positions: int | None = simulation.agent_config.get("max_open_positions")
+        selector = get_selector(strategy_name)
+
+        # Build qualifying signals with sector and ATR data from caches
+        qualifying: list[QualifyingSignal] = []
+        sim_sector_map = self._sector_cache.get(simulation_id, {})
+        for symbol, decision in buy_signals:
+            qualifying.append(
+                QualifyingSignal(
+                    symbol=symbol,
+                    score=decision.score,
+                    sector=sim_sector_map.get(symbol),
+                    atr_pct=self._calculate_symbol_atr_pct(simulation_id, symbol, current_date),
+                )
+            )
+
+        # Count existing open positions by sector for constraint enforcement
+        existing_sector_counts: dict[str, int] = {}
+        for sym in positions_by_symbol:
+            sector = sim_sector_map.get(sym)
+            sector_key = sector or f"__unknown_{sym}"
+            existing_sector_counts[sector_key] = existing_sector_counts.get(sector_key, 0) + 1
+
+        # Run portfolio selector to get the ordered selected subset
+        selected = selector.select(
+            signals=qualifying,
+            existing_sector_counts=existing_sector_counts,
+            current_open_count=len(positions_by_symbol),
+            max_per_sector=max_per_sector,
+            max_open_positions=max_open_positions,
+        )
+        selected_symbols = {s.symbol for s in selected}
+
+        # Create PENDING positions for selected signals only
+        for symbol, decision in buy_signals:
+            is_selected = symbol in selected_symbols
+            # Annotate decision for transparency in snapshots
+            decisions[symbol]["portfolio_selected"] = is_selected
+            if is_selected:
                 new_position = ArenaPosition(
                     simulation_id=simulation.id,
                     symbol=symbol,
@@ -601,6 +655,57 @@ class SimulationEngine:
         cache: dict[str, list[PriceBar]] = {symbol: bars for symbol, bars in results}
         self._price_cache[simulation_id] = cache
 
+    async def _load_sector_cache(self, simulation_id: int, symbols: list[str]) -> None:
+        """Batch-load sector data for all symbols. One query, no Yahoo API calls.
+
+        Symbols not found in the DB are stored as None and treated as their own
+        unique sector by the portfolio selector (never blocked by a sector cap).
+
+        Args:
+            simulation_id: Simulation ID for cache key.
+            symbols: List of symbols to look up.
+        """
+        if simulation_id in self._sector_cache:
+            return  # Already loaded
+
+        result = await self.session.execute(
+            select(StockSector.symbol, StockSector.sector).where(
+                StockSector.symbol.in_(symbols)
+            )
+        )
+        sector_map = {row.symbol: row.sector for row in result.all()}
+        # Symbols not in DB → None (treated as unique sector by selector)
+        self._sector_cache[simulation_id] = {s: sector_map.get(s) for s in symbols}
+
+    def _calculate_symbol_atr_pct(
+        self, simulation_id: int, symbol: str, current_date: date
+    ) -> float | None:
+        """Calculate ATR% for a symbol from cached price data.
+
+        Uses a 90-day window (enough for 14-period Wilder's ATR).
+        Returns None if insufficient price data is available.
+
+        Args:
+            simulation_id: Simulation ID for cache lookup.
+            symbol: Stock symbol.
+            current_date: The current simulation date (end of window).
+
+        Returns:
+            ATR as a percentage of price (e.g., 4.25 for 4.25%), or None.
+        """
+        price_history = self._get_cached_price_history(
+            simulation_id,
+            symbol,
+            current_date - timedelta(days=90),
+            current_date,
+        )
+        if not price_history or len(price_history) < 15:
+            return None
+        highs = [float(bar.high) for bar in price_history]
+        lows = [float(bar.low) for bar in price_history]
+        closes = [float(bar.close) for bar in price_history]
+        return calculate_atr_percentage(highs, lows, closes)
+
     def _get_cached_price_history(
         self, simulation_id: int, symbol: str, start: date, end: date
     ) -> list[PriceBar]:
@@ -732,6 +837,7 @@ class SimulationEngine:
         self._trading_days_cache.pop(simulation_id, None)
         self._peak_equity.pop(simulation_id, None)
         self._max_drawdown.pop(simulation_id, None)
+        self._sector_cache.pop(simulation_id, None)
 
     async def _finalize_simulation(self, simulation: ArenaSimulation) -> None:
         """Mark simulation as completed.
