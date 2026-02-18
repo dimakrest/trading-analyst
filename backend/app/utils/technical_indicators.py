@@ -28,7 +28,9 @@ def calculate_atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
     """Calculate Average True Range.
 
     True Range = max(high - low, |high - prev_close|, |low - prev_close|)
-    ATR = Simple Moving Average of True Range over period
+    ATR = Wilder's smoothed EMA of True Range (alpha = 1/period)
+
+    This matches TradingView and other standard charting platforms.
 
     Args:
         data: DataFrame with OHLCV data (must have High, Low, Close columns)
@@ -41,7 +43,7 @@ def calculate_atr(data: pd.DataFrame, period: int = 14) -> pd.Series:
     high_close = np.abs(data["High"] - data["Close"].shift())
     low_close = np.abs(data["Low"] - data["Close"].shift())
     true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    atr = true_range.rolling(window=period).mean()
+    atr = true_range.ewm(alpha=1 / period, adjust=False).mean()
     return atr
 
 
