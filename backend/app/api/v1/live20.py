@@ -466,7 +466,9 @@ async def recommend_portfolio(
     qualifying_recs = list(result.scalars().all())
 
     # Build QualifyingSignal list from recommendation fields
+    # Keep direction alongside each signal so we can include it in the response
     qualifying_signals: list[QualifyingSignal] = []
+    direction_by_symbol: dict[str, str | None] = {}
     for rec in qualifying_recs:
         atr_pct = float(rec.live20_atr) if rec.live20_atr is not None else None
         qualifying_signals.append(
@@ -477,6 +479,7 @@ async def recommend_portfolio(
                 atr_pct=atr_pct,
             )
         )
+        direction_by_symbol[rec.stock] = rec.live20_direction
 
     # Apply portfolio selection strategy
     # For live20 recommendations, no existing positions to account for
@@ -492,6 +495,7 @@ async def recommend_portfolio(
         PortfolioRecommendItem(
             symbol=signal.symbol,
             score=signal.score,
+            direction=direction_by_symbol.get(signal.symbol),
             sector=signal.sector,
             atr_pct=signal.atr_pct,
         )

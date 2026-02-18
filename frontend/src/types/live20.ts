@@ -115,6 +115,7 @@ export interface Live20RunDetail {
 export interface PortfolioRecommendItem {
   symbol: string;
   score: number;
+  direction: string | null;
   sector: string | null;
   atr_pct: number | null;
 }

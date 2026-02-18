@@ -252,6 +252,7 @@ class PortfolioRecommendItem(StrictBaseModel):
 
     symbol: str
     score: int
+    direction: str | None
     sector: str | None
     atr_pct: float | None
 

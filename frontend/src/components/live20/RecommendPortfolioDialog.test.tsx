@@ -25,9 +25,9 @@ const mockResponse: PortfolioRecommendResponse = {
   strategy: 'score_sector_low_atr',
   strategy_description: 'Rank by score, prefer lowest ATR%',
   items: [
-    { symbol: 'AAPL', score: 85, sector: 'Technology', atr_pct: 2.1 },
-    { symbol: 'MSFT', score: 80, sector: 'Technology', atr_pct: 2.5 },
-    { symbol: 'XOM', score: 75, sector: 'Energy', atr_pct: 3.2 },
+    { symbol: 'AAPL', score: 85, direction: 'LONG', sector: 'Technology', atr_pct: 2.1 },
+    { symbol: 'MSFT', score: 80, direction: 'LONG', sector: 'Technology', atr_pct: 2.5 },
+    { symbol: 'XOM', score: 75, direction: 'SHORT', sector: 'Energy', atr_pct: 3.2 },
   ],
   total_qualifying: 10,
   total_selected: 3,
@@ -251,7 +251,7 @@ describe('RecommendPortfolioDialog', () => {
       });
     });
 
-    it('renders score, sector, and ATR% columns for each item', async () => {
+    it('renders direction, score, sector, and ATR% columns for each item', async () => {
       const user = userEvent.setup();
       mockRecommendPortfolio.mockResolvedValue(mockResponse);
 
@@ -262,6 +262,9 @@ describe('RecommendPortfolioDialog', () => {
       );
 
       await waitFor(() => {
+        // Directions
+        expect(screen.getAllByText('LONG')).toHaveLength(2);
+        expect(screen.getByText('SHORT')).toBeInTheDocument();
         // Scores
         expect(screen.getByText('85')).toBeInTheDocument();
         expect(screen.getByText('80')).toBeInTheDocument();
@@ -295,12 +298,12 @@ describe('RecommendPortfolioDialog', () => {
       });
     });
 
-    it('renders "—" for null sector and null ATR%', async () => {
+    it('renders "—" for null direction, null sector, and null ATR%', async () => {
       const user = userEvent.setup();
       const responseWithNulls: PortfolioRecommendResponse = {
         ...mockResponse,
         items: [
-          { symbol: 'UNKN', score: 70, sector: null, atr_pct: null },
+          { symbol: 'UNKN', score: 70, direction: null, sector: null, atr_pct: null },
         ],
         total_qualifying: 1,
         total_selected: 1,

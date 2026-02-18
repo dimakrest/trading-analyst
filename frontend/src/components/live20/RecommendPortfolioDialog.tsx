@@ -278,6 +278,7 @@ export function RecommendPortfolioDialog({
                     <TableRow>
                       <TableHead className="w-[40px] text-center">#</TableHead>
                       <TableHead>Symbol</TableHead>
+                      <TableHead>Direction</TableHead>
                       <TableHead className="text-right">Score</TableHead>
                       <TableHead>Sector</TableHead>
                       <TableHead className="text-right">ATR%</TableHead>
@@ -291,6 +292,9 @@ export function RecommendPortfolioDialog({
                         </TableCell>
                         <TableCell className="font-mono font-semibold">
                           {item.symbol}
+                        </TableCell>
+                        <TableCell className="text-sm font-medium">
+                          {item.direction ?? '—'}
                         </TableCell>
                         <TableCell className="text-right font-mono font-semibold">
                           {item.score}

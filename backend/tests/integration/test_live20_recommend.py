@@ -483,6 +483,7 @@ async def test_recommend_response_shape(
         item = data["items"][0]
         assert "symbol" in item
         assert "score" in item
+        assert "direction" in item
         assert "sector" in item
         assert "atr_pct" in item
         assert isinstance(item["symbol"], str)
