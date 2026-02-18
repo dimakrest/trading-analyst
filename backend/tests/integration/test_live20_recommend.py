@@ -29,25 +29,27 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 async def run_with_mixed_recommendations(db_session: AsyncSession) -> Live20Run:
-    """Create a completed Live20Run with a variety of LONG recommendations for testing.
+    """Create a completed Live20Run with mixed LONG/SHORT recommendations for testing.
 
     Symbols:
-        AAPL  — score 90, sector XLK, atr 2.0%  (high score, low ATR)
-        MSFT  — score 85, sector XLK, atr 4.0%  (high score, same sector)
-        GOOGL — score 80, sector XLK, atr 3.0%  (high score, same sector)
-        TSLA  — score 75, sector XLY, atr 8.0%  (different sector, high ATR)
-        NVDA  — score 70, sector XLK, atr 5.0%  (lower score)
-        AMD   — score 55, sector XLK, atr 1.5%  (below default threshold)
-        NFLX  — score 65, sector XLC, atr 3.5%  (NO_SETUP — excluded)
+        AAPL  — score 90, sector XLK, atr 2.0%, LONG  (high score, low ATR)
+        MSFT  — score 85, sector XLK, atr 4.0%, LONG  (high score, same sector)
+        GOOGL — score 80, sector XLK, atr 3.0%, LONG  (high score, same sector)
+        TSLA  — score 75, sector XLY, atr 8.0%, LONG  (different sector, high ATR)
+        NVDA  — score 70, sector XLK, atr 5.0%, LONG  (lower score)
+        AMD   — score 55, sector XLK, atr 1.5%, LONG  (below default threshold)
+        NFLX  — score 65, sector XLC, atr 3.5%, NO_SETUP (excluded)
+        BIDU  — score 78, sector XLC, atr 4.5%, SHORT (direction filter test)
+        SHOP  — score 72, sector XLY, atr 6.0%, SHORT (direction filter test)
     """
     run = Live20Run(
-        input_symbols=["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "AMD", "NFLX"],
-        symbol_count=7,
+        input_symbols=["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "AMD", "NFLX", "BIDU", "SHOP"],
+        symbol_count=9,
         long_count=6,
         no_setup_count=1,
-        short_count=0,
+        short_count=2,
         status="completed",
-        processed_count=7,
+        processed_count=9,
     )
     db_session.add(run)
     await db_session.flush()
@@ -130,6 +132,29 @@ async def run_with_mixed_recommendations(db_session: AsyncSession) -> Live20Run:
             live20_direction="NO_SETUP",
             live20_sector_etf="XLC",
             live20_atr=Decimal("3.5000"),
+            live20_run_id=run.id,
+        ),
+        # SHORT signals for direction filtering tests
+        Recommendation(
+            stock="BIDU",
+            source=RecommendationSource.LIVE_20.value,
+            recommendation="SHORT",
+            reasoning="test",
+            confidence_score=78,
+            live20_direction="SHORT",
+            live20_sector_etf="XLC",
+            live20_atr=Decimal("4.5000"),
+            live20_run_id=run.id,
+        ),
+        Recommendation(
+            stock="SHOP",
+            source=RecommendationSource.LIVE_20.value,
+            recommendation="SHORT",
+            reasoning="test",
+            confidence_score=72,
+            live20_direction="SHORT",
+            live20_sector_etf="XLY",
+            live20_atr=Decimal("6.0000"),
             live20_run_id=run.id,
         ),
     ]
@@ -404,9 +429,9 @@ async def test_recommend_none_strategy_no_reordering(
     items = data["items"]
     symbols = [i["symbol"] for i in items]
 
-    # All 5 qualifying LONG signals included (AMD excluded by min_score, NFLX by direction)
-    assert len(items) == 5
-    assert set(symbols) == {"AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"}
+    # All 7 qualifying signals included (AMD excluded by min_score, NFLX by NO_SETUP direction)
+    assert len(items) == 7
+    assert set(symbols) == {"AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "BIDU", "SHOP"}
 
     # FifoSelector preserves the input list order passed to select(); our qualifying list
     # is ordered by confidence_score desc from the DB query — verify it is still ordered
@@ -441,8 +466,8 @@ async def test_recommend_max_positions_limits_total_selected(
     assert data["total_selected"] == 2
     assert len(data["items"]) == 2
 
-    # Qualifying signals still reflects all signals that passed min_score (5 signals)
-    assert data["total_qualifying"] == 5
+    # Qualifying signals still reflects all signals that passed min_score (7 signals)
+    assert data["total_qualifying"] == 7
 
 
 # ---------------------------------------------------------------------------
@@ -506,3 +531,109 @@ async def test_recommend_strategy_description_is_populated(
 
     assert data["strategy"] == "score_sector_high_atr"
     assert "high" in data["strategy_description"].lower() or "atr" in data["strategy_description"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Filtering — directions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_recommend_directions_long_only(
+    async_client: AsyncClient,
+    run_with_mixed_recommendations: Live20Run,
+) -> None:
+    """directions=['LONG'] returns only LONG signals, excluding SHORT ones."""
+    run_id = run_with_mixed_recommendations.id
+    response = await async_client.post(
+        f"/api/v1/live-20/runs/{run_id}/recommend",
+        json={
+            "min_score": 60,
+            "strategy": "none",
+            "max_per_sector": None,
+            "max_positions": None,
+            "directions": ["LONG"],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    symbols = [item["symbol"] for item in data["items"]]
+    assert set(symbols) == {"AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"}
+    assert "BIDU" not in symbols
+    assert "SHOP" not in symbols
+    assert data["total_qualifying"] == 5
+
+
+@pytest.mark.asyncio
+async def test_recommend_directions_short_only(
+    async_client: AsyncClient,
+    run_with_mixed_recommendations: Live20Run,
+) -> None:
+    """directions=['SHORT'] returns only SHORT signals."""
+    run_id = run_with_mixed_recommendations.id
+    response = await async_client.post(
+        f"/api/v1/live-20/runs/{run_id}/recommend",
+        json={
+            "min_score": 60,
+            "strategy": "none",
+            "max_per_sector": None,
+            "max_positions": None,
+            "directions": ["SHORT"],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    symbols = [item["symbol"] for item in data["items"]]
+    assert set(symbols) == {"BIDU", "SHOP"}
+    assert data["total_qualifying"] == 2
+
+
+@pytest.mark.asyncio
+async def test_recommend_directions_both(
+    async_client: AsyncClient,
+    run_with_mixed_recommendations: Live20Run,
+) -> None:
+    """directions=['LONG', 'SHORT'] includes both — same as no filter."""
+    run_id = run_with_mixed_recommendations.id
+    response = await async_client.post(
+        f"/api/v1/live-20/runs/{run_id}/recommend",
+        json={
+            "min_score": 60,
+            "strategy": "none",
+            "max_per_sector": None,
+            "max_positions": None,
+            "directions": ["LONG", "SHORT"],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    symbols = [item["symbol"] for item in data["items"]]
+    assert set(symbols) == {"AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "BIDU", "SHOP"}
+    assert data["total_qualifying"] == 7
+
+
+@pytest.mark.asyncio
+async def test_recommend_directions_none_returns_all(
+    async_client: AsyncClient,
+    run_with_mixed_recommendations: Live20Run,
+) -> None:
+    """No directions field → all qualifying signals returned (backward compat)."""
+    run_id = run_with_mixed_recommendations.id
+    response = await async_client.post(
+        f"/api/v1/live-20/runs/{run_id}/recommend",
+        json={
+            "min_score": 60,
+            "strategy": "none",
+            "max_per_sector": None,
+            "max_positions": None,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    symbols = [item["symbol"] for item in data["items"]]
+    assert set(symbols) == {"AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "BIDU", "SHOP"}
+    assert data["total_qualifying"] == 7

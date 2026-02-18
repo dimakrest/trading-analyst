@@ -245,6 +245,10 @@ class PortfolioRecommendRequest(StrictBaseModel):
         ge=1,
         description="Max total positions selected (None = unlimited)",
     )
+    directions: list[str] | None = Field(
+        default=None,
+        description="If provided, only include signals with these directions (e.g. ['LONG', 'SHORT']). None = no filter.",
+    )
 
 
 class PortfolioRecommendItem(StrictBaseModel):

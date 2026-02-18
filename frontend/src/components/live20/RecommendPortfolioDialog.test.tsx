@@ -127,6 +127,7 @@ describe('RecommendPortfolioDialog', () => {
         strategy: 'score_sector_low_atr',
         max_per_sector: 2,
         max_positions: null,
+        directions: ['LONG'],
       });
     });
 
@@ -458,6 +459,48 @@ describe('RecommendPortfolioDialog', () => {
         });
         expect(button).not.toBeDisabled();
       });
+    });
+  });
+
+  describe('Direction filter', () => {
+    it('renders direction checkboxes with Long checked by default', () => {
+      renderDialog();
+
+      const longCheckbox = screen.getByRole('checkbox', { name: /long/i });
+      const shortCheckbox = screen.getByRole('checkbox', { name: /short/i });
+
+      expect(longCheckbox).toBeChecked();
+      expect(shortCheckbox).not.toBeChecked();
+    });
+
+    it('disables button when no directions selected', async () => {
+      const user = userEvent.setup();
+      renderDialog();
+
+      // Uncheck Long (the only checked one)
+      const longCheckbox = screen.getByRole('checkbox', { name: /long/i });
+      await user.click(longCheckbox);
+
+      const button = screen.getByRole('button', { name: /get recommendations/i });
+      expect(button).toBeDisabled();
+    });
+
+    it('passes both directions when both checked', async () => {
+      const user = userEvent.setup();
+      mockRecommendPortfolio.mockResolvedValue(mockResponse);
+
+      renderDialog();
+
+      // Check Short
+      const shortCheckbox = screen.getByRole('checkbox', { name: /short/i });
+      await user.click(shortCheckbox);
+
+      await user.click(
+        screen.getByRole('button', { name: /get recommendations/i })
+      );
+
+      const callArgs = mockRecommendPortfolio.mock.calls[0][1];
+      expect(callArgs.directions).toEqual(['LONG', 'SHORT']);
     });
   });
 });

@@ -232,6 +232,7 @@ export const recommendPortfolio = async (
     strategy: string;
     max_per_sector: number | null;
     max_positions: number | null;
+    directions: string[];
   }
 ): Promise<PortfolioRecommendResponse> => {
   const response = await apiClient.post<PortfolioRecommendResponse>(

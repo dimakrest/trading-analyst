@@ -82,6 +82,14 @@ export function RecommendPortfolioDialog({
   const [strategy, setStrategy] = useState<string>('score_sector_low_atr');
   const [maxPerSector, setMaxPerSector] = useState<string>('2');
   const [maxPositions, setMaxPositions] = useState<string>('');
+  const [includeLong, setIncludeLong] = useState(true);
+  const [includeShort, setIncludeShort] = useState(false);
+
+  // Derived directions list
+  const directions = [
+    ...(includeLong ? ['LONG'] : []),
+    ...(includeShort ? ['SHORT'] : []),
+  ];
 
   // Request state
   const [isLoading, setIsLoading] = useState(false);
@@ -102,6 +110,7 @@ export function RecommendPortfolioDialog({
         strategy,
         max_per_sector: parsedMaxPerSector,
         max_positions: parsedMaxPositions,
+        directions,
       });
 
       setResult(response);
@@ -215,10 +224,27 @@ export function RecommendPortfolioDialog({
             </div>
           </div>
 
+          {/* Direction Filter */}
+          <div className="space-y-2">
+            <Label>Direction</Label>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <input type="checkbox" className="h-4 w-4 rounded border-gray-300"
+                  checked={includeLong} onChange={(e) => setIncludeLong(e.target.checked)} />
+                Long
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <input type="checkbox" className="h-4 w-4 rounded border-gray-300"
+                  checked={includeShort} onChange={(e) => setIncludeShort(e.target.checked)} />
+                Short
+              </label>
+            </div>
+          </div>
+
           {/* Action Button */}
           <Button
             onClick={handleGetRecommendations}
-            disabled={isLoading}
+            disabled={isLoading || directions.length === 0}
             className="w-full"
           >
             {isLoading ? (

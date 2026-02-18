@@ -462,6 +462,8 @@ async def recommend_portfolio(
         .where(Recommendation.live20_direction.is_not(None))
         .order_by(Recommendation.confidence_score.desc())
     )
+    if request.directions:
+        stmt = stmt.where(Recommendation.live20_direction.in_(request.directions))
     result = await db.execute(stmt)
     qualifying_recs = list(result.scalars().all())
 
