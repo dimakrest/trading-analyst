@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useLive20Filters } from '../hooks/useLive20Filters';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, List, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,7 +11,6 @@ import { Live20Table } from '../components/live20/Live20Table';
 import { cancelRun, deleteRun, getRunDetail } from '../services/live20Service';
 import type {
   Live20Counts,
-  Live20Direction,
   Live20RunDetail as Live20RunDetailType,
 } from '../types/live20';
 
@@ -31,10 +31,15 @@ export function Live20RunDetail() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [directionFilter, setDirectionFilter] = useState<Live20Direction | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [minScore, setMinScore] = useState(0);
-  const [minRvol, setMinRvol] = useState(0);
+  const {
+    directionFilter, setDirectionFilter,
+    searchQuery, setSearchQuery,
+    minScore, setMinScore,
+    minRvol, setMinRvol,
+    atrRange, setAtrRange,
+    isAtrFilterActive,
+    filteredResults,
+  } = useLive20Filters(run?.results ?? []);
 
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -58,27 +63,6 @@ export function Live20RunDetail() {
 
     fetchRun();
   }, [id]);
-
-  const filteredResults = useMemo(() => {
-    if (!run) return [];
-    let filtered = run.results;
-
-    if (directionFilter) {
-      filtered = filtered.filter((r) => r.direction === directionFilter);
-    }
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((r) => r.stock.toLowerCase().includes(query));
-    }
-    if (minScore > 0) {
-      filtered = filtered.filter((r) => r.confidence_score >= minScore);
-    }
-    if (minRvol > 0) {
-      filtered = filtered.filter((r) => (r.rvol ?? 0) >= minRvol);
-    }
-
-    return filtered;
-  }, [run, directionFilter, searchQuery, minScore, minRvol]);
 
   const counts: Live20Counts = useMemo(() => {
     if (!run) return { long: 0, short: 0, no_setup: 0, total: 0 };
@@ -300,6 +284,9 @@ export function Live20RunDetail() {
               onMinScoreChange={setMinScore}
               minRvol={minRvol}
               onMinRvolChange={setMinRvol}
+              atrRange={atrRange}
+              onAtrRangeChange={setAtrRange}
+              isAtrFilterActive={isAtrFilterActive}
             />
 
             <Live20Table results={filteredResults} />

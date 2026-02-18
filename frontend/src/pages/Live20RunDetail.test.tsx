@@ -302,9 +302,9 @@ describe('Live20RunDetail', () => {
         expect(screen.getByText('AAPL')).toBeInTheDocument();
       });
 
-      // The slider components are present (Min Score and Min Rvol)
+      // The slider components are present (Min Score, Min Rvol, and ATR Range dual-thumb)
       const sliders = screen.getAllByRole('slider');
-      expect(sliders).toHaveLength(2);
+      expect(sliders).toHaveLength(4);
 
       // Min Score slider (first)
       expect(sliders[0]).toHaveAttribute('aria-valuemin', '0');
@@ -313,6 +313,12 @@ describe('Live20RunDetail', () => {
       // Min Rvol slider (second)
       expect(sliders[1]).toHaveAttribute('aria-valuemin', '0');
       expect(sliders[1]).toHaveAttribute('aria-valuemax', '3');
+
+      // ATR Range slider thumbs (third and fourth)
+      expect(sliders[2]).toHaveAttribute('aria-valuemin', '0');
+      expect(sliders[2]).toHaveAttribute('aria-valuemax', '15');
+      expect(sliders[3]).toHaveAttribute('aria-valuemin', '0');
+      expect(sliders[3]).toHaveAttribute('aria-valuemax', '15');
 
       // Note: Testing slider interaction with Radix UI has known issues in JSDOM
       // In a real browser, users can adjust the sliders to filter by minimum score and rvol

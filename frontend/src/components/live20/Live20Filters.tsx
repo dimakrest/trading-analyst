@@ -2,6 +2,8 @@ import { Input } from '../ui/input';
 import { Slider } from '../ui/slider';
 import { Search } from 'lucide-react';
 import type { Live20Direction, Live20Counts } from '../../types/live20';
+import { cn } from '../../lib/utils';
+import { ATR_SLIDER_MAX } from '../../hooks/useLive20Filters';
 
 interface Live20FiltersProps {
   /** Current direction filter selection */
@@ -22,6 +24,12 @@ interface Live20FiltersProps {
   minRvol: number;
   /** Callback when minimum rvol changes */
   onMinRvolChange: (rvol: number) => void;
+  /** Current ATR% range filter [min, max]. [0,0] means no filtering. */
+  atrRange: [number, number];
+  /** Callback when ATR% range changes */
+  onAtrRangeChange: (range: [number, number]) => void;
+  /** Whether the ATR filter is actively restricting results */
+  isAtrFilterActive: boolean;
 }
 
 /**
@@ -74,8 +82,8 @@ function FilterButton({
  * Filters for Live 20 results
  *
  * Provides direction filter buttons, symbol search, minimum score slider,
- * and minimum rvol filter. Direction buttons show counts for each category
- * (All, Long, Short, No Setup).
+ * minimum rvol filter, and ATR% range filter. Direction buttons show counts
+ * for each category (All, Long, Short, No Setup).
  *
  * @param props - Component props
  */
@@ -89,6 +97,9 @@ export function Live20Filters({
   onMinScoreChange,
   minRvol,
   onMinRvolChange,
+  atrRange,
+  onAtrRangeChange,
+  isAtrFilterActive,
 }: Live20FiltersProps) {
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -176,6 +187,29 @@ export function Live20Filters({
           }}
           className="w-[60px] h-7 px-2 py-1 bg-bg-secondary border-default font-mono text-xs text-center"
         />
+      </div>
+
+      {/* ATR% Range Filter */}
+      <div className={cn(
+        "flex items-center gap-3 rounded-md px-2 py-1 transition-colors",
+        isAtrFilterActive && "bg-accent-primary/10 ring-1 ring-accent-primary/30"
+      )}>
+        <span className="text-xs text-text-muted whitespace-nowrap">ATR%:</span>
+        <span className="font-mono text-xs font-semibold text-text-primary min-w-[28px] text-right">
+          {atrRange[0].toFixed(1)}
+        </span>
+        <Slider
+          value={atrRange}
+          onValueChange={(value) => onAtrRangeChange(value as [number, number])}
+          min={0}
+          max={ATR_SLIDER_MAX}
+          step={0.5}
+          minStepsBetweenThumbs={0}
+          className="w-[140px]"
+        />
+        <span className="font-mono text-xs font-semibold text-text-primary min-w-[28px]">
+          {atrRange[1] === 0 ? '∞' : atrRange[1].toFixed(1)}
+        </span>
       </div>
     </div>
   );

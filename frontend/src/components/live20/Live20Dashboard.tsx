@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -7,8 +7,8 @@ import { PullToRefresh } from '@/components/ui/pull-to-refresh';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, BarChart2 } from 'lucide-react';
-import type { Live20Direction } from '@/types/live20';
 import { useLive20 } from '@/hooks/useLive20';
+import { useLive20Filters } from '@/hooks/useLive20Filters';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAgentConfigs } from '@/hooks/useAgentConfigs';
 import { Live20Input } from './Live20Input';
@@ -24,7 +24,7 @@ import { RecommendPortfolioDialog } from './RecommendPortfolioDialog';
  * Main page for Live 20 mean reversion analysis. Provides:
  * - Symbol input for analysis
  * - Loading state during analysis
- * - Filters (direction, search, min score)
+ * - Filters (direction, search, min score, min rvol, ATR range)
  * - Results table with sortable columns
  * - Error handling and empty states
  * - Mobile-responsive layout with pull-to-refresh
@@ -36,10 +36,6 @@ export function Live20Dashboard() {
   // Support navigation state from delete redirect
   const defaultTab = location.state?.tab === 'history' ? 'history' : 'analyze';
 
-  const [directionFilter, setDirectionFilter] = useState<Live20Direction | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [minScore, setMinScore] = useState(0);
-  const [minRvol, setMinRvol] = useState(0);
   const [symbolCount, setSymbolCount] = useState(0);
   const [wasCancelled, setWasCancelled] = useState(false);
   const [isRecommendDialogOpen, setIsRecommendDialogOpen] = useState(false);
@@ -92,29 +88,15 @@ export function Live20Dashboard() {
     }
   }, [progress?.status]);
 
-  // Filter results by search query and direction (client-side)
-  const filteredResults = useMemo(() => {
-    let filtered = results;
-
-    if (directionFilter) {
-      filtered = filtered.filter((r) => r.direction === directionFilter);
-    }
-
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((r) => r.stock.toLowerCase().includes(query));
-    }
-
-    if (minScore > 0) {
-      filtered = filtered.filter((r) => r.confidence_score >= minScore);
-    }
-
-    if (minRvol > 0) {
-      filtered = filtered.filter((r) => (r.rvol ?? 0) >= minRvol);
-    }
-
-    return filtered;
-  }, [results, directionFilter, searchQuery, minScore, minRvol]);
+  const {
+    directionFilter, setDirectionFilter,
+    searchQuery, setSearchQuery,
+    minScore, setMinScore,
+    minRvol, setMinRvol,
+    atrRange, setAtrRange,
+    isAtrFilterActive,
+    filteredResults,
+  } = useLive20Filters(results);
 
   const analyzeContent = (
     <div className="space-y-6">
@@ -200,6 +182,9 @@ export function Live20Dashboard() {
               onMinScoreChange={setMinScore}
               minRvol={minRvol}
               onMinRvolChange={setMinRvol}
+              atrRange={atrRange}
+              onAtrRangeChange={setAtrRange}
+              isAtrFilterActive={isAtrFilterActive}
             />
 
             {/* Recommend Portfolio button — only when analysis is complete */}
