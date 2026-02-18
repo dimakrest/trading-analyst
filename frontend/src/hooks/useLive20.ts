@@ -23,6 +23,7 @@ interface UseLive20Return {
   ) => Promise<void>;
   fetchResults: (direction?: Live20Direction | null, minScore?: number) => Promise<void>;
   progress: AnalysisProgress | null;
+  completedRunId: number | null;
   cancelAnalysis: () => Promise<void>;
   isCancelling: boolean;
   failedSymbols: Record<string, string>;
@@ -57,6 +58,7 @@ export function useLive20(): UseLive20Return {
   // State for async analysis
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
   const [progress, setProgress] = useState<AnalysisProgress | null>(null);
+  const [completedRunId, setCompletedRunId] = useState<number | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [failedSymbols, setFailedSymbols] = useState<Record<string, string>>({});
 
@@ -90,6 +92,9 @@ export function useLive20(): UseLive20Return {
 
     // Handle terminal states (including cancelled)
     if (run.status === 'completed' || run.status === 'cancelled' || run.status === 'failed') {
+      if (run.status === 'completed') {
+        setCompletedRunId(run.id);
+      }
       setActiveRunId(null);
       setProgress(null);
       setIsCancelling(false);
@@ -118,6 +123,7 @@ export function useLive20(): UseLive20Return {
       setResults([]);
       setCounts({ long: 0, short: 0, no_setup: 0, total: 0 });
       setFailedSymbols({});
+      setCompletedRunId(null);
 
       try {
         const response = await live20Service.analyzeSymbols(symbols, sourceLists, agentConfigId);
@@ -183,6 +189,7 @@ export function useLive20(): UseLive20Return {
     analyzeSymbols,
     fetchResults,
     progress,
+    completedRunId,
     cancelAnalysis,
     isCancelling,
     failedSymbols,

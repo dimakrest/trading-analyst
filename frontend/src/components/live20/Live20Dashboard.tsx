@@ -70,6 +70,7 @@ export function Live20Dashboard() {
     analyzeSymbols,
     fetchResults,
     progress,
+    completedRunId,
     cancelAnalysis,
     isCancelling,
     failedSymbols,
@@ -202,7 +203,7 @@ export function Live20Dashboard() {
             />
 
             {/* Recommend Portfolio button — only when analysis is complete */}
-            {!isAnalyzing && progress?.runId != null && (
+            {!isAnalyzing && completedRunId != null && (
               <Button
                 variant="outline"
                 size="sm"
@@ -218,11 +219,11 @@ export function Live20Dashboard() {
           <Live20Table results={filteredResults} />
 
           {/* Recommend Portfolio Dialog */}
-          {progress?.runId != null && (
+          {completedRunId != null && (
             <RecommendPortfolioDialog
               open={isRecommendDialogOpen}
               onOpenChange={setIsRecommendDialogOpen}
-              runId={progress.runId}
+              runId={completedRunId}
             />
           )}
         </>
