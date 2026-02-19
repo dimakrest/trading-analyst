@@ -156,6 +156,26 @@ class ArenaSimulation(Base):
         Numeric(precision=8, scale=4), nullable=True, doc="Maximum drawdown percentage"
     )
 
+    # Analytics metrics (computed at finalization)
+    avg_hold_days: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=8, scale=2), nullable=True, doc="Average hold duration in actual trading days"
+    )
+    avg_win_pnl: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=12, scale=2), nullable=True, doc="Average P&L of winning trades"
+    )
+    avg_loss_pnl: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=12, scale=2), nullable=True, doc="Average P&L of losing trades"
+    )
+    profit_factor: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=8, scale=4), nullable=True, doc="Gross wins / gross losses"
+    )
+    sharpe_ratio: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=8, scale=4), nullable=True, doc="Annualized Sharpe ratio"
+    )
+    total_realized_pnl: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=12, scale=2), nullable=True, doc="Sum of all realized P&L"
+    )
+
     # Error tracking
     error_message: Mapped[str | None] = mapped_column(
         Text, nullable=True, doc="Error message if simulation failed"

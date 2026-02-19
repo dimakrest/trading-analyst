@@ -167,6 +167,7 @@ class PositionResponse(StrictBaseModel):
     return_pct: Decimal | None = None
     agent_reasoning: str | None = None
     agent_score: int | None = None
+    sector: str | None = None
 
     model_config = {
         "from_attributes": True,
@@ -269,6 +270,12 @@ class SimulationResponse(StrictBaseModel):
     total_trades: int
     winning_trades: int
     max_drawdown_pct: Decimal | None = None
+    avg_hold_days: Decimal | None = None
+    avg_win_pnl: Decimal | None = None
+    avg_loss_pnl: Decimal | None = None
+    profit_factor: Decimal | None = None
+    sharpe_ratio: Decimal | None = None
+    total_realized_pnl: Decimal | None = None
     created_at: str  # ISO datetime string
 
     model_config = {
@@ -425,3 +432,15 @@ class PortfolioStrategyInfo(StrictBaseModel):
 
     name: str
     description: str
+
+
+class BenchmarkDataPoint(StrictBaseModel):
+    """A single data point in the benchmark price series.
+
+    Used by the benchmark endpoint to return normalized cumulative return
+    data for SPY or QQQ over a simulation's date range.
+    """
+
+    date: date
+    close: Decimal
+    cumulative_return_pct: Decimal

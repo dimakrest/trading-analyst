@@ -28,6 +28,12 @@ const mockSimulation: Simulation = {
   total_trades: 3,
   winning_trades: 2,
   max_drawdown_pct: null,
+  avg_hold_days: null,
+  avg_win_pnl: null,
+  avg_loss_pnl: null,
+  profit_factor: null,
+  sharpe_ratio: null,
+  total_realized_pnl: null,
   created_at: '2024-01-01T10:00:00Z',
 };
 
@@ -63,6 +69,7 @@ const mockPositions: Position[] = [
     return_pct: null,
     agent_reasoning: 'Score: 80/100',
     agent_score: 80,
+    sector: 'Technology',
   },
   {
     id: 2,
@@ -81,6 +88,7 @@ const mockPositions: Position[] = [
     return_pct: null,
     agent_reasoning: 'Score: 60/100',
     agent_score: 60,
+    sector: 'Technology',
   },
 ];
 

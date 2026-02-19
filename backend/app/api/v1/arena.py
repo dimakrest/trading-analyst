@@ -5,16 +5,22 @@ including creation, listing, retrieval, and cancellation/deletion.
 """
 
 import logging
+from datetime import datetime, time, timezone
+from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
+from app.core.deps import get_data_service
 from app.models.arena import ArenaSimulation, SimulationStatus
+from app.models.stock_sector import StockSector
 from app.repositories.agent_config_repository import AgentConfigRepository
 from app.schemas.arena import (
     AgentInfo,
+    BenchmarkDataPoint,
     CreateSimulationRequest,
     PortfolioStrategyInfo,
     PositionResponse,
@@ -24,6 +30,7 @@ from app.schemas.arena import (
     SnapshotResponse,
 )
 from app.services.arena.agent_registry import list_agents
+from app.services.data_service import DataService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -72,6 +79,12 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         total_trades=simulation.total_trades,
         winning_trades=simulation.winning_trades,
         max_drawdown_pct=simulation.max_drawdown_pct,
+        avg_hold_days=simulation.avg_hold_days,
+        avg_win_pnl=simulation.avg_win_pnl,
+        avg_loss_pnl=simulation.avg_loss_pnl,
+        profit_factor=simulation.profit_factor,
+        sharpe_ratio=simulation.sharpe_ratio,
+        total_realized_pnl=simulation.total_realized_pnl,
         created_at=simulation.created_at,
     )
 
@@ -291,6 +304,16 @@ async def get_simulation(
             detail=f"Simulation {simulation_id} not found",
         )
 
+    # Build sector lookup map for all position symbols
+    sector_map: dict[str, str | None] = {}
+    if simulation.positions:
+        symbols = list({pos.symbol for pos in simulation.positions})
+        sector_result = await session.execute(
+            select(StockSector.symbol, StockSector.sector)
+            .where(StockSector.symbol.in_(symbols))
+        )
+        sector_map = {row.symbol: row.sector for row in sector_result.all()}
+
     # Positions and snapshots are loaded via selectin relationship
     positions = [
         PositionResponse(
@@ -310,6 +333,7 @@ async def get_simulation(
             return_pct=pos.return_pct,
             agent_reasoning=pos.agent_reasoning,
             agent_score=pos.agent_score,
+            sector=sector_map.get(pos.symbol),
         )
         for pos in simulation.positions
     ]
@@ -435,3 +459,88 @@ async def delete_simulation(
         "Deleted arena simulation",
         extra={"simulation_id": simulation_id},
     )
+
+
+@router.get(
+    "/simulations/{simulation_id}/benchmark",
+    response_model=list[BenchmarkDataPoint],
+    status_code=status.HTTP_200_OK,
+    summary="Get Benchmark Data for Simulation Period",
+    description="Fetch SPY or QQQ price data for the simulation's date range, "
+    "normalized to cumulative return from the simulation start date.",
+    operation_id="get_benchmark_data",
+    responses={
+        404: {"description": "Simulation not found"},
+        422: {"description": "Invalid symbol (only SPY and QQQ are allowed)"},
+    },
+)
+async def get_benchmark_data(
+    simulation_id: int,
+    symbol: Literal["SPY", "QQQ"] = Query(default="SPY", description="Benchmark symbol"),
+    session: AsyncSession = Depends(get_db_session),
+    data_service: DataService = Depends(get_data_service),
+) -> list[BenchmarkDataPoint]:
+    """Fetch benchmark price data for the simulation's date range.
+
+    Returns a cumulative return series normalized to the simulation's start date:
+    cumulative_return_pct = (close - first_close) / first_close * 100
+
+    Args:
+        simulation_id: Simulation primary key
+        symbol: Benchmark symbol — either "SPY" or "QQQ"
+        session: Database session
+        data_service: Market data service (cache-first)
+
+    Returns:
+        List of BenchmarkDataPoint objects, one per trading day in the range.
+        Returns an empty list when no price data exists for the symbol.
+
+    Raises:
+        HTTPException: 404 if the simulation is not found
+        HTTPException: 422 if an unsupported symbol is requested
+    """
+    simulation = await session.get(ArenaSimulation, simulation_id)
+    if simulation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Simulation not found",
+        )
+
+    # DataService.get_price_data() takes datetime objects with UTC timezone
+    start_dt = datetime.combine(simulation.start_date, time.min, tzinfo=timezone.utc)
+    end_dt = datetime.combine(simulation.end_date, time.min, tzinfo=timezone.utc)
+
+    bars = await data_service.get_price_data(
+        symbol=symbol,
+        start_date=start_dt,
+        end_date=end_dt,
+    )
+    if not bars:
+        return []
+
+    first_close = bars[0].close_price
+    # Guard against a theoretical zero-price first bar (invalid market data).
+    # In practice this should never occur, but we handle it to avoid ZeroDivisionError.
+    if first_close == 0:
+        logger.warning(
+            "Benchmark first_close is zero for symbol %s in simulation %d — returning raw bars",
+            symbol,
+            simulation_id,
+        )
+        return [
+            BenchmarkDataPoint(
+                date=bar.timestamp.date(),
+                close=bar.close_price,
+                cumulative_return_pct=Decimal("0"),
+            )
+            for bar in bars
+        ]
+
+    return [
+        BenchmarkDataPoint(
+            date=bar.timestamp.date(),
+            close=bar.close_price,
+            cumulative_return_pct=(bar.close_price - first_close) / first_close * Decimal("100"),
+        )
+        for bar in bars
+    ]

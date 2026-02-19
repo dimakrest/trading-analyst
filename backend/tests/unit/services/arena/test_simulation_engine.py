@@ -2265,8 +2265,8 @@ class TestSimulationEngineCaching:
         assert simulation.id in engine._max_drawdown
         assert simulation.id in engine._sector_cache
 
-        # Finalize simulation
-        await engine._finalize_simulation(simulation)
+        # Finalize simulation (no closed positions — analytics will be skipped)
+        await engine._finalize_simulation(simulation, positions=[])
 
         # Verify caches are cleared
         assert simulation.id not in engine._price_cache

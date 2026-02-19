@@ -16,8 +16,13 @@ import {
 import { toast } from 'sonner';
 import { ArenaConfigPanel } from '../components/arena/ArenaConfigPanel';
 import { ArenaDecisionLog } from '../components/arena/ArenaDecisionLog';
+import { ArenaEquityChart } from '../components/arena/ArenaEquityChart';
+import { ArenaMonthlyPnl } from '../components/arena/ArenaMonthlyPnl';
 import { ArenaPortfolio } from '../components/arena/ArenaPortfolio';
+import { ArenaPortfolioComposition } from '../components/arena/ArenaPortfolioComposition';
+import { ArenaSectorBreakdown } from '../components/arena/ArenaSectorBreakdown';
 import { ArenaResultsTable } from '../components/arena/ArenaResultsTable';
+import { ArenaTradeFrequency } from '../components/arena/ArenaTradeFrequency';
 import { CancelAnalysisDialog, DeleteAnalysisDialog } from '../components/common';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -150,6 +155,11 @@ export const ArenaSimulationDetail = () => {
   // Filter positions to show those open at EOD on the selected snapshot date
   const openPositions = getPositionsForSnapshot(positions, currentSnapshot);
 
+  // Latest snapshot — fixed reference independent of the day-selector.
+  // Used by ArenaPortfolioComposition so position concentration stays stable
+  // regardless of which day the user is browsing in ArenaDecisionLog.
+  const latestSnapshot = snapshots.at(-1) ?? null;
+
   return (
     <div className="container mx-auto px-6 py-6 md:py-8 space-y-6">
       {/* Header */}
@@ -272,6 +282,48 @@ export const ArenaSimulationDetail = () => {
           onSelectSnapshot={setCurrentSnapshot}
         />
       </div>
+
+      {/* Portfolio Composition Analytics */}
+      {positions.length > 0 && (
+        <ArenaPortfolioComposition
+          positions={positions}
+          snapshot={latestSnapshot}
+          simulation={simulation}
+        />
+      )}
+
+      {/* Sector Breakdown */}
+      {positions.length > 0 && (
+        <ArenaSectorBreakdown
+          positions={positions}
+          snapshot={latestSnapshot}
+        />
+      )}
+
+      {/* Equity Curve Chart */}
+      {isComplete && snapshots.length > 0 && (
+        <Card>
+          <CardContent className="pt-6">
+            <h2 className="text-sm font-semibold mb-4">Portfolio Equity</h2>
+            <ArenaEquityChart snapshots={snapshots} simulationId={simulation.id} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Monthly P&L Heatmap + Trade Frequency */}
+      {(() => {
+        const showMonthly = isComplete && snapshots.length >= 20;
+        const showFrequency = isComplete && positions.length >= 1;
+
+        if (!showMonthly && !showFrequency) return null;
+
+        return (
+          <div className={showMonthly && showFrequency ? 'grid grid-cols-2 gap-4' : ''}>
+            {showMonthly && <ArenaMonthlyPnl snapshots={snapshots} />}
+            {showFrequency && <ArenaTradeFrequency positions={positions} />}
+          </div>
+        );
+      })()}
 
       {/* Cancel Confirmation Dialog */}
       <CancelAnalysisDialog

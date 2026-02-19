@@ -52,6 +52,12 @@ export interface Simulation {
   total_trades: number;
   winning_trades: number;
   max_drawdown_pct: string | null;
+  avg_hold_days: string | null;
+  avg_win_pnl: string | null;
+  avg_loss_pnl: string | null;
+  profit_factor: string | null;
+  sharpe_ratio: string | null;
+  total_realized_pnl: string | null;
   created_at: string;
 }
 
@@ -80,6 +86,7 @@ export interface Position {
   return_pct: string | null;
   agent_reasoning: string | null;
   agent_score: number | null;
+  sector: string | null;
 }
 
 /** Agent decision for a symbol on a given day */
