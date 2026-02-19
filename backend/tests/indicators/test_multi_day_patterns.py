@@ -120,7 +120,7 @@ class TestThreeDayPatterns:
         assert "bullish reversal" in result.explanation.lower()
 
     def test_evening_star_alignment(self):
-        """Test Evening Star is aligned for SHORT."""
+        """Test Evening Star is not aligned for LONG."""
         # Green -> Doji -> Red closing below midpoint of first
         opens = [100, 112, 110]
         highs = [112, 114, 112]
@@ -178,7 +178,7 @@ class TestThreeDayPatterns:
         assert result.aligned_for_long is True
 
     def test_three_black_crows_alignment(self):
-        """Test Three Black Crows is aligned for SHORT."""
+        """Test Three Black Crows is not aligned for LONG."""
         opens = [120, 115, 110]
         highs = [121, 116, 111]
         lows = [114, 109, 104]
@@ -217,7 +217,7 @@ class TestThreeDayPatterns:
         assert result.aligned_for_long is True
 
     def test_three_inside_down_alignment(self):
-        """Test Three Inside Down is aligned for SHORT."""
+        """Test Three Inside Down is not aligned for LONG."""
         # Day 1: Green candle
         # Day 2: Small red inside day 1
         # Day 3: Red breaks below day 1's open

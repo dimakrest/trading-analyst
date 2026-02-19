@@ -157,8 +157,8 @@ class TestDetectVolumeSignal:
         assert result.rvol == 1.5
         assert "buyers stepping in" in result.description.lower()
 
-    def test_short_aligned_higher_volume_red_candle(self):
-        """Test SHORT aligned: higher volume + red candle."""
+    def test_not_aligned_higher_volume_red_candle(self):
+        """Test not aligned for LONG: higher volume + red candle."""
         opens = [100.0, 102.0]  # Yesterday open, today open
         closes = [101.0, 100.0]  # Yesterday close, today close (RED)
         volumes = [1000000.0, 1500000.0]  # 1.5x volume

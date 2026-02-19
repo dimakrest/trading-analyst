@@ -58,7 +58,6 @@ test.describe('Live 20 History - API Contracts', () => {
       expect(run).toHaveProperty('created_at');
       expect(run).toHaveProperty('symbol_count');
       expect(run).toHaveProperty('long_count');
-      expect(run).toHaveProperty('short_count');
       expect(run).toHaveProperty('no_setup_count');
 
       // Validate types
@@ -66,7 +65,6 @@ test.describe('Live 20 History - API Contracts', () => {
       expect(typeof run.created_at).toBe('string');
       expect(typeof run.symbol_count).toBe('number');
       expect(typeof run.long_count).toBe('number');
-      expect(typeof run.short_count).toBe('number');
       expect(typeof run.no_setup_count).toBe('number');
 
       // Validate timestamp format (ISO 8601)
@@ -190,7 +188,6 @@ test.describe('Live 20 History - UI Navigation', () => {
     await expect(page.getByText(/date range/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /^all$/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /^long$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^short$/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /no setup/i })).toBeVisible();
     await expect(page.getByPlaceholder(/search by symbol/i)).toBeVisible();
   });

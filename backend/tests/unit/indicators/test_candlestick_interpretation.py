@@ -165,8 +165,8 @@ class TestInterpretPatternInContext:
             result = interpret_pattern_in_context(analysis, trend)
             assert result.aligned_for_long is True
 
-    def test_engulfing_bearish_always_aligned_for_short(self):
-        """Bearish Engulfing should always be aligned for SHORT."""
+    def test_engulfing_bearish_never_aligned_for_long(self):
+        """Bearish Engulfing should never be aligned for LONG."""
         analysis = CandleAnalysis(
             raw_pattern=CandlePattern.ENGULFING_BEARISH,
             candle_type=CandleType.RED,

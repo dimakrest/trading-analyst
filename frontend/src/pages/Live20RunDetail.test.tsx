@@ -237,7 +237,6 @@ describe('Live20RunDetail', () => {
       const longButton = screen.getByRole('button', { name: /Long/ });
       expect(longButton).toBeInTheDocument();
 
-
       // Multiple "No Setup" buttons may exist (one in filters, one label in summary)
       const noSetupButtons = screen.getAllByRole('button', { name: /No Setup/ });
       expect(noSetupButtons.length).toBeGreaterThan(0);

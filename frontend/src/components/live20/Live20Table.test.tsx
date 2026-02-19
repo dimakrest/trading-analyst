@@ -309,7 +309,6 @@ describe('Live20Table', () => {
       expect(badge).toHaveClass('bg-[var(--signal-long-muted)]');
     });
 
-
     it('displays NO SETUP badge with neutral styling', () => {
       const result = createMockResult({ direction: 'NO_SETUP', recommendation: 'NO_SETUP' });
       render(<Live20Table results={[result]} />);

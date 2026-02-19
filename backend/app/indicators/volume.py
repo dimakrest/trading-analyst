@@ -71,9 +71,9 @@ def detect_volume_signal(
     """Detect volume signal by comparing today's volume to yesterday's.
 
     Simple conviction check:
-    - LONG: Today's volume > yesterday's AND green candle (buyers stepping in)
-    - SHORT: Today's volume > yesterday's AND red candle (sellers stepping in)
-    - No alignment: Volume not higher (no conviction)
+    - Aligned for LONG: Today's volume > yesterday's AND green candle (buyers stepping in)
+    - Not aligned: Today's volume > yesterday's AND red candle (sellers stepping in)
+    - Not aligned: Volume not higher (no conviction)
 
     Uses a simplified volume ratio (today/yesterday) rather than traditional
     RVOL (current/10-day average) for faster conviction detection.

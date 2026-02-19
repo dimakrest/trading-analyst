@@ -117,7 +117,6 @@ export function Live20Filters({
           label="Long"
           onClick={() => onDirectionChange('LONG')}
         />
-
         <FilterButton
           active={directionFilter === 'NO_SETUP'}
           variant="none"

@@ -168,7 +168,6 @@ export function Live20HistoryTab() {
               >
                 Long
               </button>
-
               <button
                 type="button"
                 onClick={() => setDirectionFilter('NO_SETUP')}
@@ -248,7 +247,6 @@ export function Live20HistoryTab() {
                     <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-[var(--signal-long)] px-5 py-3">
                       Long
                     </th>
-
                     <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-text-muted px-5 py-3">
                       No Setup
                     </th>
@@ -311,7 +309,6 @@ export function Live20HistoryTab() {
                       <td className="px-5 py-4 whitespace-nowrap font-mono text-[13px] font-semibold text-[var(--signal-long)]">
                         {run.long_count}
                       </td>
-
                       <td className="px-5 py-4 whitespace-nowrap font-mono text-[13px] text-text-muted">
                         {run.no_setup_count}
                       </td>
