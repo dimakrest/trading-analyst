@@ -38,7 +38,6 @@ class TwoCandleAnalysis:
 
     pattern: TwoCandlePattern
     aligned_for_long: bool
-    aligned_for_short: bool
     explanation: str
 
 
@@ -103,7 +102,6 @@ def analyze_two_candles(
             return TwoCandleAnalysis(
                 pattern=TwoCandlePattern.PIERCING_LINE,
                 aligned_for_long=True,
-                aligned_for_short=False,
                 explanation="Piercing Line (2-day) - bullish reversal, buyers pushed price above midpoint",
             )
 
@@ -113,7 +111,6 @@ def analyze_two_candles(
             return TwoCandleAnalysis(
                 pattern=TwoCandlePattern.DARK_CLOUD_COVER,
                 aligned_for_long=False,
-                aligned_for_short=True,
                 explanation="Dark Cloud Cover (2-day) - bearish reversal, sellers pushed price below midpoint",
             )
 
@@ -125,7 +122,6 @@ def analyze_two_candles(
                 return TwoCandleAnalysis(
                     pattern=TwoCandlePattern.BULLISH_HARAMI,
                     aligned_for_long=True,
-                    aligned_for_short=False,
                     explanation="Bullish Harami (2-day) - small green inside large red, potential reversal",
                 )
 
@@ -137,7 +133,6 @@ def analyze_two_candles(
                 return TwoCandleAnalysis(
                     pattern=TwoCandlePattern.BEARISH_HARAMI,
                     aligned_for_long=False,
-                    aligned_for_short=True,
                     explanation="Bearish Harami (2-day) - small red inside large green, potential reversal",
                 )
 
@@ -149,7 +144,6 @@ def analyze_two_candles(
             return TwoCandleAnalysis(
                 pattern=TwoCandlePattern.TWEEZER_BOTTOMS,
                 aligned_for_long=True,
-                aligned_for_short=False,
                 explanation="Tweezer Bottoms (2-day) - matching lows show strong support, bullish reversal",
             )
 
@@ -161,13 +155,11 @@ def analyze_two_candles(
             return TwoCandleAnalysis(
                 pattern=TwoCandlePattern.TWEEZER_TOPS,
                 aligned_for_long=False,
-                aligned_for_short=True,
                 explanation="Tweezer Tops (2-day) - matching highs show strong resistance, bearish reversal",
             )
 
     return TwoCandleAnalysis(
         pattern=TwoCandlePattern.NONE,
         aligned_for_long=False,
-        aligned_for_short=False,
         explanation="",
     )

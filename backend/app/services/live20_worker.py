@@ -70,11 +70,6 @@ class Live20Worker(JobWorker[Live20Run]):
                 for rec in run.recommendations
                 if rec.live20_direction == Live20Direction.LONG
             )
-            short_count = sum(
-                1
-                for rec in run.recommendations
-                if rec.live20_direction == Live20Direction.SHORT
-            )
             no_setup_count = sum(
                 1
                 for rec in run.recommendations
@@ -82,7 +77,6 @@ class Live20Worker(JobWorker[Live20Run]):
             )
         else:
             long_count = 0
-            short_count = 0
             no_setup_count = 0
         failed_symbols: dict[str, str] = dict(run.failed_symbols or {})
 
@@ -129,8 +123,6 @@ class Live20Worker(JobWorker[Live20Run]):
                     direction = result.recommendation.live20_direction
                     if direction == Live20Direction.LONG:
                         long_count += 1
-                    elif direction == Live20Direction.SHORT:
-                        short_count += 1
                     else:
                         no_setup_count += 1
 
@@ -172,7 +164,6 @@ class Live20Worker(JobWorker[Live20Run]):
                 .where(Live20Run.id == run.id)
                 .values(
                     long_count=long_count,
-                    short_count=short_count,
                     no_setup_count=no_setup_count,
                     failed_symbols=failed_symbols if failed_symbols else None,
                 )
@@ -182,6 +173,6 @@ class Live20Worker(JobWorker[Live20Run]):
         failed_count = len(failed_symbols)
         logger.info(
             f"[{worker_id}] Run {run.id} completed: "
-            f"LONG={long_count}, SHORT={short_count}, NO_SETUP={no_setup_count}, "
+            f"LONG={long_count}, NO_SETUP={no_setup_count}, "
             f"FAILED={failed_count}"
         )

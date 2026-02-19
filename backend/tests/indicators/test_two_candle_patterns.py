@@ -27,7 +27,6 @@ class TestPiercingLine:
 
         assert result.pattern == TwoCandlePattern.PIERCING_LINE
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
         assert "bullish reversal" in result.explanation.lower()
 
     def test_piercing_line_requires_close_above_midpoint(self):
@@ -92,7 +91,6 @@ class TestDarkCloudCover:
 
         assert result.pattern == TwoCandlePattern.DARK_CLOUD_COVER
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
         assert "bearish reversal" in result.explanation.lower()
 
     def test_dark_cloud_cover_requires_close_below_midpoint(self):
@@ -157,7 +155,6 @@ class TestHaramiPatterns:
 
         assert result.pattern == TwoCandlePattern.BULLISH_HARAMI
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
 
     def test_bearish_harami_detection(self):
         """Test bearish harami detection."""
@@ -172,7 +169,6 @@ class TestHaramiPatterns:
 
         assert result.pattern == TwoCandlePattern.BEARISH_HARAMI
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
 
     def test_bullish_harami_requires_smaller_body(self):
         """Test that harami requires second body to be smaller."""
@@ -238,7 +234,6 @@ class TestTweezerPatterns:
 
         assert result.pattern == TwoCandlePattern.TWEEZER_BOTTOMS
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
 
     def test_tweezer_tops_detection(self):
         """Test tweezer tops detection."""
@@ -257,7 +252,6 @@ class TestTweezerPatterns:
 
         assert result.pattern == TwoCandlePattern.TWEEZER_TOPS
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
 
     def test_tweezer_bottoms_requires_tolerance(self):
         """Test that lows must be within tolerance."""
@@ -372,7 +366,6 @@ class TestEdgeCases:
 
         assert result.pattern == TwoCandlePattern.NONE
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
         assert result.explanation == ""
 
     def test_accepts_numpy_arrays(self):
@@ -442,13 +435,11 @@ class TestTwoCandleAnalysisDataclass:
         analysis = TwoCandleAnalysis(
             pattern=TwoCandlePattern.PIERCING_LINE,
             aligned_for_long=True,
-            aligned_for_short=False,
             explanation="Test explanation",
         )
 
         assert analysis.pattern == TwoCandlePattern.PIERCING_LINE
         assert analysis.aligned_for_long is True
-        assert analysis.aligned_for_short is False
         assert analysis.explanation == "Test explanation"
 
 

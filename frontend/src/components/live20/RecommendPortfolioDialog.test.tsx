@@ -27,7 +27,7 @@ const mockResponse: PortfolioRecommendResponse = {
   items: [
     { symbol: 'AAPL', score: 85, direction: 'LONG', sector: 'Technology', atr_pct: 2.1 },
     { symbol: 'MSFT', score: 80, direction: 'LONG', sector: 'Technology', atr_pct: 2.5 },
-    { symbol: 'XOM', score: 75, direction: 'SHORT', sector: 'Energy', atr_pct: 3.2 },
+    { symbol: 'XOM', score: 75, direction: 'LONG', sector: 'Energy', atr_pct: 3.2 },
   ],
   total_qualifying: 10,
   total_selected: 3,
@@ -264,8 +264,7 @@ describe('RecommendPortfolioDialog', () => {
 
       await waitFor(() => {
         // Directions
-        expect(screen.getAllByText('LONG')).toHaveLength(2);
-        expect(screen.getByText('SHORT')).toBeInTheDocument();
+        expect(screen.getAllByText('LONG')).toHaveLength(3);
         // Scores
         expect(screen.getByText('85')).toBeInTheDocument();
         expect(screen.getByText('80')).toBeInTheDocument();
@@ -459,48 +458,6 @@ describe('RecommendPortfolioDialog', () => {
         });
         expect(button).not.toBeDisabled();
       });
-    });
-  });
-
-  describe('Direction filter', () => {
-    it('renders direction checkboxes with Long checked by default', () => {
-      renderDialog();
-
-      const longCheckbox = screen.getByRole('checkbox', { name: /long/i });
-      const shortCheckbox = screen.getByRole('checkbox', { name: /short/i });
-
-      expect(longCheckbox).toBeChecked();
-      expect(shortCheckbox).not.toBeChecked();
-    });
-
-    it('disables button when no directions selected', async () => {
-      const user = userEvent.setup();
-      renderDialog();
-
-      // Uncheck Long (the only checked one)
-      const longCheckbox = screen.getByRole('checkbox', { name: /long/i });
-      await user.click(longCheckbox);
-
-      const button = screen.getByRole('button', { name: /get recommendations/i });
-      expect(button).toBeDisabled();
-    });
-
-    it('passes both directions when both checked', async () => {
-      const user = userEvent.setup();
-      mockRecommendPortfolio.mockResolvedValue(mockResponse);
-
-      renderDialog();
-
-      // Check Short
-      const shortCheckbox = screen.getByRole('checkbox', { name: /short/i });
-      await user.click(shortCheckbox);
-
-      await user.click(
-        screen.getByRole('button', { name: /get recommendations/i })
-      );
-
-      const callArgs = mockRecommendPortfolio.mock.calls[0][1];
-      expect(callArgs.directions).toEqual(['LONG', 'SHORT']);
     });
   });
 });

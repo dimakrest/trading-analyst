@@ -137,35 +137,18 @@ class Live20Service:
                 # Common Live 20 specific fields
                 live20_scoring_algorithm=self._scoring_algorithm.value,
                 live20_trend_direction=criteria[0].value,
-                live20_trend_aligned=(
-                    (direction == Live20Direction.LONG and criteria[0].aligned_for_long)
-                    or (direction == Live20Direction.SHORT and criteria[0].aligned_for_short)
-                ),
+                live20_trend_aligned=criteria[0].aligned_for_long,
                 live20_ma20_distance_pct=Decimal(str(self._evaluator.get_ma20_distance(closes))),
-                live20_ma20_aligned=(
-                    (direction == Live20Direction.LONG and criteria[1].aligned_for_long)
-                    or (direction == Live20Direction.SHORT and criteria[1].aligned_for_short)
-                ),
+                live20_ma20_aligned=criteria[1].aligned_for_long,
                 live20_candle_pattern=criteria[2].value,
                 live20_candle_bullish=closes[-1] > opens[-1],  # Green candle if close > open
-                live20_candle_aligned=(
-                    (direction == Live20Direction.LONG and criteria[2].aligned_for_long)
-                    or (direction == Live20Direction.SHORT and criteria[2].aligned_for_short)
-                ),
+                live20_candle_aligned=criteria[2].aligned_for_long,
                 live20_candle_explanation=candle_explanation,
-                live20_volume_aligned=(
-                    (direction == Live20Direction.LONG and criteria[3].aligned_for_long)
-                    or (direction == Live20Direction.SHORT and criteria[3].aligned_for_short)
-                ),
+                live20_volume_aligned=criteria[3].aligned_for_long,
                 live20_volume_approach=volume_signal.approach.value,
                 live20_atr=Decimal(str(round(atr_percentage, 4))) if atr_percentage is not None else None,
                 live20_rvol=Decimal(str(volume_signal.rvol)) if math.isfinite(volume_signal.rvol) else None,
-                live20_criteria_aligned=sum(
-                    1
-                    for c in criteria
-                    if (direction == Live20Direction.LONG and c.aligned_for_long)
-                    or (direction == Live20Direction.SHORT and c.aligned_for_short)
-                ),
+                live20_criteria_aligned=sum(1 for c in criteria if c.aligned_for_long),
                 live20_direction=direction,
                 live20_sector_etf=sector_etf,
             )
@@ -182,30 +165,12 @@ class Live20Service:
                 )
                 if momentum_criterion is None:
                     raise ValueError("Momentum criterion not found in criteria list")
-                recommendation.live20_cci_aligned = (
-                    (direction == Live20Direction.LONG and momentum_criterion.aligned_for_long)
-                    or (direction == Live20Direction.SHORT and momentum_criterion.aligned_for_short)
-                )
+                recommendation.live20_cci_aligned = momentum_criterion.aligned_for_long
                 # RSI-2 fields stay NULL
             elif isinstance(momentum_analysis, RSI2Analysis):
                 recommendation.live20_rsi2_value = Decimal(str(momentum_analysis.value))
-                # Store direction-appropriate score (mirrors CCI's direction-aware aligned field)
-                if direction == Live20Direction.LONG:
-                    recommendation.live20_rsi2_score = momentum_analysis.long_score
-                elif direction == Live20Direction.SHORT:
-                    recommendation.live20_rsi2_score = momentum_analysis.short_score
-                else:
-                    # NO_SETUP: store the higher score (matches determine_direction_and_score logic)
-                    recommendation.live20_rsi2_score = max(
-                        momentum_analysis.long_score, momentum_analysis.short_score
-                    )
+                recommendation.live20_rsi2_score = momentum_analysis.long_score
                 # CCI fields stay NULL (no phantom alignment data)
-
-            # NOTE: Storing only a single rsi2_score loses directional information.
-            # For RSI-2 with graduated scoring, we could store both live20_rsi2_long_score
-            # and live20_rsi2_short_score to preserve full context, similar to CCI's
-            # separate direction/zone/aligned fields. Current design stores only the
-            # direction-appropriate score. This is a known limitation - see ticket for details.
 
             # Save to database using separate short-lived session
             async with self.session_factory() as session:

@@ -83,13 +83,9 @@ export function RecommendPortfolioDialog({
   const [maxPerSector, setMaxPerSector] = useState<string>('2');
   const [maxPositions, setMaxPositions] = useState<string>('');
   const [includeLong, setIncludeLong] = useState(true);
-  const [includeShort, setIncludeShort] = useState(false);
 
   // Derived directions list
-  const directions = [
-    ...(includeLong ? ['LONG'] : []),
-    ...(includeShort ? ['SHORT'] : []),
-  ];
+  const directions = includeLong ? ['LONG'] : [];
 
   // Request state
   const [isLoading, setIsLoading] = useState(false);
@@ -233,11 +229,7 @@ export function RecommendPortfolioDialog({
                   checked={includeLong} onChange={(e) => setIncludeLong(e.target.checked)} />
                 Long
               </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                <input type="checkbox" className="h-4 w-4 rounded border-gray-300"
-                  checked={includeShort} onChange={(e) => setIncludeShort(e.target.checked)} />
-                Short
-              </label>
+
             </div>
           </div>
 

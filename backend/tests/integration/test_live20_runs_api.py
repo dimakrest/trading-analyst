@@ -30,15 +30,14 @@ pytestmark = pytest.mark.integration
 async def sample_run_with_recommendations(db_session: AsyncSession) -> Live20Run:
     """Create a sample Live20Run with linked recommendations for testing.
 
-    Creates a run with three symbols (AAPL, MSFT, GOOGL) and one recommendation
-    for each direction (LONG, SHORT, NO_SETUP) to facilitate filtering tests.
+    Creates a run with three symbols (AAPL, MSFT, GOOGL) and recommendations
+    for LONG and NO_SETUP directions to facilitate filtering tests.
     """
     # Create run with counts matching recommendations
     run = Live20Run(
         input_symbols=["AAPL", "MSFT", "GOOGL"],
         symbol_count=3,
-        long_count=1,
-        short_count=1,
+        long_count=2,
         no_setup_count=1,
         status="completed",
         processed_count=3,
@@ -46,7 +45,7 @@ async def sample_run_with_recommendations(db_session: AsyncSession) -> Live20Run
     db_session.add(run)
     await db_session.flush()
 
-    # Create one recommendation for each direction
+    # Create recommendations for LONG and NO_SETUP directions
     recommendations = [
         Recommendation(
             stock="AAPL",
@@ -62,12 +61,12 @@ async def sample_run_with_recommendations(db_session: AsyncSession) -> Live20Run
         Recommendation(
             stock="MSFT",
             source=RecommendationSource.LIVE_20.value,
-            recommendation="SHORT",
+            recommendation="LONG",
             confidence_score=60,
             reasoning="Live 20 mean reversion analysis",
             live20_atr=Decimal("10.0000"),
             live20_rvol=Decimal("0.90"),
-            live20_direction="SHORT",
+            live20_direction="LONG",
             live20_run_id=run.id,
         ),
         Recommendation(
@@ -181,8 +180,7 @@ async def test_list_runs_with_data(async_client: AsyncClient, sample_run_with_re
     assert run["status"] == "completed"
     assert run["symbol_count"] == 3
     assert run["processed_count"] == 3
-    assert run["long_count"] == 1
-    assert run["short_count"] == 1
+    assert run["long_count"] == 2
     assert run["no_setup_count"] == 1
     assert "created_at" in run
 
@@ -196,7 +194,6 @@ async def test_list_runs_pagination(async_client: AsyncClient, db_session: Async
             input_symbols=["SYM1", "SYM2"],
             symbol_count=2,
             long_count=1,
-            short_count=0,
             no_setup_count=1,
         )
         db_session.add(run)
@@ -232,16 +229,14 @@ async def test_list_runs_filter_by_direction_long(async_client: AsyncClient, db_
         input_symbols=["AAPL"],
         symbol_count=1,
         long_count=1,
-        short_count=0,
         no_setup_count=0,
     )
-    # Create run with SHORT only
+    # Create run with NO_SETUP only
     run2 = Live20Run(
         input_symbols=["TSLA"],
         symbol_count=1,
         long_count=0,
-        short_count=1,
-        no_setup_count=0,
+        no_setup_count=1,
     )
     db_session.add(run1)
     db_session.add(run2)
@@ -257,54 +252,20 @@ async def test_list_runs_filter_by_direction_long(async_client: AsyncClient, db_
 
 
 @pytest.mark.asyncio
-async def test_list_runs_filter_by_direction_short(async_client: AsyncClient, db_session: AsyncSession):
-    """Test GET /runs?has_direction=SHORT filters correctly."""
-    # Create run with SHORT
-    run1 = Live20Run(
-        input_symbols=["TSLA"],
-        symbol_count=1,
-        long_count=0,
-        short_count=1,
-        no_setup_count=0,
-    )
-    # Create run with LONG only
-    run2 = Live20Run(
-        input_symbols=["AAPL"],
-        symbol_count=1,
-        long_count=1,
-        short_count=0,
-        no_setup_count=0,
-    )
-    db_session.add(run1)
-    db_session.add(run2)
-    await db_session.commit()
-
-    response = await async_client.get("/api/v1/live-20/runs?has_direction=SHORT")
-    assert response.status_code == 200
-    data = response.json()
-
-    # Should only return run1
-    assert data["total"] == 1
-    assert data["items"][0]["short_count"] > 0
-
-
-@pytest.mark.asyncio
 async def test_list_runs_filter_by_symbol(async_client: AsyncClient, db_session: AsyncSession):
     """Test GET /runs?symbol=AAPL filters correctly."""
     # Create run with AAPL
     run1 = Live20Run(
         input_symbols=["AAPL", "MSFT"],
         symbol_count=2,
-        long_count=1,
-        short_count=1,
+        long_count=2,
         no_setup_count=0,
     )
     # Create run without AAPL
     run2 = Live20Run(
         input_symbols=["TSLA", "GOOGL"],
         symbol_count=2,
-        long_count=1,
-        short_count=1,
+        long_count=2,
         no_setup_count=0,
     )
     db_session.add(run1)
@@ -330,7 +291,6 @@ async def test_list_runs_filter_by_date_range(async_client: AsyncClient, db_sess
         input_symbols=["AAPL"],
         symbol_count=1,
         long_count=1,
-        short_count=0,
         no_setup_count=0,
     )
     run1.created_at = yesterday
@@ -342,8 +302,7 @@ async def test_list_runs_filter_by_date_range(async_client: AsyncClient, db_sess
         input_symbols=["TSLA"],
         symbol_count=1,
         long_count=0,
-        short_count=1,
-        no_setup_count=0,
+        no_setup_count=1,
     )
     db_session.add(run2)
     await db_session.commit()
@@ -374,8 +333,7 @@ async def test_get_run_details(async_client: AsyncClient, sample_run_with_recomm
     assert data["status"] == "completed"
     assert data["symbol_count"] == 3
     assert data["processed_count"] == 3
-    assert data["long_count"] == 1
-    assert data["short_count"] == 1
+    assert data["long_count"] == 2
     assert data["no_setup_count"] == 1
     assert data["input_symbols"] == ["AAPL", "MSFT", "GOOGL"]
 
@@ -411,7 +369,6 @@ async def test_get_run_soft_deleted(async_client: AsyncClient, db_session: Async
         input_symbols=["AAPL"],
         symbol_count=1,
         long_count=1,
-        short_count=0,
         no_setup_count=0,
     )
     run.deleted_at = datetime.now(timezone.utc)
@@ -453,7 +410,6 @@ async def test_list_runs_excludes_soft_deleted(async_client: AsyncClient, db_ses
         input_symbols=["AAPL"],
         symbol_count=1,
         long_count=1,
-        short_count=0,
         no_setup_count=0,
     )
     # Create soft-deleted run
@@ -461,8 +417,7 @@ async def test_list_runs_excludes_soft_deleted(async_client: AsyncClient, db_ses
         input_symbols=["TSLA"],
         symbol_count=1,
         long_count=0,
-        short_count=1,
-        no_setup_count=0,
+        no_setup_count=1,
     )
     run2.deleted_at = datetime.now(timezone.utc)
 
@@ -493,7 +448,7 @@ async def test_list_runs_validation_errors(async_client: AsyncClient):
     response = await async_client.get("/api/v1/live-20/runs?offset=-1")
     assert response.status_code == 422
 
-    # Invalid has_direction (not one of LONG/SHORT/NO_SETUP)
+    # Invalid has_direction (not one of LONG/NO_SETUP)
     response = await async_client.get("/api/v1/live-20/runs?has_direction=INVALID")
     assert response.status_code == 422
 
@@ -507,8 +462,7 @@ async def test_get_run_details_includes_failed_symbols(
     run = Live20Run(
         input_symbols=["AAPL", "MSFT", "INVALID"],
         symbol_count=3,
-        long_count=1,
-        short_count=1,
+        long_count=2,
         no_setup_count=0,
         status="completed",
         processed_count=3,
@@ -553,7 +507,6 @@ async def test_get_run_details_multiple_failed_symbols(
         input_symbols=["AAPL", "INVALID1", "INVALID2", "INVALID3"],
         symbol_count=4,
         long_count=1,
-        short_count=0,
         no_setup_count=0,
         status="completed",
         processed_count=4,
@@ -588,7 +541,6 @@ async def test_list_runs_includes_failed_count(
         input_symbols=["AAPL", "INVALID1", "INVALID2"],
         symbol_count=3,
         long_count=1,
-        short_count=0,
         no_setup_count=0,
         status="completed",
         processed_count=3,

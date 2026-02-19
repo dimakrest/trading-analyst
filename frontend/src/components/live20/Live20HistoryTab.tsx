@@ -10,7 +10,7 @@ import { listRuns, type ListRunsParams } from '../../services/live20Service';
 const PAGE_SIZE = 20;
 
 type DateRange = '7days' | '30days' | 'all';
-type DirectionFilter = 'all' | 'LONG' | 'SHORT' | 'NO_SETUP';
+type DirectionFilter = 'all' | 'LONG' | 'NO_SETUP';
 
 /**
  * Live 20 History Tab
@@ -168,17 +168,7 @@ export function Live20HistoryTab() {
               >
                 Long
               </button>
-              <button
-                type="button"
-                onClick={() => setDirectionFilter('SHORT')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  directionFilter === 'SHORT'
-                    ? 'bg-[var(--signal-short-muted)] text-[var(--signal-short)]'
-                    : 'text-text-muted hover:text-text-primary'
-                }`}
-              >
-                Short
-              </button>
+
               <button
                 type="button"
                 onClick={() => setDirectionFilter('NO_SETUP')}
@@ -258,9 +248,7 @@ export function Live20HistoryTab() {
                     <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-[var(--signal-long)] px-5 py-3">
                       Long
                     </th>
-                    <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-[var(--signal-short)] px-5 py-3">
-                      Short
-                    </th>
+
                     <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-text-muted px-5 py-3">
                       No Setup
                     </th>
@@ -323,9 +311,7 @@ export function Live20HistoryTab() {
                       <td className="px-5 py-4 whitespace-nowrap font-mono text-[13px] font-semibold text-[var(--signal-long)]">
                         {run.long_count}
                       </td>
-                      <td className="px-5 py-4 whitespace-nowrap font-mono text-[13px] font-semibold text-[var(--signal-short)]">
-                        {run.short_count}
-                      </td>
+
                       <td className="px-5 py-4 whitespace-nowrap font-mono text-[13px] text-text-muted">
                         {run.no_setup_count}
                       </td>

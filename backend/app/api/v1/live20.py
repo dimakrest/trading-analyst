@@ -128,9 +128,9 @@ async def analyze_symbols(
     },
 )
 async def get_results(
-    direction: Literal["LONG", "SHORT", "NO_SETUP"] | None = Query(
+    direction: Literal["LONG", "NO_SETUP"] | None = Query(
         None,
-        description="Filter by direction: LONG, SHORT, or NO_SETUP",
+        description="Filter by direction: LONG or NO_SETUP",
     ),
     min_score: int = Query(0, ge=0, le=100, description="Minimum score filter (0-100)"),
     limit: int = Query(100, ge=1, le=500, description="Maximum results to return"),
@@ -139,7 +139,7 @@ async def get_results(
     """Get Live 20 results with filtering.
 
     Returns most recent Live 20 analysis results ordered by created_at descending.
-    Optionally filter by direction (LONG/SHORT/NO_SETUP) and minimum score.
+    Optionally filter by direction (LONG/NO_SETUP) and minimum score.
 
     Args:
         direction: Optional filter by direction
@@ -187,7 +187,6 @@ async def get_results(
         total=len(recommendations),
         counts={
             "long": counts_raw.get("LONG", 0),
-            "short": counts_raw.get("SHORT", 0),
             "no_setup": counts_raw.get("NO_SETUP", 0),
         },
     )
@@ -209,7 +208,7 @@ async def list_runs(
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     date_from: datetime | None = Query(None, description="Filter runs created on or after this date"),
     date_to: datetime | None = Query(None, description="Filter runs created on or before this date"),
-    has_direction: Literal["LONG", "SHORT", "NO_SETUP"] | None = Query(
+    has_direction: Literal["LONG", "NO_SETUP"] | None = Query(
         None, description="Filter runs that have at least one result of this direction"
     ),
     symbol: str | None = Query(None, description="Filter runs that analyzed this symbol"),
@@ -292,7 +291,6 @@ async def get_run(
         symbol_count=run.symbol_count,
         processed_count=run.processed_count,
         long_count=run.long_count,
-        short_count=run.short_count,
         no_setup_count=run.no_setup_count,
         input_symbols=run.input_symbols,
         stock_list_id=run.stock_list_id,

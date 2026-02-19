@@ -40,27 +40,25 @@ class MultiDayPatternResult:
         pattern_name: Human-readable pattern name (e.g., "morning_star", "hammer")
         duration: Pattern duration (1-day, 2-day, 3-day)
         aligned_for_long: Whether pattern supports LONG mean reversion setup
-        aligned_for_short: Whether pattern supports SHORT mean reversion setup
         explanation: Human-readable explanation for UI tooltips
     """
 
     pattern_name: str
     duration: PatternDuration
     aligned_for_long: bool
-    aligned_for_short: bool
     explanation: str
 
 
-# Mapping of 3-candle patterns to alignment
+# Mapping of 3-candle patterns to alignment: (aligned_for_long, explanation)
 THREE_CANDLE_ALIGNMENT = {
-    ThreeCandlePattern.MORNING_STAR: (True, False, "Morning Star (3-day) - classic bullish reversal"),
-    ThreeCandlePattern.EVENING_STAR: (False, True, "Evening Star (3-day) - classic bearish reversal"),
-    ThreeCandlePattern.THREE_WHITE_SOLDIERS: (True, False, "Three White Soldiers (3-day) - strong bullish momentum"),
-    ThreeCandlePattern.THREE_BLACK_CROWS: (False, True, "Three Black Crows (3-day) - strong bearish momentum"),
-    ThreeCandlePattern.THREE_INSIDE_UP: (True, False, "Three Inside Up (3-day) - bullish breakout from consolidation"),
-    ThreeCandlePattern.THREE_INSIDE_DOWN: (False, True, "Three Inside Down (3-day) - bearish breakout from consolidation"),
+    ThreeCandlePattern.MORNING_STAR: (True, "Morning Star (3-day) - classic bullish reversal"),
+    ThreeCandlePattern.EVENING_STAR: (False, "Evening Star (3-day) - classic bearish reversal"),
+    ThreeCandlePattern.THREE_WHITE_SOLDIERS: (True, "Three White Soldiers (3-day) - strong bullish momentum"),
+    ThreeCandlePattern.THREE_BLACK_CROWS: (False, "Three Black Crows (3-day) - strong bearish momentum"),
+    ThreeCandlePattern.THREE_INSIDE_UP: (True, "Three Inside Up (3-day) - bullish breakout from consolidation"),
+    ThreeCandlePattern.THREE_INSIDE_DOWN: (False, "Three Inside Down (3-day) - bearish breakout from consolidation"),
     # HIGH_TIGHT_FLAG is bullish continuation, NOT reversal - don't align for mean reversion
-    ThreeCandlePattern.HIGH_TIGHT_FLAG: (False, False, "High Tight Flag (3-day) - bullish continuation, not reversal"),
+    ThreeCandlePattern.HIGH_TIGHT_FLAG: (False, "High Tight Flag (3-day) - bullish continuation, not reversal"),
 }
 
 
@@ -96,15 +94,14 @@ def analyze_multi_day_patterns(
     if len(opens) >= 3:
         three_day = analyze_three_candles(opens, highs, lows, closes)
         if three_day.pattern != ThreeCandlePattern.NONE:
-            aligned_long, aligned_short, explanation = THREE_CANDLE_ALIGNMENT.get(
+            aligned_long, explanation = THREE_CANDLE_ALIGNMENT.get(
                 three_day.pattern,
-                (False, False, f"{three_day.pattern.value} (3-day)"),
+                (False, f"{three_day.pattern.value} (3-day)"),
             )
             return MultiDayPatternResult(
                 pattern_name=three_day.pattern.value,
                 duration=PatternDuration.THREE_DAY,
                 aligned_for_long=aligned_long,
-                aligned_for_short=aligned_short,
                 explanation=explanation,
             )
 
@@ -116,7 +113,6 @@ def analyze_multi_day_patterns(
                 pattern_name=two_day.pattern.value,
                 duration=PatternDuration.TWO_DAY,
                 aligned_for_long=two_day.aligned_for_long,
-                aligned_for_short=two_day.aligned_for_short,
                 explanation=two_day.explanation,
             )
 
@@ -129,7 +125,6 @@ def analyze_multi_day_patterns(
             pattern_name=interpretation.interpreted_pattern.value,
             duration=PatternDuration.ONE_DAY,
             aligned_for_long=interpretation.aligned_for_long,
-            aligned_for_short=interpretation.aligned_for_short,
             explanation=interpretation.explanation,
         )
 
@@ -138,6 +133,5 @@ def analyze_multi_day_patterns(
         pattern_name="none",
         duration=PatternDuration.ONE_DAY,
         aligned_for_long=False,
-        aligned_for_short=False,
         explanation="Insufficient data for pattern analysis",
     )

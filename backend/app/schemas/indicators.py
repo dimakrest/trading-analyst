@@ -109,7 +109,6 @@ class IndicatorAnalysisResponse(StrictBaseModel):
                             "zone": "oversold",
                             "direction": "rising",
                             "aligned_for_long": True,
-                            "aligned_for_short": False,
                         },
                     },
                 }

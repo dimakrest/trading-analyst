@@ -35,7 +35,6 @@ const mockRuns: Live20RunListResponse = {
       symbol_count: 45,
       processed_count: 45,
       long_count: 12,
-      short_count: 8,
       no_setup_count: 25,
       stock_list_id: null,
       stock_list_name: null,
@@ -47,7 +46,6 @@ const mockRuns: Live20RunListResponse = {
       symbol_count: 38,
       processed_count: 38,
       long_count: 9,
-      short_count: 11,
       no_setup_count: 18,
       stock_list_id: null,
       stock_list_name: null,
@@ -83,23 +81,20 @@ describe('Live20HistoryTab', () => {
 
     // Check column headers by role
     const columnHeaders = screen.getAllByRole('columnheader');
-    expect(columnHeaders).toHaveLength(6); // Date, Symbols, Long, Short, No Setup, and chevron column
+    expect(columnHeaders).toHaveLength(5); // Date, Symbols, Long, No Setup, and chevron column
     expect(columnHeaders[0]).toHaveTextContent(/date.*time/i);
     expect(columnHeaders[1]).toHaveTextContent(/symbols/i);
     expect(columnHeaders[2]).toHaveTextContent(/long/i);
-    expect(columnHeaders[3]).toHaveTextContent(/short/i);
-    expect(columnHeaders[4]).toHaveTextContent(/no setup/i);
+    expect(columnHeaders[3]).toHaveTextContent(/no setup/i);
 
     // Check first run data
     expect(screen.getByText('45')).toBeInTheDocument(); // symbol_count
     expect(screen.getByText('12')).toBeInTheDocument(); // long_count
-    expect(screen.getByText('8')).toBeInTheDocument(); // short_count
     expect(screen.getByText('25')).toBeInTheDocument(); // no_setup_count
 
     // Check second run data
     expect(screen.getByText('38')).toBeInTheDocument();
     expect(screen.getByText('9')).toBeInTheDocument();
-    expect(screen.getByText('11')).toBeInTheDocument();
     expect(screen.getByText('18')).toBeInTheDocument();
   });
 
@@ -230,8 +225,7 @@ describe('Live20HistoryTab', () => {
         symbol_count: 10,
         processed_count: 10,
         long_count: 3,
-        short_count: 2,
-        no_setup_count: 5,
+          no_setup_count: 5,
         stock_list_id: null,
         stock_list_name: null,
       })),
@@ -271,8 +265,7 @@ describe('Live20HistoryTab', () => {
         symbol_count: 10,
         processed_count: 10,
         long_count: 3,
-        short_count: 2,
-        no_setup_count: 5,
+          no_setup_count: 5,
         stock_list_id: null,
         stock_list_name: null,
       })),
@@ -345,8 +338,7 @@ describe('Live20HistoryTab', () => {
         symbol_count: 10,
         processed_count: 10,
         long_count: 3,
-        short_count: 2,
-        no_setup_count: 5,
+          no_setup_count: 5,
         stock_list_id: null,
         stock_list_name: null,
       })),
@@ -375,8 +367,7 @@ describe('Live20HistoryTab', () => {
         symbol_count: 10,
         processed_count: 10,
         long_count: 3,
-        short_count: 2,
-        no_setup_count: 5,
+          no_setup_count: 5,
         stock_list_id: null,
         stock_list_name: null,
       })),
@@ -426,8 +417,7 @@ describe('Live20HistoryTab', () => {
           symbol_count: 5,
           processed_count: 5,
           long_count: 2,
-          short_count: 1,
-          no_setup_count: 2,
+              no_setup_count: 2,
           stock_list_id: 10,
           stock_list_name: 'Tech Watchlist',
         },
@@ -457,8 +447,7 @@ describe('Live20HistoryTab', () => {
           symbol_count: 5,
           processed_count: 5,
           long_count: 2,
-          short_count: 1,
-          no_setup_count: 2,
+              no_setup_count: 2,
           stock_list_id: null,
           stock_list_name: null,
         },
@@ -492,8 +481,7 @@ describe('Live20HistoryTab', () => {
           symbol_count: 5,
           processed_count: 5,
           long_count: 2,
-          short_count: 1,
-          no_setup_count: 2,
+              no_setup_count: 2,
           stock_list_id: null,
           stock_list_name: null,
           source_lists: [{ id: 10, name: 'Tech Watchlist' }],
@@ -524,8 +512,7 @@ describe('Live20HistoryTab', () => {
           symbol_count: 15,
           processed_count: 15,
           long_count: 5,
-          short_count: 3,
-          no_setup_count: 7,
+              no_setup_count: 7,
           stock_list_id: null,
           stock_list_name: null,
           source_lists: [
@@ -560,8 +547,7 @@ describe('Live20HistoryTab', () => {
           symbol_count: 15,
           processed_count: 15,
           long_count: 5,
-          short_count: 3,
-          no_setup_count: 7,
+              no_setup_count: 7,
           stock_list_id: null,
           stock_list_name: null,
           source_lists: [
@@ -597,8 +583,7 @@ describe('Live20HistoryTab', () => {
           symbol_count: 5,
           processed_count: 5,
           long_count: 2,
-          short_count: 1,
-          no_setup_count: 2,
+              no_setup_count: 2,
           stock_list_id: 10,
           stock_list_name: 'Legacy Watchlist',
         },
@@ -628,8 +613,7 @@ describe('Live20HistoryTab', () => {
           symbol_count: 5,
           processed_count: 5,
           long_count: 2,
-          short_count: 1,
-          no_setup_count: 2,
+              no_setup_count: 2,
           stock_list_id: null,
           stock_list_name: null,
           source_lists: null,

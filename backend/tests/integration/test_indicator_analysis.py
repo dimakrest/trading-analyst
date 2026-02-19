@@ -204,7 +204,6 @@ class TestGetIndicatorAnalysis:
         assert cci["zone"] in ["overbought", "oversold", "neutral"]
         assert "direction" in cci
         assert "aligned_for_long" in cci
-        assert "aligned_for_short" in cci
 
     @pytest.mark.asyncio
     async def test_ma20_distance_indicator_structure(
@@ -243,7 +242,6 @@ class TestGetIndicatorAnalysis:
         assert isinstance(volume["rvol"], float)
         assert "approach" in volume
         assert "aligned_for_long" in volume
-        assert "aligned_for_short" in volume
         assert "description" in volume
 
     @pytest.mark.asyncio
@@ -263,7 +261,6 @@ class TestGetIndicatorAnalysis:
         assert "interpreted_pattern" in candle
         assert "is_reversal" in candle
         assert "aligned_for_long" in candle
-        assert "aligned_for_short" in candle
         assert "explanation" in candle
 
     @pytest.mark.asyncio

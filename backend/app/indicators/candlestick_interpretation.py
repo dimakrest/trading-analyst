@@ -18,14 +18,12 @@ class PatternInterpretation:
         raw_pattern: Original shape-based pattern (geometry only)
         interpreted_pattern: Context-aware pattern name (considers trend)
         aligned_for_long: Whether pattern supports LONG mean reversion setup
-        aligned_for_short: Whether pattern supports SHORT mean reversion setup
         explanation: Human-readable explanation for UI tooltips
     """
 
     raw_pattern: CandlePattern
     interpreted_pattern: CandlePattern
     aligned_for_long: bool
-    aligned_for_short: bool
     explanation: str
 
 
@@ -59,7 +57,6 @@ def interpret_pattern_in_context(
     # Default: keep raw pattern
     interpreted_pattern = raw_pattern
     aligned_for_long = False
-    aligned_for_short = False
     explanation = ""
 
     # Handle each pattern type with context
@@ -72,7 +69,6 @@ def interpret_pattern_in_context(
         elif trend == TrendDirection.BULLISH:
             # Hammer shape in uptrend = Hanging Man (bearish)
             interpreted_pattern = CandlePattern.HANGING_MAN
-            aligned_for_short = True
             explanation = f"Hanging Man ({candle_color}) in uptrend - bearish reversal signal"
         else:
             # Neutral trend - pattern less meaningful
@@ -83,7 +79,6 @@ def interpret_pattern_in_context(
         if trend == TrendDirection.BULLISH:
             # Shooting star in uptrend = bearish reversal signal
             interpreted_pattern = CandlePattern.SHOOTING_STAR
-            aligned_for_short = True
             explanation = f"Shooting Star ({candle_color}) in uptrend - bearish reversal signal"
         elif trend == TrendDirection.BEARISH:
             # Shooting star shape in downtrend = Inverted Hammer (bullish)
@@ -101,7 +96,6 @@ def interpret_pattern_in_context(
             aligned_for_long = True
             explanation = f"Doji in downtrend - indecision, potential bullish reversal"
         elif trend == TrendDirection.BULLISH:
-            aligned_for_short = True
             explanation = f"Doji in uptrend - indecision, potential bearish reversal"
         else:
             explanation = f"Doji in neutral trend - indecision, no clear signal"
@@ -111,7 +105,6 @@ def interpret_pattern_in_context(
         explanation = f"Bullish Engulfing - strong bullish reversal signal"
 
     elif raw_pattern == CandlePattern.ENGULFING_BEARISH:
-        aligned_for_short = True
         explanation = f"Bearish Engulfing - strong bearish reversal signal"
 
     elif raw_pattern == CandlePattern.MARUBOZU_BULLISH:
@@ -138,6 +131,5 @@ def interpret_pattern_in_context(
         raw_pattern=raw_pattern,
         interpreted_pattern=interpreted_pattern,
         aligned_for_long=aligned_for_long,
-        aligned_for_short=aligned_for_short,
         explanation=explanation,
     )

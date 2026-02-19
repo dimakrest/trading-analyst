@@ -39,7 +39,7 @@ function makeResult(overrides: Partial<Live20Result> = {}): Live20Result {
 describe('useLive20Filters', () => {
   const results = [
     makeResult({ id: 1, stock: 'AAPL', direction: 'LONG', confidence_score: 80, rvol: 1.5, atr: 2 }),
-    makeResult({ id: 2, stock: 'TSLA', direction: 'SHORT', confidence_score: 60, rvol: 0.8, atr: 5 }),
+    makeResult({ id: 2, stock: 'TSLA', direction: 'NO_SETUP', confidence_score: 60, rvol: 0.8, atr: 5 }),
     makeResult({ id: 3, stock: 'NVDA', direction: 'NO_SETUP', confidence_score: 40, rvol: null, atr: 8 }),
     makeResult({ id: 4, stock: 'META', direction: 'LONG', confidence_score: 90, rvol: 2.0, atr: null }),
   ];
@@ -57,7 +57,7 @@ describe('useLive20Filters', () => {
   });
 
   describe('Direction Filter', () => {
-    it('hides SHORT and NO_SETUP when set to LONG', () => {
+    it('hides NO_SETUP results when set to LONG', () => {
       const { result } = renderHook(() => useLive20Filters(results));
 
       act(() => {

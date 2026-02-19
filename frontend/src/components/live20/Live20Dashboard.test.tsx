@@ -58,7 +58,7 @@ const mockResults: Live20Result[] = [
     id: 2,
     stock: 'MSFT',
     created_at: '2025-12-24T12:00:00Z',
-    recommendation: 'SHORT',
+    recommendation: 'NO_SETUP',
     confidence_score: 72,
     sector_etf: 'XLK',
     trend_direction: 'DOWN',
@@ -77,7 +77,7 @@ const mockResults: Live20Result[] = [
     cci_zone: 'overbought',
     cci_aligned: true,
     criteria_aligned: 4,
-    direction: 'SHORT',
+    direction: 'NO_SETUP',
     atr: 5.80,
   },
   {
@@ -110,8 +110,7 @@ const mockResults: Live20Result[] = [
 
 const mockCounts: Live20Counts = {
   long: 2,
-  short: 1,
-  no_setup: 0,
+  no_setup: 1,
   total: 3,
 };
 
@@ -174,7 +173,7 @@ describe('Live20Dashboard progressive results', () => {
 
       vi.mocked(useLive20).mockReturnValue({
         results: [mockResults[0]],
-        counts: { long: 1, short: 0, no_setup: 0, total: 1 },
+        counts: { long: 1, no_setup: 0, total: 1 },
         isLoading: false,
         isAnalyzing: true,
         error: null,
@@ -239,7 +238,7 @@ describe('Live20Dashboard progressive results', () => {
       // Mock: Analysis in progress but no results yet
       vi.mocked(useLive20).mockReturnValue({
         results: [],
-        counts: { long: 0, short: 0, no_setup: 0, total: 0 },
+        counts: { long: 0, no_setup: 0, total: 0 },
         isLoading: false,
         isAnalyzing: true,
         error: null,
@@ -271,7 +270,7 @@ describe('Live20Dashboard progressive results', () => {
     it('should show cancel button during analysis', () => {
       vi.mocked(useLive20).mockReturnValue({
         results: [],
-        counts: { long: 0, short: 0, no_setup: 0, total: 0 },
+        counts: { long: 0, no_setup: 0, total: 0 },
         isLoading: false,
         isAnalyzing: true,
         error: null,
@@ -301,7 +300,7 @@ describe('Live20Dashboard progressive results', () => {
 
       vi.mocked(useLive20).mockReturnValue({
         results: [],
-        counts: { long: 0, short: 0, no_setup: 0, total: 0 },
+        counts: { long: 0, no_setup: 0, total: 0 },
         isLoading: false,
         isAnalyzing: true,
         error: null,
@@ -397,7 +396,7 @@ describe('Live20Dashboard progressive results', () => {
     it('should show singular form for 1 result after cancellation', async () => {
       vi.mocked(useLive20).mockReturnValue({
         results: [mockResults[0]],
-        counts: { long: 1, short: 0, no_setup: 0, total: 1 },
+        counts: { long: 1, no_setup: 0, total: 1 },
         isLoading: false,
         isAnalyzing: false,
         error: null,
@@ -456,7 +455,7 @@ describe('Live20Dashboard progressive results', () => {
     it('should not show cancelled banner when no results after cancellation', () => {
       vi.mocked(useLive20).mockReturnValue({
         results: [],
-        counts: { long: 0, short: 0, no_setup: 0, total: 0 },
+        counts: { long: 0, no_setup: 0, total: 0 },
         isLoading: false,
         isAnalyzing: false,
         error: null,
@@ -549,7 +548,7 @@ describe('Live20Dashboard progressive results', () => {
     it('should show empty state when no analysis has been run', () => {
       vi.mocked(useLive20).mockReturnValue({
         results: [],
-        counts: { long: 0, short: 0, no_setup: 0, total: 0 },
+        counts: { long: 0, no_setup: 0, total: 0 },
         isLoading: false,
         isAnalyzing: false,
         error: null,
@@ -570,7 +569,7 @@ describe('Live20Dashboard progressive results', () => {
     it('should show error message when error occurs', () => {
       vi.mocked(useLive20).mockReturnValue({
         results: [],
-        counts: { long: 0, short: 0, no_setup: 0, total: 0 },
+        counts: { long: 0, no_setup: 0, total: 0 },
         isLoading: false,
         isAnalyzing: false,
         error: 'Failed to analyze symbols',

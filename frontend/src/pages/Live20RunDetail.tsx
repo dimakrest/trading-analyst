@@ -67,10 +67,9 @@ export function Live20RunDetail() {
   }, [id]);
 
   const counts: Live20Counts = useMemo(() => {
-    if (!run) return { long: 0, short: 0, no_setup: 0, total: 0 };
+    if (!run) return { long: 0, no_setup: 0, total: 0 };
     return {
       long: run.long_count,
-      short: run.short_count,
       no_setup: run.no_setup_count,
       total: run.symbol_count,
     };
@@ -249,13 +248,6 @@ export function Live20RunDetail() {
                 Long Setups
               </p>
               <p className="text-2xl font-bold font-mono text-signal-long">{run.long_count}</p>
-            </div>
-
-            <div className="text-center p-4 bg-secondary rounded-lg border">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">
-                Short Setups
-              </p>
-              <p className="text-2xl font-bold font-mono text-signal-short">{run.short_count}</p>
             </div>
 
             <div className="text-center p-4 bg-secondary rounded-lg border">

@@ -33,7 +33,6 @@ class TestInterpretPatternInContext:
 
         assert result.interpreted_pattern == CandlePattern.HAMMER
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
         assert "bullish reversal" in result.explanation.lower()
 
     def test_hammer_in_uptrend_becomes_hanging_man(self):
@@ -51,7 +50,6 @@ class TestInterpretPatternInContext:
 
         assert result.interpreted_pattern == CandlePattern.HANGING_MAN
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
         assert "bearish reversal" in result.explanation.lower()
 
     def test_shooting_star_in_uptrend_is_bearish(self):
@@ -69,7 +67,6 @@ class TestInterpretPatternInContext:
 
         assert result.interpreted_pattern == CandlePattern.SHOOTING_STAR
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
         assert "bearish reversal" in result.explanation.lower()
 
     def test_shooting_star_in_downtrend_becomes_inverted_hammer(self):
@@ -87,7 +84,6 @@ class TestInterpretPatternInContext:
 
         assert result.interpreted_pattern == CandlePattern.INVERTED_HAMMER
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
         assert "bullish reversal" in result.explanation.lower()
 
     def test_doji_in_downtrend_aligns_for_long(self):
@@ -105,7 +101,6 @@ class TestInterpretPatternInContext:
 
         assert result.interpreted_pattern == CandlePattern.DOJI
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
 
     def test_doji_in_uptrend_aligns_for_short(self):
         """DOJI in uptrend should signal potential bearish reversal."""
@@ -122,7 +117,6 @@ class TestInterpretPatternInContext:
 
         assert result.interpreted_pattern == CandlePattern.DOJI
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
 
     def test_doji_in_neutral_trend_not_aligned(self):
         """DOJI in neutral trend should not be aligned for either direction."""
@@ -138,7 +132,6 @@ class TestInterpretPatternInContext:
         result = interpret_pattern_in_context(analysis, TrendDirection.NEUTRAL)
 
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
 
     def test_hammer_in_neutral_trend_weak_signal(self):
         """Hammer in neutral trend should be weak signal (not aligned)."""
@@ -154,7 +147,6 @@ class TestInterpretPatternInContext:
         result = interpret_pattern_in_context(analysis, TrendDirection.NEUTRAL)
 
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
         assert "weak signal" in result.explanation.lower()
 
     def test_engulfing_bullish_always_aligned_for_long(self):
@@ -172,7 +164,6 @@ class TestInterpretPatternInContext:
         for trend in [TrendDirection.BEARISH, TrendDirection.BULLISH, TrendDirection.NEUTRAL]:
             result = interpret_pattern_in_context(analysis, trend)
             assert result.aligned_for_long is True
-            assert result.aligned_for_short is False
 
     def test_engulfing_bearish_always_aligned_for_short(self):
         """Bearish Engulfing should always be aligned for SHORT."""
@@ -189,7 +180,6 @@ class TestInterpretPatternInContext:
         for trend in [TrendDirection.BEARISH, TrendDirection.BULLISH, TrendDirection.NEUTRAL]:
             result = interpret_pattern_in_context(analysis, trend)
             assert result.aligned_for_long is False
-            assert result.aligned_for_short is True
 
     def test_marubozu_not_aligned_for_mean_reversion(self):
         """Marubozu is continuation pattern, should not align for mean reversion."""
@@ -205,7 +195,6 @@ class TestInterpretPatternInContext:
         result = interpret_pattern_in_context(bullish_marubozu, TrendDirection.BEARISH)
 
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
         assert "continuation" in result.explanation.lower()
 
     def test_explanation_includes_candle_color(self):
