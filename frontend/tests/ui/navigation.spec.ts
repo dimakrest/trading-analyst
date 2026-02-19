@@ -24,15 +24,16 @@ test.describe('Responsive Navigation', () => {
       const bottomTabs = page.locator('nav[aria-label="Mobile navigation"]');
       await expect(bottomTabs).toBeVisible();
 
-      // Should have 4 navigation links (all items visible on mobile)
+      // Should have 5 navigation links (all items visible on mobile)
       const navLinks = bottomTabs.locator('a');
-      await expect(navLinks).toHaveCount(4);
+      await expect(navLinks).toHaveCount(5);
 
-      // Verify labels (all 4 items in new order - using actual label text, CSS uppercase applied visually)
+      // Verify labels (all 5 items in order - using actual label text, CSS uppercase applied visually)
       await expect(navLinks.nth(0)).toContainText('Analysis');
       await expect(navLinks.nth(1)).toContainText('Live 20');
       await expect(navLinks.nth(2)).toContainText('Arena');
-      await expect(navLinks.nth(3)).toContainText('Lists');
+      await expect(navLinks.nth(3)).toContainText('Agents');
+      await expect(navLinks.nth(4)).toContainText('Lists');
     });
 
     test('should hide desktop sidebar on mobile', async ({ page }) => {
@@ -122,15 +123,16 @@ test.describe('Responsive Navigation', () => {
       const sidebar = page.locator('aside[aria-label="Desktop navigation"]');
       await expect(sidebar).toBeVisible();
 
-      // Should have 4 navigation links
+      // Should have 5 navigation links
       const navLinks = sidebar.locator('nav[aria-label="Main navigation"] a');
-      await expect(navLinks).toHaveCount(4);
+      await expect(navLinks).toHaveCount(5);
 
-      // Verify labels (capitalized on desktop) - new order
+      // Verify labels (capitalized on desktop) - in order
       await expect(navLinks.nth(0)).toContainText('Analysis');
       await expect(navLinks.nth(1)).toContainText('Live 20');
       await expect(navLinks.nth(2)).toContainText('Arena');
-      await expect(navLinks.nth(3)).toContainText('Lists');
+      await expect(navLinks.nth(3)).toContainText('Agents');
+      await expect(navLinks.nth(4)).toContainText('Lists');
     });
 
     test('should hide mobile bottom tabs on desktop', async ({ page }) => {
@@ -225,8 +227,8 @@ test.describe('Responsive Navigation', () => {
     test('should match nested routes correctly', async ({ page }) => {
       await page.goto('/lists');
 
-      // Lists tab should be active (index 3 - last position after move)
-      const listsTab = page.locator('nav[aria-label="Mobile navigation"] a').nth(3);
+      // Lists tab should be active (index 4 - after Analysis, Live 20, Arena, Agents)
+      const listsTab = page.locator('nav[aria-label="Mobile navigation"] a').nth(4);
       await expect(listsTab).toHaveAttribute('aria-current', 'page');
 
       // Test that nested routes maintain active state
