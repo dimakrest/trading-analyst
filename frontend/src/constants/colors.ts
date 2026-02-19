@@ -60,8 +60,8 @@ export const SCREENER_COLORS = {
 
   /**
    * Score-based color class (text only)
-   * @param value - Numeric score (positive = bullish, zero or negative = neutral)
-   * @returns Tailwind color class (text-long-signal or text-short-signal for neutral)
+   * @param value - Numeric score (positive = bullish, zero or negative = no-setup/neutral)
+   * @returns Tailwind color class (text-long-signal for positive, text-short-signal for zero/negative)
    */
   score: (value: number): string => (value > 0 ? 'text-long-signal' : 'text-short-signal'),
 

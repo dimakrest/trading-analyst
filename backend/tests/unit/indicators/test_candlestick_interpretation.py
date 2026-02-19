@@ -102,8 +102,8 @@ class TestInterpretPatternInContext:
         assert result.interpreted_pattern == CandlePattern.DOJI
         assert result.aligned_for_long is True
 
-    def test_doji_in_uptrend_aligns_for_short(self):
-        """DOJI in uptrend should signal potential bearish reversal."""
+    def test_doji_in_uptrend_not_aligned_for_long(self):
+        """DOJI in uptrend should signal potential bearish reversal — not aligned for long."""
         analysis = CandleAnalysis(
             raw_pattern=CandlePattern.DOJI,
             candle_type=CandleType.RED,
