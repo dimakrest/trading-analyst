@@ -112,9 +112,7 @@ class TestCalculateCandlePattern:
         """Should return alignment flags."""
         result = calculate_candle_pattern(sample_price_data)
         assert "aligned_for_long" in result
-        assert "aligned_for_short" in result
         assert isinstance(result["aligned_for_long"], bool)
-        assert isinstance(result["aligned_for_short"], bool)
 
     def test_returns_explanation(self, sample_price_data: PriceData):
         """Should return explanation."""
@@ -141,7 +139,6 @@ class TestCalculateVolumeSignal:
         """Should return alignment flags."""
         result = calculate_volume_signal(sample_price_data)
         assert "aligned_for_long" in result
-        assert "aligned_for_short" in result
 
     def test_returns_description(self, sample_price_data: PriceData):
         """Should return description."""
@@ -175,9 +172,7 @@ class TestCalculateCCI:
         """Should return alignment flags."""
         result = calculate_cci(sample_price_data)
         assert "aligned_for_long" in result
-        assert "aligned_for_short" in result
         assert isinstance(result["aligned_for_long"], bool)
-        assert isinstance(result["aligned_for_short"], bool)
 
 
 class TestCalculateIndicators:

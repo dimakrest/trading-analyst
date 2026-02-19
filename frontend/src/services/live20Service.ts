@@ -53,10 +53,10 @@ export const analyzeSymbols = async (
  * Get Live 20 analysis results with optional filtering
  *
  * Retrieves stored Live 20 analysis results with optional filters for
- * direction (LONG/SHORT/NO_SETUP), minimum confidence score, and result limit.
+ * direction (LONG/NO_SETUP), minimum confidence score, and result limit.
  *
  * @param params - Optional filter parameters
- * @param params.direction - Filter by recommendation direction
+ * @param params.direction - Filter by recommendation direction (LONG or NO_SETUP)
  * @param params.min_score - Minimum confidence score threshold
  * @param params.limit - Maximum number of results to return
  * @returns Promise resolving to filtered results with counts
@@ -87,7 +87,7 @@ export interface ListRunsParams {
   offset?: number;
   date_from?: string;
   date_to?: string;
-  has_direction?: 'LONG' | 'SHORT' | 'NO_SETUP';
+  has_direction?: 'LONG' | 'NO_SETUP';
   symbol?: string;
 }
 

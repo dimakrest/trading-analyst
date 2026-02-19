@@ -43,27 +43,6 @@ async def sample_live20_results(db_session: AsyncSession):
             live20_direction="LONG",
         ),
         Recommendation(
-            stock="TSLA",
-            source=RecommendationSource.LIVE_20.value,
-            recommendation="SHORT",
-            confidence_score=60,
-            reasoning="Live 20 mean reversion analysis",
-            live20_trend_direction="bullish",
-            live20_trend_aligned=True,
-            live20_ma20_distance_pct=Decimal("7.2"),
-            live20_ma20_aligned=True,
-            live20_candle_pattern="shooting_star",
-            live20_candle_aligned=True,
-            live20_volume_aligned=False,
-            live20_atr=Decimal("5.2000"),  # 5.2% of price
-            live20_rvol=Decimal("0.85"),
-            live20_cci_value=Decimal("105.0"),
-            live20_cci_zone="overbought",
-            live20_cci_aligned=True,
-            live20_criteria_aligned=3,
-            live20_direction="SHORT",
-        ),
-        Recommendation(
             stock="MSFT",
             source=RecommendationSource.LIVE_20.value,
             recommendation="NO_SETUP",
@@ -174,13 +153,12 @@ async def test_get_results_all(async_client: AsyncClient, sample_live20_results)
     assert "counts" in data
 
     # Verify counts
-    assert data["total"] == 3
+    assert data["total"] == 2
     assert data["counts"]["long"] == 1
-    assert data["counts"]["short"] == 1
     assert data["counts"]["no_setup"] == 1
 
     # Verify results are ordered by created_at desc (most recent first)
-    assert len(data["results"]) == 3
+    assert len(data["results"]) == 2
 
 
 @pytest.mark.asyncio
@@ -197,24 +175,10 @@ async def test_get_results_filter_by_long(async_client: AsyncClient, sample_live
 
     # Counts should still reflect all results
     assert data["counts"]["long"] == 1
-    assert data["counts"]["short"] == 1
     assert data["counts"]["no_setup"] == 1
 
     # Verify symbol
     assert data["results"][0]["stock"] == "AAPL"
-
-
-@pytest.mark.asyncio
-async def test_get_results_filter_by_short(async_client: AsyncClient, sample_live20_results):
-    """Test filtering results by SHORT direction."""
-    response = await async_client.get("/api/v1/live-20/results?direction=SHORT")
-
-    assert response.status_code == 200
-    data = response.json()
-
-    assert data["total"] == 1
-    assert all(r["direction"] == "SHORT" for r in data["results"])
-    assert data["results"][0]["stock"] == "TSLA"
 
 
 @pytest.mark.asyncio
@@ -325,9 +289,6 @@ async def test_results_include_atr_and_rvol(async_client: AsyncClient, sample_li
         if result["stock"] == "AAPL":
             assert result["atr"] == 3.0  # 3% of price
             assert result["rvol"] == 1.25
-        elif result["stock"] == "TSLA":
-            assert result["atr"] == 5.2  # 5.2% of price
-            assert result["rvol"] == 0.85
         elif result["stock"] == "MSFT":
             assert result["atr"] == 2.1  # 2.1% of price
             assert result["rvol"] == 1.0
@@ -343,7 +304,6 @@ async def test_results_empty_database(async_client: AsyncClient):
 
     assert data["total"] == 0
     assert data["counts"]["long"] == 0
-    assert data["counts"]["short"] == 0
     assert data["counts"]["no_setup"] == 0
     assert data["results"] == []
 

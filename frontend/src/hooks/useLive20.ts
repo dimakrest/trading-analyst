@@ -51,7 +51,7 @@ interface UseLive20Return {
  */
 export function useLive20(): UseLive20Return {
   const [results, setResults] = useState<Live20Result[]>([]);
-  const [counts, setCounts] = useState<Live20Counts>({ long: 0, short: 0, no_setup: 0, total: 0 });
+  const [counts, setCounts] = useState<Live20Counts>({ long: 0, no_setup: 0, total: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,7 +79,6 @@ export function useLive20(): UseLive20Return {
       setResults(run.results);
       setCounts({
         long: run.long_count,
-        short: run.short_count,
         no_setup: run.no_setup_count,
         total: run.results.length,
       });
@@ -121,7 +120,7 @@ export function useLive20(): UseLive20Return {
     ) => {
       setError(null);
       setResults([]);
-      setCounts({ long: 0, short: 0, no_setup: 0, total: 0 });
+      setCounts({ long: 0, no_setup: 0, total: 0 });
       setFailedSymbols({});
       setCompletedRunId(null);
 
@@ -155,7 +154,7 @@ export function useLive20(): UseLive20Return {
         setResults(response.results);
         setCounts({
           ...response.counts,
-          total: response.counts.long + response.counts.short + response.counts.no_setup,
+          total: response.counts.long + response.counts.no_setup,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch results');

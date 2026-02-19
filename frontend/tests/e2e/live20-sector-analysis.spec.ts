@@ -209,9 +209,11 @@ test.describe('Live20 Sector Analysis', () => {
       await page.getByRole('button', { name: /analyze/i }).click();
       await page.waitForSelector('table', { timeout: 30000 });
 
-      // Expand row
+      // Expand row — fire native click via evaluate() because the fixed bottom nav bar
+      // covers elements near the bottom of the viewport on mobile, causing Playwright's
+      // pointer-based click to fail. Native click() fires the event React handles.
       const expandButton = page.getByLabel('Expand details for AAPL');
-      await expandButton.click();
+      await expandButton.evaluate(el => (el as HTMLElement).click());
 
       // Wait for sector and chart sections to be visible on mobile
       await expect(page.getByText('Sector Trend Analysis')).toBeVisible();

@@ -24,7 +24,7 @@ class Live20ResultResponse(StrictBaseModel):
     created_at: datetime
 
     # Core results
-    recommendation: str  # Maps to live20_direction: LONG, SHORT, NO_SETUP
+    recommendation: str  # Maps to live20_direction: LONG, NO_SETUP
     confidence_score: int  # 0-100 score
 
     # Live 20 specific fields
@@ -55,7 +55,7 @@ class Live20ResultResponse(StrictBaseModel):
     rsi2_value: Decimal | None = None
     rsi2_score: int | None = None
     criteria_aligned: int | None = None
-    direction: str | None = None  # LONG, SHORT, NO_SETUP
+    direction: str | None = None  # LONG, NO_SETUP
     sector_etf: str | None = None  # SPDR sector ETF symbol
 
     model_config = {
@@ -214,7 +214,7 @@ class Live20ResultsResponse(StrictBaseModel):
     total: int = Field(..., description="Number of results in this response")
     counts: dict = Field(
         ...,
-        description="Direction counts: {long: int, short: int, no_setup: int}",
+        description="Direction counts: {long: int, no_setup: int}",
     )
 
 
@@ -247,7 +247,7 @@ class PortfolioRecommendRequest(StrictBaseModel):
     )
     directions: list[str] | None = Field(
         default=None,
-        description="If provided, only include signals with these directions (e.g. ['LONG', 'SHORT']). None = no filter.",
+        description="If provided, only include signals with these directions (e.g. ['LONG']). None = no filter.",
     )
 
 

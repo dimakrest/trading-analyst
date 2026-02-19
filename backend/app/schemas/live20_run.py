@@ -25,7 +25,6 @@ class Live20RunSummary(StrictBaseModel):
     symbol_count: int
     processed_count: int
     long_count: int
-    short_count: int
     no_setup_count: int
     stock_list_id: int | None = None
     stock_list_name: str | None = None
@@ -50,7 +49,6 @@ class Live20RunSummary(StrictBaseModel):
                     "symbol_count": 50,
                     "processed_count": 48,
                     "long_count": 12,
-                    "short_count": 8,
                     "no_setup_count": 28,
                     "stock_list_id": 1,
                     "stock_list_name": "S&P 500 Top 50",
@@ -94,7 +92,6 @@ class Live20RunSummary(StrictBaseModel):
             symbol_count=obj.symbol_count,
             processed_count=obj.processed_count,
             long_count=obj.long_count,
-            short_count=obj.short_count,
             no_setup_count=obj.no_setup_count,
             stock_list_id=getattr(obj, "stock_list_id", None),
             stock_list_name=getattr(obj, "stock_list_name", None),
@@ -132,7 +129,6 @@ class Live20RunDetailResponse(StrictBaseModel):
     symbol_count: int
     processed_count: int
     long_count: int
-    short_count: int
     no_setup_count: int
     input_symbols: list[str]
     stock_list_id: int | None = None
@@ -160,7 +156,6 @@ class Live20RunDetailResponse(StrictBaseModel):
                     "symbol_count": 5,
                     "processed_count": 4,
                     "long_count": 2,
-                    "short_count": 1,
                     "no_setup_count": 1,
                     "input_symbols": ["AAPL", "MSFT", "GOOGL", "AMZN", "META"],
                     "stock_list_id": 1,

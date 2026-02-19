@@ -25,8 +25,7 @@ const mockRunDetail: Live20RunDetailType = {
   symbol_count: 5,
   processed_count: 5,
   long_count: 2,
-  short_count: 1,
-  no_setup_count: 2,
+  no_setup_count: 3,
   input_symbols: ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'TSLA'],
   stock_list_id: null,
   stock_list_name: null,
@@ -61,7 +60,7 @@ const mockRunDetail: Live20RunDetailType = {
       id: 2,
       stock: 'MSFT',
       created_at: '2025-12-24T12:45:00Z',
-      recommendation: 'SHORT',
+      recommendation: 'NO_SETUP',
       confidence_score: 72,
       sector_etf: 'XLK',
       trend_direction: 'DOWN',
@@ -80,7 +79,7 @@ const mockRunDetail: Live20RunDetailType = {
       cci_zone: 'overbought',
       cci_aligned: true,
       criteria_aligned: 4,
-      direction: 'SHORT',
+      direction: 'NO_SETUP',
       atr: 5.80,
     },
     {
@@ -219,14 +218,12 @@ describe('Live20RunDetail', () => {
       expect(screen.getByText('Run Summary')).toBeInTheDocument();
       expect(screen.getByText('Total Symbols')).toBeInTheDocument();
       expect(screen.getByText('Long Setups')).toBeInTheDocument();
-      expect(screen.getByText('Short Setups')).toBeInTheDocument();
       // "No Setup" appears in both summary card and filter button, so use getAllByText
       expect(screen.getAllByText('No Setup').length).toBeGreaterThan(0);
 
       // Check counts exist (they may appear multiple times in different contexts)
       expect(screen.getAllByText('5').length).toBeGreaterThan(0); // symbol_count
       expect(screen.getAllByText('2').length).toBeGreaterThan(0); // long_count
-      expect(screen.getAllByText('1').length).toBeGreaterThan(0); // short_count
 
       // Results card
       expect(screen.getByText('Results')).toBeInTheDocument();
@@ -239,9 +236,6 @@ describe('Live20RunDetail', () => {
 
       const longButton = screen.getByRole('button', { name: /Long/ });
       expect(longButton).toBeInTheDocument();
-
-      const shortButton = screen.getByRole('button', { name: /Short/ });
-      expect(shortButton).toBeInTheDocument();
 
       // Multiple "No Setup" buttons may exist (one in filters, one label in summary)
       const noSetupButtons = screen.getAllByRole('button', { name: /No Setup/ });
@@ -270,7 +264,7 @@ describe('Live20RunDetail', () => {
       // Should show only LONG results
       expect(screen.getByText('AAPL')).toBeInTheDocument();
       expect(screen.getByText('NVDA')).toBeInTheDocument();
-      expect(screen.queryByText('MSFT')).not.toBeInTheDocument(); // SHORT
+      expect(screen.queryByText('MSFT')).not.toBeInTheDocument(); // NO_SETUP
       expect(screen.queryByText('GOOGL')).not.toBeInTheDocument(); // NO_SETUP
       expect(screen.queryByText('TSLA')).not.toBeInTheDocument(); // NO_SETUP
     });
@@ -748,7 +742,6 @@ describe('Live20RunDetail', () => {
         results: [],
         symbol_count: 0,
         long_count: 0,
-        short_count: 0,
         no_setup_count: 0,
       };
 

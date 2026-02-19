@@ -36,7 +36,6 @@ class TestPatternPriority:
         assert result.pattern_name == "morning_star"
         assert result.duration == PatternDuration.THREE_DAY
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
 
     def test_two_day_pattern_when_no_three_day(self):
         """Test that 2-day patterns are detected when no 3-day pattern exists."""
@@ -118,11 +117,10 @@ class TestThreeDayPatterns:
         )
 
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
         assert "bullish reversal" in result.explanation.lower()
 
     def test_evening_star_alignment(self):
-        """Test Evening Star is aligned for SHORT."""
+        """Test Evening Star is not aligned for LONG."""
         # Green -> Doji -> Red closing below midpoint of first
         opens = [100, 112, 110]
         highs = [112, 114, 112]
@@ -139,7 +137,6 @@ class TestThreeDayPatterns:
 
         assert result.pattern_name == "evening_star"
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
 
     def test_high_tight_flag_not_aligned(self):
         """Test High Tight Flag is NOT aligned (continuation, not reversal)."""
@@ -160,7 +157,6 @@ class TestThreeDayPatterns:
 
         assert result.pattern_name == "high_tight_flag"
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
         assert "continuation" in result.explanation.lower()
 
     def test_three_white_soldiers_alignment(self):
@@ -180,10 +176,9 @@ class TestThreeDayPatterns:
 
         assert result.pattern_name == "three_white_soldiers"
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
 
     def test_three_black_crows_alignment(self):
-        """Test Three Black Crows is aligned for SHORT."""
+        """Test Three Black Crows is not aligned for LONG."""
         opens = [120, 115, 110]
         highs = [121, 116, 111]
         lows = [114, 109, 104]
@@ -199,7 +194,6 @@ class TestThreeDayPatterns:
 
         assert result.pattern_name == "three_black_crows"
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
 
     def test_three_inside_up_alignment(self):
         """Test Three Inside Up is aligned for LONG."""
@@ -221,10 +215,9 @@ class TestThreeDayPatterns:
 
         assert result.pattern_name == "three_inside_up"
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
 
     def test_three_inside_down_alignment(self):
-        """Test Three Inside Down is aligned for SHORT."""
+        """Test Three Inside Down is not aligned for LONG."""
         # Day 1: Green candle
         # Day 2: Small red inside day 1
         # Day 3: Red breaks below day 1's open
@@ -243,7 +236,6 @@ class TestThreeDayPatterns:
 
         assert result.pattern_name == "three_inside_down"
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
 
 
 class TestTwoDayPatterns:
@@ -268,7 +260,6 @@ class TestTwoDayPatterns:
         assert result.pattern_name == "piercing_line"
         assert result.duration == PatternDuration.TWO_DAY
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
 
     def test_dark_cloud_cover_via_multi_day(self):
         """Test Dark Cloud Cover detection."""
@@ -289,7 +280,6 @@ class TestTwoDayPatterns:
         assert result.pattern_name == "dark_cloud_cover"
         assert result.duration == PatternDuration.TWO_DAY
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
 
     def test_bullish_harami_via_multi_day(self):
         """Test Bullish Harami detection."""
@@ -329,7 +319,7 @@ class TestTwoDayPatterns:
 
         assert result.pattern_name == "bearish_harami"
         assert result.duration == PatternDuration.TWO_DAY
-        assert result.aligned_for_short is True
+        assert result.aligned_for_long is False
 
 
 class TestOneDayPatterns:
@@ -373,7 +363,7 @@ class TestOneDayPatterns:
 
         assert result.duration == PatternDuration.ONE_DAY
         assert result.pattern_name == "shooting_star"
-        assert result.aligned_for_short is True
+        assert result.aligned_for_long is False
 
     def test_doji_in_downtrend_aligned_for_long(self):
         """Test Doji in downtrend is aligned for LONG."""
@@ -482,7 +472,6 @@ class TestEdgeCases:
         assert result.pattern_name == "none"
         assert result.duration == PatternDuration.ONE_DAY
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
         assert "Insufficient data" in result.explanation
 
     def test_accepts_numpy_arrays(self):
@@ -548,14 +537,12 @@ class TestMultiDayPatternResultDataclass:
             pattern_name="morning_star",
             duration=PatternDuration.THREE_DAY,
             aligned_for_long=True,
-            aligned_for_short=False,
             explanation="Morning Star (3-day) - classic bullish reversal",
         )
 
         assert result.pattern_name == "morning_star"
         assert result.duration == PatternDuration.THREE_DAY
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
         assert "Morning Star" in result.explanation
 
 
@@ -571,10 +558,9 @@ class TestThreeCandleAlignmentMapping:
     def test_alignment_tuple_structure(self):
         """Test that alignment tuples have correct structure."""
         for pattern, alignment in THREE_CANDLE_ALIGNMENT.items():
-            assert len(alignment) == 3, f"Alignment for {pattern} should have 3 elements"
+            assert len(alignment) == 2, f"Alignment for {pattern} should have 2 elements"
             assert isinstance(alignment[0], bool), f"aligned_for_long for {pattern} should be bool"
-            assert isinstance(alignment[1], bool), f"aligned_for_short for {pattern} should be bool"
-            assert isinstance(alignment[2], str), f"explanation for {pattern} should be str"
+            assert isinstance(alignment[1], str), f"explanation for {pattern} should be str"
 
     def test_bullish_patterns_align_for_long(self):
         """Test that bullish reversal patterns align for LONG."""
@@ -584,21 +570,19 @@ class TestThreeCandleAlignmentMapping:
             ThreeCandlePattern.THREE_INSIDE_UP,
         ]
         for pattern in bullish_patterns:
-            aligned_long, aligned_short, _ = THREE_CANDLE_ALIGNMENT[pattern]
+            aligned_long, _ = THREE_CANDLE_ALIGNMENT[pattern]
             assert aligned_long is True, f"{pattern} should be aligned for LONG"
-            assert aligned_short is False, f"{pattern} should NOT be aligned for SHORT"
 
     def test_bearish_patterns_align_for_short(self):
-        """Test that bearish reversal patterns align for SHORT."""
+        """Test that bearish reversal patterns are not aligned for LONG."""
         bearish_patterns = [
             ThreeCandlePattern.EVENING_STAR,
             ThreeCandlePattern.THREE_BLACK_CROWS,
             ThreeCandlePattern.THREE_INSIDE_DOWN,
         ]
         for pattern in bearish_patterns:
-            aligned_long, aligned_short, _ = THREE_CANDLE_ALIGNMENT[pattern]
+            aligned_long, _ = THREE_CANDLE_ALIGNMENT[pattern]
             assert aligned_long is False, f"{pattern} should NOT be aligned for LONG"
-            assert aligned_short is True, f"{pattern} should be aligned for SHORT"
 
     def test_continuation_patterns_not_aligned(self):
         """Test that continuation patterns are not aligned for mean reversion."""
@@ -606,9 +590,8 @@ class TestThreeCandleAlignmentMapping:
             ThreeCandlePattern.HIGH_TIGHT_FLAG,
         ]
         for pattern in continuation_patterns:
-            aligned_long, aligned_short, _ = THREE_CANDLE_ALIGNMENT[pattern]
+            aligned_long, _ = THREE_CANDLE_ALIGNMENT[pattern]
             assert aligned_long is False, f"{pattern} should NOT be aligned for LONG"
-            assert aligned_short is False, f"{pattern} should NOT be aligned for SHORT"
 
 
 class TestTrendContextPropagation:
@@ -651,7 +634,7 @@ class TestTrendContextPropagation:
 
         # In uptrend, hammer shape becomes hanging man (bearish)
         assert result.pattern_name == "hanging_man"
-        assert result.aligned_for_short is True
+        assert result.aligned_for_long is False
 
     def test_shooting_star_in_uptrend_is_bearish(self):
         """Test that shooting star in uptrend is interpreted as bearish reversal."""
@@ -669,7 +652,7 @@ class TestTrendContextPropagation:
             trend=TrendDirection.BULLISH,
         )
 
-        assert result.aligned_for_short is True
+        assert result.aligned_for_long is False
         assert "uptrend" in result.explanation.lower()
 
     def test_shooting_star_in_downtrend_is_inverted_hammer(self):
@@ -691,3 +674,4 @@ class TestTrendContextPropagation:
         # In downtrend, shooting star shape becomes inverted hammer (bullish)
         assert result.pattern_name == "inverted_hammer"
         assert result.aligned_for_long is True
+

@@ -43,7 +43,7 @@ function FilterButton({
   onClick,
 }: {
   active: boolean;
-  variant: 'all' | 'long' | 'short' | 'none';
+  variant: 'all' | 'long' | 'none';
   count: number;
   label: string;
   onClick: () => void;
@@ -52,8 +52,6 @@ function FilterButton({
     switch (variant) {
       case 'long':
         return 'bg-[var(--signal-long-muted)] text-[var(--signal-long)]';
-      case 'short':
-        return 'bg-[var(--signal-short-muted)] text-[var(--signal-short)]';
       case 'none':
         return 'bg-[rgba(100,116,139,0.15)] text-text-secondary';
       default:
@@ -83,7 +81,7 @@ function FilterButton({
  *
  * Provides direction filter buttons, symbol search, minimum score slider,
  * minimum rvol filter, and ATR% range filter. Direction buttons show counts
- * for each category (All, Long, Short, No Setup).
+ * for each category (All, Long, No Setup).
  *
  * @param props - Component props
  */
@@ -118,13 +116,6 @@ export function Live20Filters({
           count={counts.long}
           label="Long"
           onClick={() => onDirectionChange('LONG')}
-        />
-        <FilterButton
-          active={directionFilter === 'SHORT'}
-          variant="short"
-          count={counts.short}
-          label="Short"
-          onClick={() => onDirectionChange('SHORT')}
         />
         <FilterButton
           active={directionFilter === 'NO_SETUP'}

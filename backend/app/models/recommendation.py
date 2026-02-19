@@ -29,12 +29,10 @@ class RecommendationDecision(str, Enum):
 
     Direction-based system:
     - LONG: Bullish setup detected
-    - SHORT: Bearish setup detected
     - NO_SETUP: No actionable setup
     """
 
     LONG = "LONG"
-    SHORT = "SHORT"
     NO_SETUP = "NO_SETUP"
 
 
@@ -70,7 +68,7 @@ class Recommendation(Base):
 
     # Evaluator Response Fields
     recommendation: Mapped[str] = mapped_column(
-        String(20), nullable=False, doc="LONG, SHORT, or NO_SETUP (Live20 directions)"
+        String(20), nullable=False, doc="LONG or NO_SETUP (Live20 directions)"
     )
 
     reasoning: Mapped[str] = mapped_column(
@@ -156,7 +154,7 @@ class Recommendation(Base):
         Integer, nullable=True, doc="Number of criteria aligned (0-5)"
     )
     live20_direction: Mapped[str | None] = mapped_column(
-        String(10), nullable=True, index=True, doc="Live 20 direction: 'LONG', 'SHORT', 'NO_SETUP'"
+        String(10), nullable=True, index=True, doc="Live 20 direction: 'LONG' or 'NO_SETUP'"
     )
     live20_sector_etf: Mapped[str | None] = mapped_column(
         String(10), nullable=True, doc="Sector SPDR ETF symbol (e.g., 'XLK', 'XLE')"
@@ -184,7 +182,7 @@ class Recommendation(Base):
         ),
         CheckConstraint(
             # Live20 directions; legacy values (Buy, Watchlist, Not Buy) kept for existing data
-            "recommendation IN ('Buy', 'Watchlist', 'Not Buy', 'LONG', 'SHORT', 'NO_SETUP')",
+            "recommendation IN ('Buy', 'Watchlist', 'Not Buy', 'LONG', 'NO_SETUP')",
             name="ck_recommendations_valid_decision",
         ),
         Index("ix_recommendations_stock_created", "stock", desc("created_at")),

@@ -45,9 +45,6 @@ class Live20Run(Base):
     long_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, doc="Number of LONG setups"
     )
-    short_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, doc="Number of SHORT setups"
-    )
     no_setup_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, doc="Number of NO_SETUP results"
     )
@@ -126,5 +123,5 @@ class Live20Run(Base):
         """String representation of Live20Run."""
         return (
             f"<Live20Run(id={self.id}, status={self.status}, symbol_count={self.symbol_count}, "
-            f"long={self.long_count}, short={self.short_count})>"
+            f"long={self.long_count})>"
         )

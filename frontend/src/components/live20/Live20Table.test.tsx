@@ -309,16 +309,6 @@ describe('Live20Table', () => {
       expect(badge).toHaveClass('bg-[var(--signal-long-muted)]');
     });
 
-    it('displays SHORT badge with orange (signal-short) styling', () => {
-      const result = createMockResult({ direction: 'SHORT', recommendation: 'SHORT' });
-      render(<Live20Table results={[result]} />);
-
-      const badge = screen.getByText('SHORT');
-      // Uses CSS variable for signal color
-      expect(badge).toHaveClass('text-[var(--signal-short)]');
-      expect(badge).toHaveClass('bg-[var(--signal-short-muted)]');
-    });
-
     it('displays NO SETUP badge with neutral styling', () => {
       const result = createMockResult({ direction: 'NO_SETUP', recommendation: 'NO_SETUP' });
       render(<Live20Table results={[result]} />);

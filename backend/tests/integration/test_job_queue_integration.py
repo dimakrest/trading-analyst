@@ -40,7 +40,6 @@ async def create_live20_run(
             status=status,
             symbol_count=5,
             long_count=0,
-            short_count=0,
             no_setup_count=0,
             input_symbols=["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"],
             retry_count=retry_count,

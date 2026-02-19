@@ -59,7 +59,6 @@ class VolumeSignalAnalysis:
     """
     approach: VolumeApproach
     aligned_for_long: bool
-    aligned_for_short: bool
     rvol: float  # Today/yesterday volume ratio (simplified conviction metric)
     description: str  # Human-readable explanation
 
@@ -72,9 +71,9 @@ def detect_volume_signal(
     """Detect volume signal by comparing today's volume to yesterday's.
 
     Simple conviction check:
-    - LONG: Today's volume > yesterday's AND green candle (buyers stepping in)
-    - SHORT: Today's volume > yesterday's AND red candle (sellers stepping in)
-    - No alignment: Volume not higher (no conviction)
+    - Aligned for LONG: Today's volume > yesterday's AND green candle (buyers stepping in)
+    - Not aligned: Today's volume > yesterday's AND red candle (sellers stepping in)
+    - Not aligned: Volume not higher (no conviction)
 
     Uses a simplified volume ratio (today/yesterday) rather than traditional
     RVOL (current/10-day average) for faster conviction detection.
@@ -96,7 +95,6 @@ def detect_volume_signal(
         return VolumeSignalAnalysis(
             approach=VolumeApproach.NONE,
             aligned_for_long=False,
-            aligned_for_short=False,
             rvol=1.0,
             description="Insufficient data for volume signal detection",
         )
@@ -126,7 +124,6 @@ def detect_volume_signal(
         return VolumeSignalAnalysis(
             approach=VolumeApproach.NONE,  # No longer using complex approaches
             aligned_for_long=True,
-            aligned_for_short=False,
             rvol=volume_ratio,
             description=f"Volume conviction: {volume_ratio}x yesterday, buyers stepping in",
         )
@@ -134,7 +131,6 @@ def detect_volume_signal(
         return VolumeSignalAnalysis(
             approach=VolumeApproach.NONE,
             aligned_for_long=False,
-            aligned_for_short=True,
             rvol=volume_ratio,
             description=f"Volume conviction: {volume_ratio}x yesterday, sellers stepping in",
         )
@@ -143,7 +139,6 @@ def detect_volume_signal(
     return VolumeSignalAnalysis(
         approach=VolumeApproach.NONE,
         aligned_for_long=False,
-        aligned_for_short=False,
         rvol=volume_ratio,
         description=f"No volume conviction: {volume_ratio}x yesterday",
     )

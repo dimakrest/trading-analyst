@@ -36,7 +36,7 @@ export const POSITION_COLORS = {
 /**
  * Trade direction type for screener
  */
-export type TradeDirection = 'LONG' | 'SHORT' | 'NEUTRAL';
+export type TradeDirection = 'LONG' | 'NEUTRAL';
 
 /**
  * Screener color utilities
@@ -55,14 +55,13 @@ export const SCREENER_COLORS = {
    */
   direction: {
     LONG: 'text-long-signal bg-long-signal/10',
-    SHORT: 'text-short-signal bg-short-signal/10',
     NEUTRAL: 'text-muted-foreground bg-muted',
   } as const satisfies Record<TradeDirection, string>,
 
   /**
    * Score-based color class (text only)
-   * @param value - Numeric score (positive = long bias, negative = short bias)
-   * @returns Tailwind color class (text-long-signal or text-short-signal)
+   * @param value - Numeric score (positive = bullish, zero or negative = no-setup/neutral)
+   * @returns Tailwind color class (text-long-signal for positive, text-short-signal for zero/negative)
    */
   score: (value: number): string => (value > 0 ? 'text-long-signal' : 'text-short-signal'),
 
@@ -71,7 +70,6 @@ export const SCREENER_COLORS = {
    */
   badge: {
     LONG: 'bg-long-signal text-white hover:bg-long-signal/80',
-    SHORT: 'bg-short-signal text-white hover:bg-short-signal/80',
     NEUTRAL: 'bg-muted-foreground text-white hover:bg-muted-foreground/80',
   } as const satisfies Record<TradeDirection, string>,
 } as const;

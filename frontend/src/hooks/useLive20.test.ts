@@ -24,7 +24,7 @@ const mockAnalyzeResponse = {
 };
 
 // Minimal mock result for testing
-const createMockResult = (id: number, stock: string, direction: 'LONG' | 'SHORT' | 'NO_SETUP'): Live20Result => ({
+const createMockResult = (id: number, stock: string, direction: 'LONG' | 'NO_SETUP'): Live20Result => ({
   id,
   stock,
   created_at: '2025-12-24T12:00:00Z',
@@ -53,7 +53,7 @@ const createMockResult = (id: number, stock: string, direction: 'LONG' | 'SHORT'
 
 const mockResults = [
   createMockResult(1, 'AAPL', 'LONG'),
-  createMockResult(2, 'MSFT', 'SHORT'),
+  createMockResult(2, 'MSFT', 'NO_SETUP'),
   createMockResult(3, 'NVDA', 'LONG'),
 ];
 
@@ -64,7 +64,6 @@ const createMockRunDetail = (status: string, results: Live20Result[]): Live20Run
   symbol_count: 10,
   processed_count: results.length,
   long_count: results.filter(r => r.direction === 'LONG').length,
-  short_count: results.filter(r => r.direction === 'SHORT').length,
   no_setup_count: results.filter(r => r.direction === 'NO_SETUP').length,
   input_symbols: ['AAPL', 'MSFT', 'NVDA'],
   stock_list_id: null,
@@ -207,7 +206,7 @@ describe('useLive20', () => {
       // This is the key behavior - results update progressively
       expect(result.current.results.length).toBe(3);
       expect(result.current.counts.long).toBe(2);
-      expect(result.current.counts.short).toBe(1);
+      expect(result.current.counts.no_setup).toBe(1);
     });
 
     it('should clear progress when run is cancelled', async () => {

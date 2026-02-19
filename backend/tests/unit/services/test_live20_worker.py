@@ -29,7 +29,6 @@ async def create_live20_run(
             status=status,
             symbol_count=len(input_symbols),
             long_count=0,
-            short_count=0,
             no_setup_count=0,
             input_symbols=input_symbols,
             retry_count=0,
@@ -246,7 +245,6 @@ class TestLive20WorkerResumeCountAccuracy:
                 status="running",
                 symbol_count=4,
                 long_count=0,  # Simulates crash: counts were never persisted
-                short_count=0,
                 no_setup_count=0,
                 input_symbols=["AAPL", "MSFT", "GOOGL", "NVDA"],
                 retry_count=0,
@@ -257,7 +255,7 @@ class TestLive20WorkerResumeCountAccuracy:
             await session.flush()
 
             # Create existing recommendations (from before crash)
-            # AAPL was LONG, MSFT was SHORT
+            # AAPL was LONG, MSFT was NO_SETUP
             rec_aapl = Recommendation(
                 stock="AAPL",
                 source=RecommendationSource.LIVE_20.value,
@@ -270,11 +268,11 @@ class TestLive20WorkerResumeCountAccuracy:
             rec_msft = Recommendation(
                 stock="MSFT",
                 source=RecommendationSource.LIVE_20.value,
-                recommendation="SHORT",
+                recommendation="NO_SETUP",
                 confidence_score=75,
-                reasoning="Breakdown pattern",
+                reasoning="No setup",
                 live20_run_id=run.id,
-                live20_direction="SHORT",
+                live20_direction="NO_SETUP",
             )
             session.add(rec_aapl)
             session.add(rec_msft)
@@ -313,10 +311,8 @@ class TestLive20WorkerResumeCountAccuracy:
         updated_run = await get_run_by_id(rollback_session_factory, run.id)
         # AAPL (pre-crash) + GOOGL (resumed) = 2 LONG
         assert updated_run.long_count == 2
-        # MSFT (pre-crash) = 1 SHORT
-        assert updated_run.short_count == 1
-        # NVDA (resumed) = 1 NO_SETUP
-        assert updated_run.no_setup_count == 1
+        # MSFT (pre-crash) + NVDA (resumed) = 2 NO_SETUP
+        assert updated_run.no_setup_count == 2
 
 
 @pytest.mark.unit
@@ -353,39 +349,7 @@ class TestLive20WorkerDirectionCounting:
         # Verify counts were updated
         updated_run = await get_run_by_id(rollback_session_factory, run.id)
         assert updated_run.long_count == 1
-        assert updated_run.short_count == 0
         assert updated_run.no_setup_count == 0
-
-    @pytest.mark.asyncio
-    async def test_process_job_counts_short(
-        self, rollback_session_factory, mock_queue_service):
-        """Should count SHORT results correctly."""
-        run = await create_live20_run(
-            rollback_session_factory,
-            status="running",
-            input_symbols=["AAPL"],
-        )
-
-        worker = Live20Worker(rollback_session_factory, mock_queue_service)
-
-        mock_result = MagicMock()
-        mock_result.status = "success"
-        mock_result.recommendation = MagicMock()
-        mock_result.recommendation.id = 1
-        mock_result.recommendation.live20_direction = "SHORT"
-
-        with patch(
-            "app.services.live20_worker.Live20Service"
-        ) as MockService:
-            mock_service = MagicMock()
-            mock_service._analyze_symbol = AsyncMock(return_value=mock_result)
-            MockService.return_value = mock_service
-
-            await worker.process_job(run)
-
-        updated_run = await get_run_by_id(rollback_session_factory, run.id)
-        assert updated_run.long_count == 0
-        assert updated_run.short_count == 1
 
     @pytest.mark.asyncio
     async def test_process_job_counts_no_setup(
@@ -759,7 +723,6 @@ class TestLive20WorkerFailedSymbolsTracking:
                 status="running",
                 symbol_count=3,
                 long_count=0,
-                short_count=0,
                 no_setup_count=0,
                 input_symbols=["AAPL", "MSFT", "GOOGL"],
                 retry_count=0,

@@ -39,7 +39,6 @@ class Live20RunRepository:
         input_symbols: list[str],
         symbol_count: int,
         long_count: int = 0,
-        short_count: int = 0,
         no_setup_count: int = 0,
         status: str = "pending",
         stock_list_id: int | None = None,
@@ -54,7 +53,6 @@ class Live20RunRepository:
             input_symbols: List of symbols analyzed in this run
             symbol_count: Total number of symbols
             long_count: Number of LONG signals (default 0 for pending runs)
-            short_count: Number of SHORT signals (default 0 for pending runs)
             no_setup_count: Number of NO_SETUP signals (default 0 for pending runs)
             status: Run status (default 'pending' for queue-based processing)
             stock_list_id: ID of stock list used as source, if any
@@ -70,7 +68,6 @@ class Live20RunRepository:
             input_symbols=input_symbols,
             symbol_count=symbol_count,
             long_count=long_count,
-            short_count=short_count,
             no_setup_count=no_setup_count,
             status=status,
             stock_list_id=stock_list_id,
@@ -85,7 +82,7 @@ class Live20RunRepository:
 
         self.logger.info(
             f"Created Live20Run {run.id}: {symbol_count} symbols "
-            f"(LONG={long_count}, SHORT={short_count}, NO_SETUP={no_setup_count})"
+            f"(LONG={long_count}, NO_SETUP={no_setup_count})"
         )
         return run
 
@@ -121,7 +118,7 @@ class Live20RunRepository:
             offset: Number of runs to skip for pagination
             date_from: Filter runs created on or after this date
             date_to: Filter runs created on or before this date
-            has_direction: Filter runs with at least one result of this direction (LONG/SHORT/NO_SETUP)
+            has_direction: Filter runs with at least one result of this direction (LONG/NO_SETUP)
             symbol_search: Filter runs that analyzed this symbol
 
         Returns:
@@ -136,8 +133,6 @@ class Live20RunRepository:
             base_query = base_query.where(Live20Run.created_at <= date_to)
         if has_direction == "LONG":
             base_query = base_query.where(Live20Run.long_count > 0)
-        elif has_direction == "SHORT":
-            base_query = base_query.where(Live20Run.short_count > 0)
         elif has_direction == "NO_SETUP":
             base_query = base_query.where(Live20Run.no_setup_count > 0)
 

@@ -117,7 +117,7 @@ OPENAPI_TAGS: list[dict[str, Any]] = [
         "description": "**Live 20 Mean Reversion Analysis**\n\n"
         "Analyze stocks using mean reversion strategy based on 20-day moving average. "
         "Evaluates 5 criteria (trend, MA20 distance, candle pattern, volume, CCI) "
-        "to identify potential LONG (oversold bounce) or SHORT (overbought pullback) setups.",
+        "to identify potential LONG (oversold bounce) setups.",
     },
 ]
 

@@ -1,7 +1,7 @@
 """Live20 evaluation logic shared between service and arena agent.
 
 This module contains the core scoring logic for the Live20 mean reversion strategy.
-It evaluates 5 criteria (20 points each, 100 total) and determines LONG/SHORT/NO_SETUP
+It evaluates 5 criteria (20 points each, 100 total) and determines LONG/NO_SETUP
 direction based on criteria alignment.
 
 Usage:
@@ -30,10 +30,9 @@ MomentumAnalysis = CCIAnalysis | RSI2Analysis
 
 
 class Live20Direction(str, Enum):
-    """Live20 direction constants."""
+    """Live20 direction constants (LONG-only system)."""
 
     LONG = "LONG"
-    SHORT = "SHORT"
     NO_SETUP = "NO_SETUP"
 
 
@@ -45,17 +44,13 @@ class CriterionResult:
         name: Criterion identifier (trend, ma20_distance, candle, volume, momentum)
         value: Display value for UI (e.g., "bearish", "-7.2%", "hammer", "1.5x")
         aligned_for_long: Whether criterion supports LONG setup
-        aligned_for_short: Whether criterion supports SHORT setup
         score_for_long: Points awarded when direction is LONG (0-20)
-        score_for_short: Points awarded when direction is SHORT (0-20)
     """
 
     name: str
     value: str
     aligned_for_long: bool
-    aligned_for_short: bool
     score_for_long: int
-    score_for_short: int
 
 
 class Live20Evaluator:
@@ -70,7 +65,6 @@ class Live20Evaluator:
 
     Mean Reversion Logic:
     - LONG: Downtrend + far below MA20 (expecting bounce)
-    - SHORT: Uptrend + far above MA20 (expecting pullback)
     - NO_SETUP: Less than 3 criteria aligned
 
     Note:
@@ -118,9 +112,7 @@ class Live20Evaluator:
                 name="trend",
                 value=trend.value,
                 aligned_for_long=trend == TrendDirection.BEARISH,
-                aligned_for_short=trend == TrendDirection.BULLISH,
                 score_for_long=self.WEIGHT_PER_CRITERION,
-                score_for_short=self.WEIGHT_PER_CRITERION,
             )
         )
 
@@ -128,15 +120,12 @@ class Live20Evaluator:
         ma_analysis = analyze_ma_distance(closes, period=20)
         distance_pct = ma_analysis.distance_pct
         is_far_below = distance_pct < -self.MA20_DISTANCE_THRESHOLD
-        is_far_above = distance_pct > self.MA20_DISTANCE_THRESHOLD
         criteria.append(
             CriterionResult(
                 name="ma20_distance",
                 value=f"{distance_pct:+.1f}%",
                 aligned_for_long=is_far_below,
-                aligned_for_short=is_far_above,
                 score_for_long=self.WEIGHT_PER_CRITERION,
-                score_for_short=self.WEIGHT_PER_CRITERION,
             )
         )
 
@@ -147,9 +136,7 @@ class Live20Evaluator:
                 name="candle",
                 value=multi_day_result.pattern_name,
                 aligned_for_long=multi_day_result.aligned_for_long,
-                aligned_for_short=multi_day_result.aligned_for_short,
                 score_for_long=self.WEIGHT_PER_CRITERION,
-                score_for_short=self.WEIGHT_PER_CRITERION,
             )
         )
         candle_explanation = multi_day_result.explanation
@@ -161,9 +148,7 @@ class Live20Evaluator:
                 name="volume",
                 value=f"{volume_signal.rvol}x",
                 aligned_for_long=volume_signal.aligned_for_long,
-                aligned_for_short=volume_signal.aligned_for_short,
                 score_for_long=self.WEIGHT_PER_CRITERION,
-                score_for_short=self.WEIGHT_PER_CRITERION,
             )
         )
 
@@ -179,9 +164,7 @@ class Live20Evaluator:
                     name="momentum",  # Standardized name (same as CCI below)
                     value=f"RSI-2: {rsi2_analysis.value:.0f}",
                     aligned_for_long=rsi2_analysis.long_score > 0,
-                    aligned_for_short=rsi2_analysis.short_score > 0,
                     score_for_long=rsi2_analysis.long_score,
-                    score_for_short=rsi2_analysis.short_score,
                 )
             )
             momentum_analysis: MomentumAnalysis = rsi2_analysis
@@ -189,7 +172,7 @@ class Live20Evaluator:
             # Existing CCI logic (unchanged)
             cci_analysis = analyze_cci(highs, lows, closes, period=14)
 
-            # LONG alignment logic (existing, unchanged)
+            # LONG alignment logic
             aligned_for_long = (
                 cci_analysis.zone == CCIZone.OVERSOLD
                 and cci_analysis.direction in (CCIDirection.RISING, CCIDirection.FLAT)
@@ -197,22 +180,12 @@ class Live20Evaluator:
                 cci_analysis.zone == CCIZone.NEUTRAL and cci_analysis.direction == CCIDirection.RISING
             )
 
-            # SHORT alignment logic (existing, unchanged)
-            aligned_for_short = (
-                cci_analysis.zone == CCIZone.OVERBOUGHT
-                and cci_analysis.direction in (CCIDirection.FALLING, CCIDirection.FLAT)
-            ) or (
-                cci_analysis.zone == CCIZone.NEUTRAL and cci_analysis.direction == CCIDirection.FALLING
-            )
-
             criteria.append(
                 CriterionResult(
                     name="momentum",  # Changed from "cci" to "momentum" for consistency
                     value=cci_analysis.zone.value,
                     aligned_for_long=aligned_for_long,
-                    aligned_for_short=aligned_for_short,
                     score_for_long=self.WEIGHT_PER_CRITERION,
-                    score_for_short=self.WEIGHT_PER_CRITERION,
                 )
             )
             momentum_analysis = cci_analysis
@@ -220,39 +193,24 @@ class Live20Evaluator:
         return criteria, volume_signal, momentum_analysis, candle_explanation
 
     def determine_direction_and_score(self, criteria: list[CriterionResult]) -> tuple[str, int]:
-        """Determine direction and calculate score based on criteria alignment.
+        """Determine direction and calculate score based on LONG criteria alignment.
 
-        Sums the direction-appropriate score for each aligned criterion.
-        For binary criteria (CCI, trend, etc.), score_for_long == score_for_short == 20.
-        For graduated criteria (RSI-2), scores may differ per direction.
-
-        Backward compatible: for CCI, sum of aligned scores == aligned_count * 20.
-
-        NOTE: Direction is determined by ALIGNED COUNT (not score sum).
-        The score is then calculated by summing scores for that direction.
-        This preserves the original behavior where 3 aligned criteria = setup,
-        even if one criterion contributes only 5 points instead of 20.
+        LONG-only: returns LONG when >= 3 criteria aligned, NO_SETUP otherwise.
 
         Args:
             criteria: List of CriterionResult from evaluate_criteria()
 
         Returns:
-            Tuple of (direction, score) where direction is LONG/SHORT/NO_SETUP
+            Tuple of (direction, score) where direction is LONG/NO_SETUP
         """
         long_aligned = sum(1 for c in criteria if c.aligned_for_long)
-        short_aligned = sum(1 for c in criteria if c.aligned_for_short)
 
-        if long_aligned >= self.MIN_CRITERIA_FOR_SETUP and long_aligned > short_aligned:
+        if long_aligned >= self.MIN_CRITERIA_FOR_SETUP:
             direction = Live20Direction.LONG
             score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
-        elif short_aligned >= self.MIN_CRITERIA_FOR_SETUP and short_aligned > long_aligned:
-            direction = Live20Direction.SHORT
-            score = sum(c.score_for_short for c in criteria if c.aligned_for_short)
         else:
             direction = Live20Direction.NO_SETUP
-            long_score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
-            short_score = sum(c.score_for_short for c in criteria if c.aligned_for_short)
-            score = max(long_score, short_score)
+            score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
 
         return direction, score
 

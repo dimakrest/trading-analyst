@@ -1,4 +1,4 @@
-export type Live20Direction = 'LONG' | 'SHORT' | 'NO_SETUP';
+export type Live20Direction = 'LONG' | 'NO_SETUP';
 
 export type VolumeApproach = 'exhaustion' | 'accumulation' | 'distribution' | null;
 
@@ -56,14 +56,12 @@ export interface Live20ResultsResponse {
   total: number;
   counts: {
     long: number;
-    short: number;
     no_setup: number;
   };
 }
 
 export interface Live20Counts {
   long: number;
-  short: number;
   no_setup: number;
   total: number;
 }
@@ -75,7 +73,6 @@ export interface Live20RunSummary {
   symbol_count: number;
   processed_count: number;
   long_count: number;
-  short_count: number;
   no_setup_count: number;
   stock_list_id: number | null;
   stock_list_name: string | null;
@@ -98,7 +95,6 @@ export interface Live20RunDetail {
   symbol_count: number;
   processed_count: number;
   long_count: number;
-  short_count: number;
   no_setup_count: number;
   input_symbols: string[];
   stock_list_id: number | null;

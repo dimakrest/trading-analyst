@@ -86,17 +86,14 @@ def calculate_candle_pattern(price_data: PriceData) -> dict[str, Any]:
     candle = analyze_latest_candle(opens, highs, lows, closes)
     pattern_interpretation = interpret_pattern_in_context(candle, trend)
 
-    # is_reversal is true if pattern aligns for either long or short
-    is_reversal = (
-        pattern_interpretation.aligned_for_long or pattern_interpretation.aligned_for_short
-    )
+    # is_reversal is true if pattern aligns for long
+    is_reversal = pattern_interpretation.aligned_for_long
 
     return {
         "raw_pattern": candle.raw_pattern.value,
         "interpreted_pattern": pattern_interpretation.interpreted_pattern.value,
         "is_reversal": is_reversal,
         "aligned_for_long": pattern_interpretation.aligned_for_long,
-        "aligned_for_short": pattern_interpretation.aligned_for_short,
         "explanation": pattern_interpretation.explanation,
     }
 
@@ -113,7 +110,6 @@ def calculate_volume_signal(price_data: PriceData) -> dict[str, Any]:
         "rvol": round(volume_signal.rvol, 2),
         "approach": volume_signal.approach.value,
         "aligned_for_long": volume_signal.aligned_for_long,
-        "aligned_for_short": volume_signal.aligned_for_short,
         "description": volume_signal.description,
     }
 
@@ -126,12 +122,9 @@ def calculate_cci(price_data: PriceData) -> dict[str, Any]:
 
     cci_analysis = analyze_cci(highs, lows, closes, period=14)
 
-    # Determine alignment (same logic as existing endpoint)
+    # Determine alignment
     aligned_for_long = cci_analysis.zone == CCIZone.OVERSOLD or (
         cci_analysis.zone == CCIZone.NEUTRAL and cci_analysis.direction == CCIDirection.RISING
-    )
-    aligned_for_short = cci_analysis.zone == CCIZone.OVERBOUGHT or (
-        cci_analysis.zone == CCIZone.NEUTRAL and cci_analysis.direction == CCIDirection.FALLING
     )
 
     return {
@@ -139,7 +132,6 @@ def calculate_cci(price_data: PriceData) -> dict[str, Any]:
         "zone": cci_analysis.zone.value,
         "direction": cci_analysis.direction.value,
         "aligned_for_long": aligned_for_long,
-        "aligned_for_short": aligned_for_short,
     }
 
 

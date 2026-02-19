@@ -154,12 +154,11 @@ class TestDetectVolumeSignal:
         result = detect_volume_signal(opens, closes, volumes)
 
         assert result.aligned_for_long is True
-        assert result.aligned_for_short is False
         assert result.rvol == 1.5
         assert "buyers stepping in" in result.description.lower()
 
-    def test_short_aligned_higher_volume_red_candle(self):
-        """Test SHORT aligned: higher volume + red candle."""
+    def test_not_aligned_higher_volume_red_candle(self):
+        """Test not aligned for LONG: higher volume + red candle."""
         opens = [100.0, 102.0]  # Yesterday open, today open
         closes = [101.0, 100.0]  # Yesterday close, today close (RED)
         volumes = [1000000.0, 1500000.0]  # 1.5x volume
@@ -167,7 +166,6 @@ class TestDetectVolumeSignal:
         result = detect_volume_signal(opens, closes, volumes)
 
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is True
         assert result.rvol == 1.5
         assert "sellers stepping in" in result.description.lower()
 
@@ -180,7 +178,6 @@ class TestDetectVolumeSignal:
         result = detect_volume_signal(opens, closes, volumes)
 
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
         assert result.rvol == 0.67
         assert "no volume conviction" in result.description.lower()
 
@@ -193,7 +190,6 @@ class TestDetectVolumeSignal:
         result = detect_volume_signal(opens, closes, volumes)
 
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
 
     def test_not_aligned_equal_volume(self):
         """Test not aligned: equal volume (no conviction)."""
@@ -204,7 +200,6 @@ class TestDetectVolumeSignal:
         result = detect_volume_signal(opens, closes, volumes)
 
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
         assert result.rvol == 1.0
 
     def test_not_aligned_doji_candle(self):
@@ -217,7 +212,6 @@ class TestDetectVolumeSignal:
 
         # Neither green nor red
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
 
     def test_insufficient_data(self):
         """Test with insufficient data (single day)."""
@@ -228,7 +222,6 @@ class TestDetectVolumeSignal:
         result = detect_volume_signal(opens, closes, volumes)
 
         assert result.aligned_for_long is False
-        assert result.aligned_for_short is False
         assert "insufficient" in result.description.lower()
 
     def test_zero_yesterday_volume(self):

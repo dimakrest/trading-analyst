@@ -32,8 +32,8 @@ interface Live20TableProps {
 }
 
 /**
- * Badge component for displaying direction (LONG/SHORT/NO_SETUP)
- * Uses teal for Long and orange for Short (screener signal colors)
+ * Badge component for displaying direction (LONG/NO_SETUP)
+ * Uses teal for Long signal color
  */
 function DirectionBadge({ direction }: { direction: Live20Direction | null }) {
   if (!direction) return <Badge variant="secondary">-</Badge>;
@@ -42,10 +42,6 @@ function DirectionBadge({ direction }: { direction: Live20Direction | null }) {
     LONG: {
       className: 'bg-[var(--signal-long-muted)] text-[var(--signal-long)] border border-[var(--signal-long)] hover:bg-[var(--signal-long-muted)]',
       label: 'LONG',
-    },
-    SHORT: {
-      className: 'bg-[var(--signal-short-muted)] text-[var(--signal-short)] border border-[var(--signal-short)] hover:bg-[var(--signal-short-muted)]',
-      label: 'SHORT',
     },
     NO_SETUP: {
       className: 'bg-[rgba(100,116,139,0.15)] text-text-secondary border border-default hover:bg-[rgba(100,116,139,0.15)]',
