@@ -328,6 +328,44 @@ class TestSharpeEdgeCases:
         assert sim.sharpe_ratio is not None
         assert sim.sharpe_ratio > 0
 
+    @pytest.mark.unit
+    def test_sharpe_ratio_exact_value(self) -> None:
+        """Sharpe ratio matches hand-calculated expected value.
+
+        Verifies the annualization factor (sqrt(252)) and quantization (0.0001)
+        are applied correctly so a scaling error would be caught.
+
+        Input:
+            daily_return_pct = [1.00, 2.00, 3.00] (as percentages stored in DB)
+        Calculation:
+            daily_returns = [0.01, 0.02, 0.03]
+            mean = 0.02, std_dev = 0.01
+            sharpe = (0.02 / 0.01) * sqrt(252) = 2 * 15.8745... = 31.7490...
+        """
+        sim = FakeSimulation()
+        positions = [FakePosition(realized_pnl=Decimal("100"))]
+        snapshots = [
+            FakeSnapshot(
+                snapshot_date=date(2024, 1, 3),
+                daily_return_pct=Decimal("1.00"),
+                day_number=1,
+            ),
+            FakeSnapshot(
+                snapshot_date=date(2024, 1, 4),
+                daily_return_pct=Decimal("2.00"),
+                day_number=2,
+            ),
+            FakeSnapshot(
+                snapshot_date=date(2024, 1, 5),
+                daily_return_pct=Decimal("3.00"),
+                day_number=3,
+            ),
+        ]
+
+        compute_simulation_analytics(sim, positions, snapshots)
+
+        assert sim.sharpe_ratio == Decimal("31.7490")
+
 
 class TestHoldTimeCalculation:
     """Average hold duration calculated from trading days in snapshots."""

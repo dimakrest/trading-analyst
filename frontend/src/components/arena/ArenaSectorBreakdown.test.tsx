@@ -325,4 +325,28 @@ describe('ArenaSectorBreakdown', () => {
       expect(screen.getByText('Sector Breakdown')).toBeInTheDocument();
     });
   });
+
+  // -------------------------------------------------------------------------
+  describe('open positions with null entry_price or shares', () => {
+    it('does not produce NaN in allocation when entry_price is null', () => {
+      const positions = [
+        // Position with all numeric fields null (pending state — not yet opened)
+        {
+          ...makeOpenPosition(1, 'AAPL', 'Technology'),
+          entry_price: null,
+          shares: null,
+          current_stop: null,
+          highest_price: null,
+        } as unknown as Position,
+        makeOpenPosition(2, 'MSFT', 'Technology', '200.00', 5),
+      ];
+      render(<ArenaSectorBreakdown positions={positions} snapshot={null} />);
+      // Should render without crashing and show Technology row
+      expect(screen.getByText('Technology')).toBeInTheDocument();
+      // Percentage should be a valid number (not "NaN%")
+      const cells = screen.getAllByRole('cell');
+      const cellTexts = cells.map((c) => c.textContent ?? '');
+      expect(cellTexts.some((t) => t.includes('NaN'))).toBe(false);
+    });
+  });
 });

@@ -14,7 +14,7 @@ export type SimulationStatus = 'pending' | 'running' | 'paused' | 'completed' | 
 export type PositionStatus = 'pending' | 'open' | 'closed';
 
 /** Why a position was closed */
-export type ExitReason = 'stop_hit' | 'simulation_end';
+export type ExitReason = 'stop_hit' | 'simulation_end' | 'insufficient_capital';
 
 /** Agent information from /api/v1/arena/agents */
 export interface AgentInfo {
@@ -160,4 +160,11 @@ export interface StepResponse {
   simulation: Simulation;
   snapshot: Snapshot | null;
   is_complete: boolean;
+}
+
+/** Single data point for benchmark (SPY / QQQ) price series. */
+export interface BenchmarkDataPoint {
+  date: string;
+  close: string;
+  cumulative_return_pct: string;
 }
