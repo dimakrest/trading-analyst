@@ -2,9 +2,8 @@
  * ArenaEquityChart
  *
  * Line chart showing portfolio total equity over time for a completed simulation.
- * Supports an optional SPY / QQQ benchmark overlay that toggles the Y-axis between
- * absolute dollar values and normalized percentage returns so both series share the
- * same scale.
+ * Both S&P 500 (SPY) and QQQ benchmarks are shown by default as normalized %
+ * return overlays. Each benchmark can be toggled independently.
  *
  * Uses TradingView Lightweight Charts v5 for high-performance canvas rendering.
  */
@@ -30,6 +29,13 @@ interface ArenaEquityChartProps {
   simulationId: number;
 }
 
+type BenchmarkSymbol = 'SPY' | 'QQQ';
+
+const BENCHMARK_CONFIG: Record<BenchmarkSymbol, { color: string; label: string }> = {
+  SPY: { color: CHART_COLORS.SPY, label: 'S&P 500' },
+  QQQ: { color: CHART_COLORS.QQQ, label: 'QQQ' },
+};
+
 /** Absolute-dollar price format used when no benchmark is active. */
 const CURRENCY_PRICE_FORMAT = {
   type: 'custom' as const,
@@ -48,19 +54,17 @@ const PERCENT_PRICE_FORMAT = {
 };
 
 /**
- * Portfolio equity curve chart with optional SPY / QQQ benchmark overlay.
+ * Portfolio equity curve chart with optional SPY / QQQ benchmark overlays.
  *
- * When a benchmark is selected:
- * - The equity series is switched to a normalized % return view so both lines
- *   share the same Y-axis scale.
- * - The benchmark cumulative-return series is overlaid as a dashed line.
- * - The Y-axis label format is updated to show '%' values.
+ * Both benchmarks are shown by default in normalized % return mode so all
+ * three series share the same Y-axis scale.
  *
- * Both series remain mounted throughout — only their data is swapped. This
- * avoids flickering from series removal / re-addition.
+ * Each benchmark toggle is independent — turning both off restores the
+ * absolute dollar equity view.
  *
- * The data swap is atomic: absolute equity is kept displayed while the fetch
- * is in flight so the user never sees a %-scale chart with a single line.
+ * All three series remain mounted throughout; only their data is swapped.
+ * isNormalizedRef tracks the current Y-axis mode so the snapshot-update
+ * effect can write the correct data format without stale-closure issues.
  */
 export const ArenaEquityChart = ({
   snapshots,
@@ -69,20 +73,30 @@ export const ArenaEquityChart = ({
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const equitySeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const benchmarkSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const spySeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const qqqSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+
+  // Tracks whether the equity series is in normalized-% mode (vs absolute $).
+  // Stored as a ref to avoid stale closures in the snapshots effect.
+  const isNormalizedRef = useRef(true);
 
   const chartTheme = useChartTheme();
 
-  // Which benchmark is currently active (null = absolute equity view)
-  const [activeBenchmark, setActiveBenchmark] = useState<'SPY' | 'QQQ' | null>(null);
-  // True while the benchmark fetch is in flight
-  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
-  // True if the last benchmark fetch failed (used to style the toggle item)
-  const [benchmarkError, setBenchmarkError] = useState(false);
+  // Both benchmarks active by default
+  const [activeBenchmarks, setActiveBenchmarks] = useState<Set<BenchmarkSymbol>>(
+    () => new Set<BenchmarkSymbol>(['SPY', 'QQQ']),
+  );
+  const [loadingBenchmarks, setLoadingBenchmarks] = useState<Set<BenchmarkSymbol>>(
+    () => new Set<BenchmarkSymbol>(),
+  );
+  const [errorBenchmarks, setErrorBenchmarks] = useState<Set<BenchmarkSymbol>>(
+    () => new Set<BenchmarkSymbol>(),
+  );
+
+  // Guard against double-fetching on mount when snapshots prop is stable
+  const initialFetchDoneRef = useRef(false);
 
   // Pre-compute both data representations from current snapshots.
-  // absoluteData: raw dollar equity values.
-  // normalizedPortfolio: cumulative % return from the first snapshot.
   const absoluteData = snapshots.map((s) => ({
     time: (new Date(s.snapshot_date).getTime() / 1000) as UTCTimestamp,
     value: parseFloat(s.total_equity),
@@ -94,8 +108,8 @@ export const ArenaEquityChart = ({
     value: ((parseFloat(s.total_equity) - firstEquity) / firstEquity) * 100,
   }));
 
-  // Initialize chart and both series on mount.
-  // chartTheme is the only dependency — the data useEffect handles data updates.
+  // Initialize chart and all three series on mount.
+  // chartTheme is the only dependency — data effects handle population.
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -105,19 +119,30 @@ export const ArenaEquityChart = ({
       height: 280,
     });
 
-    // Equity series — solid line, currency format by default
+    // Equity series — solid line, starts in % format (both benchmarks on by default)
     const equitySeries = chart.addSeries(LineSeries, {
       color: CHART_COLORS.EQUITY,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: true,
-      priceFormat: CURRENCY_PRICE_FORMAT,
+      priceFormat: PERCENT_PRICE_FORMAT,
     });
 
-    // Benchmark series — dashed line, always mounted but starts empty
-    const benchmarkSeries = chart.addSeries(LineSeries, {
-      color: CHART_COLORS.MA_50,
+    // SPY series — dashed line, always mounted but starts empty
+    const spySeries = chart.addSeries(LineSeries, {
+      color: CHART_COLORS.SPY,
+      lineWidth: 2,
+      lineStyle: LineStyle.Dashed,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: true,
+      priceFormat: PERCENT_PRICE_FORMAT,
+    });
+
+    // QQQ series — dashed line, always mounted but starts empty
+    const qqqSeries = chart.addSeries(LineSeries, {
+      color: CHART_COLORS.QQQ,
       lineWidth: 2,
       lineStyle: LineStyle.Dashed,
       priceLineVisible: false,
@@ -128,132 +153,125 @@ export const ArenaEquityChart = ({
 
     chartRef.current = chart;
     equitySeriesRef.current = equitySeries;
-    benchmarkSeriesRef.current = benchmarkSeries;
+    spySeriesRef.current = spySeries;
+    qqqSeriesRef.current = qqqSeries;
 
-    // Responsive resize
     const resizeObserver = new ResizeObserver((entries) => {
-      const { width: containerWidth } = entries[0].contentRect;
-      chart.applyOptions({ width: containerWidth });
+      const { width } = entries[0].contentRect;
+      chart.applyOptions({ width });
     });
 
     resizeObserver.observe(chartContainerRef.current);
 
     return () => {
       resizeObserver.disconnect();
-
-      if (benchmarkSeriesRef.current) {
-        chart.removeSeries(benchmarkSeriesRef.current);
-        benchmarkSeriesRef.current = null;
-      }
-      if (equitySeriesRef.current) {
-        chart.removeSeries(equitySeriesRef.current);
-        equitySeriesRef.current = null;
-      }
-
+      if (qqqSeriesRef.current) { chart.removeSeries(qqqSeriesRef.current); qqqSeriesRef.current = null; }
+      if (spySeriesRef.current) { chart.removeSeries(spySeriesRef.current); spySeriesRef.current = null; }
+      if (equitySeriesRef.current) { chart.removeSeries(equitySeriesRef.current); equitySeriesRef.current = null; }
       chart.remove();
       chartRef.current = null;
     };
   }, [chartTheme]);
 
-  // Populate equity series when snapshots change (and no benchmark is active).
-  // When a benchmark is active the data is already in normalized form — don't
-  // overwrite it here.
-  useEffect(() => {
-    if (!equitySeriesRef.current || snapshots.length < 2) return;
+  const getSeriesRef = (symbol: BenchmarkSymbol) =>
+    symbol === 'SPY' ? spySeriesRef : qqqSeriesRef;
 
-    // Only update if we are in the absolute view; benchmark toggle manages its
-    // own data swap.
-    if (activeBenchmark === null) {
-      equitySeriesRef.current.setData(absoluteData);
+  /** Fetch benchmark data and populate the appropriate series. */
+  const fetchBenchmark = useCallback(
+    async (symbol: BenchmarkSymbol) => {
+      const seriesRef = getSeriesRef(symbol);
+      if (!seriesRef.current) return;
 
-      if (chartRef.current) {
-        chartRef.current.timeScale().fitContent();
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshots]);
-
-  /**
-   * Restore the chart to absolute-dollar equity mode.
-   * Clears benchmark data and resets the Y-axis format.
-   */
-  const restoreAbsoluteView = useCallback(() => {
-    if (!equitySeriesRef.current || !benchmarkSeriesRef.current) return;
-
-    equitySeriesRef.current.setData(absoluteData);
-    equitySeriesRef.current.applyOptions({ priceFormat: CURRENCY_PRICE_FORMAT });
-    benchmarkSeriesRef.current.setData([]);
-
-    if (chartRef.current) {
-      chartRef.current.timeScale().fitContent();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshots]);
-
-  /**
-   * Fetch benchmark data and swap the chart to normalized % view atomically.
-   * Keeps the absolute equity displayed until the fetch succeeds to avoid
-   * showing an empty %-scale chart.
-   */
-  const activateBenchmark = useCallback(
-    async (symbol: 'SPY' | 'QQQ') => {
-      if (!equitySeriesRef.current || !benchmarkSeriesRef.current) return;
-
-      setBenchmarkLoading(true);
-      setBenchmarkError(false);
+      setLoadingBenchmarks((prev) => new Set(prev).add(symbol));
+      setErrorBenchmarks((prev) => { const n = new Set(prev); n.delete(symbol); return n; });
 
       try {
         const data = await getBenchmarkData(simulationId, symbol);
-
-        const benchmarkTimeData = data.map((p) => ({
+        const timeData = data.map((p) => ({
           time: (new Date(p.date).getTime() / 1000) as UTCTimestamp,
           value: parseFloat(p.cumulative_return_pct),
         }));
-
-        // Atomic swap: normalized portfolio + benchmark + format change all at once
-        equitySeriesRef.current.setData(normalizedPortfolio);
-        equitySeriesRef.current.applyOptions({ priceFormat: PERCENT_PRICE_FORMAT });
-        benchmarkSeriesRef.current.setData(benchmarkTimeData);
-
-        if (chartRef.current) {
-          chartRef.current.timeScale().fitContent();
-        }
+        seriesRef.current.setData(timeData);
+        chartRef.current?.timeScale().fitContent();
       } catch {
-        setBenchmarkError(true);
+        setErrorBenchmarks((prev) => new Set(prev).add(symbol));
         toast.error(`Failed to load ${symbol} benchmark data`);
+        setActiveBenchmarks((prev) => { const n = new Set(prev); n.delete(symbol); return n; });
+        seriesRef.current.setData([]);
       } finally {
-        setBenchmarkLoading(false);
+        setLoadingBenchmarks((prev) => { const n = new Set(prev); n.delete(symbol); return n; });
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [simulationId, snapshots],
+    [simulationId],
   );
 
-  /**
-   * Handle toggle group value change.
-   * - Clicking an inactive item activates that benchmark.
-   * - Clicking the currently active item deactivates it (restores absolute view).
-   * - An empty string value means the user deselected everything.
-   */
-  const handleBenchmarkToggle = useCallback(
-    (value: string) => {
-      const newBenchmark = value as 'SPY' | 'QQQ' | '';
-
-      if (newBenchmark === '' || newBenchmark === activeBenchmark) {
-        // Deactivate: restore absolute view
-        setActiveBenchmark(null);
-        setBenchmarkError(false);
-        restoreAbsoluteView();
+  /** Switch equity series between normalized-% and absolute-$ mode. */
+  const setEquityMode = useCallback(
+    (normalized: boolean) => {
+      if (!equitySeriesRef.current) return;
+      isNormalizedRef.current = normalized;
+      if (normalized) {
+        equitySeriesRef.current.setData(normalizedPortfolio);
+        equitySeriesRef.current.applyOptions({ priceFormat: PERCENT_PRICE_FORMAT });
       } else {
-        const symbol = newBenchmark as 'SPY' | 'QQQ';
-        setActiveBenchmark(symbol);
-        activateBenchmark(symbol);
+        equitySeriesRef.current.setData(absoluteData);
+        equitySeriesRef.current.applyOptions({ priceFormat: CURRENCY_PRICE_FORMAT });
       }
+      chartRef.current?.timeScale().fitContent();
     },
-    [activeBenchmark, activateBenchmark, restoreAbsoluteView],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snapshots],
   );
 
-  // Not enough data placeholder (< 2 points = invisible line in lightweight-charts)
+  // Populate equity series on snapshot updates; auto-fetch benchmarks on first load.
+  useEffect(() => {
+    if (!equitySeriesRef.current || snapshots.length < 2) return;
+
+    // Refresh equity series with up-to-date data in the current mode
+    if (isNormalizedRef.current) {
+      equitySeriesRef.current.setData(normalizedPortfolio);
+    } else {
+      equitySeriesRef.current.setData(absoluteData);
+    }
+    chartRef.current?.timeScale().fitContent();
+
+    // Fetch both benchmarks on first load
+    if (!initialFetchDoneRef.current) {
+      initialFetchDoneRef.current = true;
+      fetchBenchmark('SPY');
+      fetchBenchmark('QQQ');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshots]);
+
+  /** Handle independent benchmark toggle (multi-select). */
+  const handleToggle = useCallback(
+    (values: string[]) => {
+      const newActive = new Set(values as BenchmarkSymbol[]);
+      const wasAnyActive = activeBenchmarks.size > 0;
+      const isAnyNowActive = newActive.size > 0;
+
+      for (const symbol of ['SPY', 'QQQ'] as const) {
+        if (newActive.has(symbol) && !activeBenchmarks.has(symbol)) {
+          // Newly activated — fetch data
+          fetchBenchmark(symbol);
+        } else if (!newActive.has(symbol) && activeBenchmarks.has(symbol)) {
+          // Deactivated — clear series
+          getSeriesRef(symbol).current?.setData([]);
+        }
+      }
+
+      // Switch equity view mode if the "any benchmark active" state changed
+      if (wasAnyActive !== isAnyNowActive) {
+        setEquityMode(isAnyNowActive);
+      }
+
+      setActiveBenchmarks(newActive);
+    },
+    [activeBenchmarks, fetchBenchmark, setEquityMode],
+  );
+
   if (snapshots.length < 2) {
     return (
       <div
@@ -268,12 +286,15 @@ export const ArenaEquityChart = ({
     );
   }
 
+  const isAnyBenchmarkActive = activeBenchmarks.size > 0;
+  const isAnyLoading = loadingBenchmarks.size > 0;
+
   return (
     <div className="space-y-3">
       {/* Controls row */}
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">
-          {activeBenchmark
+          {isAnyBenchmarkActive
             ? 'Cumulative return % — portfolio vs benchmark'
             : 'Portfolio equity (absolute)'}
         </span>
@@ -281,24 +302,24 @@ export const ArenaEquityChart = ({
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Benchmark</span>
           <ToggleGroup
-            type="single"
+            type="multiple"
             size="sm"
-            value={activeBenchmark ?? ''}
-            onValueChange={handleBenchmarkToggle}
-            aria-label="Select benchmark overlay"
+            value={[...activeBenchmarks]}
+            onValueChange={handleToggle}
+            aria-label="Toggle benchmark overlays"
           >
             {(['SPY', 'QQQ'] as const).map((symbol) => {
-              const isActive = activeBenchmark === symbol;
-              const isLoading = isActive && benchmarkLoading;
-              const isErrored = isActive && benchmarkError;
+              const isActive = activeBenchmarks.has(symbol);
+              const isLoading = loadingBenchmarks.has(symbol);
+              const isErrored = errorBenchmarks.has(symbol);
 
               return (
                 <ToggleGroupItem
                   key={symbol}
                   value={symbol}
-                  aria-label={`Toggle ${symbol} benchmark`}
+                  aria-label={`Toggle ${BENCHMARK_CONFIG[symbol].label} benchmark`}
                   aria-pressed={isActive}
-                  disabled={benchmarkLoading}
+                  disabled={isAnyLoading}
                   className={isErrored ? 'text-accent-bearish' : undefined}
                   data-testid={`benchmark-toggle-${symbol.toLowerCase()}`}
                 >
@@ -324,43 +345,45 @@ export const ArenaEquityChart = ({
         style={{ height: '280px' }}
         role="img"
         aria-label={
-          activeBenchmark
-            ? `Portfolio equity vs ${activeBenchmark} benchmark`
+          isAnyBenchmarkActive
+            ? `Portfolio equity vs ${[...activeBenchmarks].join(' & ')} benchmark`
             : 'Portfolio equity over time'
         }
         data-testid="arena-equity-chart"
       />
 
-      {/* Legend — only visible when a benchmark is active */}
-      {activeBenchmark && !benchmarkLoading && (
-        <div
-          className="flex items-center gap-4 text-xs text-muted-foreground"
-          data-testid="benchmark-legend"
-        >
-          {/* Portfolio: solid line */}
-          <div className="flex items-center gap-1.5">
-            <span
-              className="inline-block h-0.5 w-5 rounded-full"
-              style={{ backgroundColor: CHART_COLORS.EQUITY }}
-              aria-hidden="true"
-            />
-            <span>Portfolio</span>
-          </div>
-
-          {/* Benchmark: dashed line */}
-          <div className="flex items-center gap-1.5">
-            <span
-              className="inline-block w-5"
-              style={{
-                height: '2px',
-                backgroundImage: `repeating-linear-gradient(to right, ${CHART_COLORS.MA_50} 0, ${CHART_COLORS.MA_50} 4px, transparent 4px, transparent 7px)`,
-              }}
-              aria-hidden="true"
-            />
-            <span>{activeBenchmark}</span>
-          </div>
+      {/* Legend — always visible */}
+      <div
+        className="flex items-center gap-4 text-xs text-muted-foreground"
+        data-testid="benchmark-legend"
+      >
+        {/* Portfolio: solid line */}
+        <div className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-0.5 w-5 rounded-full"
+            style={{ backgroundColor: CHART_COLORS.EQUITY }}
+            aria-hidden="true"
+          />
+          <span>Portfolio</span>
         </div>
-      )}
+
+        {/* Active benchmark series */}
+        {(['SPY', 'QQQ'] as const).map((symbol) =>
+          activeBenchmarks.has(symbol) && !loadingBenchmarks.has(symbol) ? (
+            <div key={symbol} className="flex items-center gap-1.5">
+              <span
+                className="inline-block w-5"
+                style={{
+                  height: '2px',
+                  backgroundImage: `repeating-linear-gradient(to right, ${BENCHMARK_CONFIG[symbol].color} 0, ${BENCHMARK_CONFIG[symbol].color} 4px, transparent 4px, transparent 7px)`,
+                }}
+                aria-hidden="true"
+              />
+              <span>{BENCHMARK_CONFIG[symbol].label}</span>
+            </div>
+          ) : null,
+        )}
+      </div>
     </div>
   );
 };

@@ -88,10 +88,22 @@ export const CHART_COLORS = {
   EQUITY: '#6366f1',
 
   /**
-   * MA 50 indicator line color (also used for benchmark overlay)
+   * MA 50 indicator line color
    * Matches Tailwind orange-400: #fb923c
    */
   MA_50: '#fb923c',
+
+  /**
+   * SPY (S&P 500) benchmark overlay color
+   * Matches Tailwind orange-500: #f97316
+   */
+  SPY: '#f97316',
+
+  /**
+   * QQQ (Nasdaq-100) benchmark overlay color
+   * Matches Tailwind cyan-400: #22d3ee
+   */
+  QQQ: '#22d3ee',
 } as const;
 
 /**
