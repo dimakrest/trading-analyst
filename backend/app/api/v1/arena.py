@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.core.deps import get_data_service
 from app.models.arena import ArenaSimulation, SimulationStatus
-from app.models.stock_sector import StockSector
 from app.repositories.agent_config_repository import AgentConfigRepository
 from app.schemas.arena import (
     AgentInfo,
@@ -281,12 +280,14 @@ async def list_simulations(
 async def get_simulation(
     simulation_id: int,
     session: AsyncSession = Depends(get_db_session),
+    data_service: DataService = Depends(get_data_service),
 ) -> SimulationDetailResponse:
     """Get detailed simulation info.
 
     Args:
         simulation_id: Simulation primary key
         session: Database session
+        data_service: Market data service for sector prefetch
 
     Returns:
         SimulationDetailResponse with simulation, positions, and snapshots
@@ -304,15 +305,12 @@ async def get_simulation(
             detail=f"Simulation {simulation_id} not found",
         )
 
-    # Build sector lookup map for all position symbols
+    # Build sector lookup map for all position symbols, backfilling any missing
+    # entries from Yahoo Finance via batch_prefetch_sectors.
     sector_map: dict[str, str | None] = {}
     if simulation.positions:
         symbols = list({pos.symbol for pos in simulation.positions})
-        sector_result = await session.execute(
-            select(StockSector.symbol, StockSector.sector)
-            .where(StockSector.symbol.in_(symbols))
-        )
-        sector_map = {row.symbol: row.sector for row in sector_result.all()}
+        sector_map = await data_service.batch_prefetch_sectors(symbols, session)
 
     # Positions and snapshots are loaded via selectin relationship
     positions = [
@@ -508,7 +506,7 @@ async def get_benchmark_data(
 
     # DataService.get_price_data() takes datetime objects with UTC timezone
     start_dt = datetime.combine(simulation.start_date, time.min, tzinfo=timezone.utc)
-    end_dt = datetime.combine(simulation.end_date, time.min, tzinfo=timezone.utc)
+    end_dt = datetime.combine(simulation.end_date, time.max, tzinfo=timezone.utc)
 
     bars = await data_service.get_price_data(
         symbol=symbol,

@@ -133,7 +133,23 @@ class SimulationEngine:
             simulation.end_date,
             lookback_days,
         )
-        await self._load_sector_cache(simulation.id, simulation.symbols)
+        # Prefetch any missing sector data from Yahoo Finance (non-blocking on failure)
+        try:
+            sector_name_map = await self.data_service.batch_prefetch_sectors(
+                simulation.symbols, self.session
+            )
+            # Directly populate cache with freshly fetched data
+            self._sector_cache[simulation.id] = sector_name_map
+            missing_count = sum(1 for v in sector_name_map.values() if v is None)
+            if missing_count:
+                logger.info(
+                    f"Simulation {simulation.id}: {missing_count}/{len(simulation.symbols)} "
+                    f"symbols have no sector data after prefetch"
+                )
+        except Exception as e:
+            logger.warning(f"Sector prefetch failed for simulation {simulation.id}: {e}")
+            # Fall back to DB-only load
+            await self._load_sector_cache(simulation.id, simulation.symbols)
 
         # Get trading days from cache
         trading_days = self._get_trading_days_from_cache(
@@ -815,6 +831,12 @@ class SimulationEngine:
         for position in open_positions:
             bar = self._get_cached_bar_for_date(simulation.id, position.symbol, close_date)
             if not bar:
+                logger.warning(
+                    "No price bar found for %s on %s — position %d left unclosed",
+                    position.symbol,
+                    close_date,
+                    position.id,
+                )
                 continue
 
             exit_price = bar.close

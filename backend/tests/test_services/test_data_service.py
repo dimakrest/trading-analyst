@@ -9,8 +9,9 @@ Tests cover:
 - Integration with StockPriceRepository
 - Concurrent operations and rate limiting
 - Edge cases and error scenarios
+- batch_prefetch_sectors() for bulk sector pre-population
 """
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -322,3 +323,297 @@ class TestDataServiceIntegration:
         assert result["symbol"] == "AAPL"
         assert result["name"] is not None
         assert result["currency"] == "USD"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for batch_prefetch_sectors tests
+# ---------------------------------------------------------------------------
+
+
+def _make_db_row(symbol: str, sector: str | None):
+    """Create a simple namespace object that mimics a SQLAlchemy Row with
+    .symbol and .sector attributes, as returned by session.execute().all()."""
+    row = MagicMock()
+    row.symbol = symbol
+    row.sector = sector
+    return row
+
+
+def _make_execute_result(rows):
+    """Return a MagicMock whose .all() returns *rows* and .scalar_one_or_none() returns None.
+
+    The .scalar_one_or_none() default of None models a DB cache miss inside
+    get_sector_etf(), which uses scalar_one_or_none() to check stock_sectors.
+    Tests that need a cache hit must override scalar_one_or_none() explicitly.
+    """
+    result = MagicMock()
+    result.all.return_value = rows
+    result.scalar_one_or_none.return_value = None
+    return result
+
+
+class _MockTaskSessionContext:
+    """Async context manager returned by _session_factory() for task sessions.
+
+    Wraps a dedicated AsyncMock so each factory call can return an independent
+    session, allowing the test to assert on per-session calls.
+    """
+
+    def __init__(self, session):
+        self._session = session
+
+    async def __aenter__(self):
+        return self._session
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return False
+
+
+@pytest.mark.unit
+class TestBatchPrefetchSectors:
+    """Unit tests for DataService.batch_prefetch_sectors().
+
+    All tests mock the DB session and the provider — no real I/O occurs.
+    """
+
+    # ------------------------------------------------------------------
+    # Fixtures
+    # ------------------------------------------------------------------
+
+    @pytest.fixture
+    def mock_provider(self):
+        """Mock market-data provider (no real Yahoo calls)."""
+        provider = AsyncMock(spec=MockMarketDataProvider)
+        provider.provider_name = "mock"
+        return provider
+
+    @pytest.fixture
+    def task_session(self):
+        """Dedicated AsyncMock that simulates a per-task DB session.
+
+        execute() returns a result where scalar_one_or_none() is None so that
+        get_sector_etf() takes the cache-miss path and calls the provider.
+        """
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=_make_execute_result([]))
+        session.commit = AsyncMock()
+        return session
+
+    @pytest.fixture
+    def mock_session_factory(self, task_session):
+        """Session factory that always returns the same task_session context."""
+        def factory():
+            return _MockTaskSessionContext(task_session)
+        return factory
+
+    @pytest.fixture
+    def data_service(self, mock_session_factory, mock_provider):
+        """DataService wired with mock factory and provider."""
+        return DataService(
+            session_factory=mock_session_factory,
+            provider=mock_provider,
+            config=DataServiceConfig(max_retries=1),
+        )
+
+    # ------------------------------------------------------------------
+    # Tests
+    # ------------------------------------------------------------------
+
+    async def test_batch_prefetch_sectors_empty_list(self, data_service):
+        """Empty input returns {} without touching the DB or provider."""
+        # Arrange
+        caller_session = AsyncMock()
+
+        # Act
+        result = await data_service.batch_prefetch_sectors([], caller_session)
+
+        # Assert
+        assert result == {}
+        caller_session.execute.assert_not_called()
+
+    async def test_batch_prefetch_sectors_all_cached(self, data_service, mock_provider):
+        """All symbols already in DB — provider is never called."""
+        # Arrange
+        symbols = ["AAPL", "MSFT"]
+        caller_session = AsyncMock()
+        caller_session.execute = AsyncMock(return_value=_make_execute_result([
+            _make_db_row("AAPL", "Technology"),
+            _make_db_row("MSFT", "Technology"),
+        ]))
+
+        # Act
+        result = await data_service.batch_prefetch_sectors(symbols, caller_session)
+
+        # Assert — provider never touched
+        mock_provider.get_symbol_info.assert_not_called()
+        # Only the initial read, no second bulk read
+        assert caller_session.execute.call_count == 1
+        assert result == {"AAPL": "Technology", "MSFT": "Technology"}
+
+    async def test_batch_prefetch_sectors_all_missing(
+        self, data_service, mock_provider, task_session
+    ):
+        """No symbols in DB — get_sector_etf called for all via own sessions."""
+        # Arrange
+        symbols = ["AAPL", "MSFT"]
+        caller_session = AsyncMock()
+        # First execute call (initial read): nothing cached
+        # Second execute call (bulk re-read): returns freshly inserted data
+        caller_session.execute = AsyncMock(side_effect=[
+            _make_execute_result([]),  # initial read — nothing cached
+            _make_execute_result([    # bulk re-read after fetch
+                _make_db_row("AAPL", "Technology"),
+                _make_db_row("MSFT", "Technology"),
+            ]),
+        ])
+
+        mock_provider.get_symbol_info.return_value = SymbolInfo(
+            symbol="AAPL",
+            name="Apple Inc.",
+            currency="USD",
+            exchange="NASDAQ",
+            sector="Technology",
+            industry="Consumer Electronics",
+        )
+
+        # Act
+        result = await data_service.batch_prefetch_sectors(symbols, caller_session)
+
+        # Assert — provider called once per symbol (both were missing)
+        assert mock_provider.get_symbol_info.call_count == 2
+        assert result == {"AAPL": "Technology", "MSFT": "Technology"}
+        # Caller session used for initial + bulk re-read
+        assert caller_session.execute.call_count == 2
+
+    async def test_batch_prefetch_sectors_mixed(
+        self, data_service, mock_provider, task_session
+    ):
+        """Some symbols cached, some missing — Yahoo called only for missing."""
+        # Arrange
+        symbols = ["AAPL", "MSFT", "GOOGL"]
+        caller_session = AsyncMock()
+        caller_session.execute = AsyncMock(side_effect=[
+            _make_execute_result([
+                _make_db_row("AAPL", "Technology"),  # already cached
+            ]),
+            _make_execute_result([                   # bulk re-read
+                _make_db_row("AAPL", "Technology"),
+                _make_db_row("MSFT", "Technology"),
+                _make_db_row("GOOGL", "Communication Services"),
+            ]),
+        ])
+
+        mock_provider.get_symbol_info.side_effect = [
+            SymbolInfo(
+                symbol="MSFT",
+                name="Microsoft Corporation",
+                currency="USD",
+                exchange="NASDAQ",
+                sector="Technology",
+                industry="Software",
+            ),
+            SymbolInfo(
+                symbol="GOOGL",
+                name="Alphabet Inc.",
+                currency="USD",
+                exchange="NASDAQ",
+                sector="Communication Services",
+                industry="Internet Content & Information",
+            ),
+        ]
+
+        # Act
+        result = await data_service.batch_prefetch_sectors(symbols, caller_session)
+
+        # Assert — provider called only for the two missing symbols
+        assert mock_provider.get_symbol_info.call_count == 2
+        assert result["AAPL"] == "Technology"
+        assert result["MSFT"] == "Technology"
+        assert result["GOOGL"] == "Communication Services"
+
+    async def test_batch_prefetch_sectors_partial_failure(
+        self, data_service, mock_provider, task_session
+    ):
+        """One Yahoo call raises — others succeed; no exception propagated."""
+        # Arrange
+        symbols = ["AAPL", "BADFOO"]
+        caller_session = AsyncMock()
+        caller_session.execute = AsyncMock(side_effect=[
+            _make_execute_result([]),  # initial read — nothing cached
+            _make_execute_result([    # bulk re-read — only AAPL succeeded
+                _make_db_row("AAPL", "Technology"),
+            ]),
+        ])
+
+        mock_provider.get_symbol_info.side_effect = [
+            SymbolInfo(
+                symbol="AAPL",
+                name="Apple Inc.",
+                currency="USD",
+                exchange="NASDAQ",
+                sector="Technology",
+                industry="Consumer Electronics",
+            ),
+            Exception("Yahoo API timeout"),
+        ]
+
+        # Act — must not raise
+        result = await data_service.batch_prefetch_sectors(symbols, caller_session)
+
+        # Assert
+        assert result["AAPL"] == "Technology"
+        assert result["BADFOO"] is None
+
+    async def test_batch_prefetch_sectors_uses_independent_sessions(
+        self, mock_provider
+    ):
+        """Each concurrent fetch opens its own session via _session_factory.
+
+        The caller's session must not be used for the per-symbol fetches.
+        """
+        # Arrange
+        symbols = ["AAPL", "MSFT"]
+        caller_session = AsyncMock()
+        caller_session.execute = AsyncMock(side_effect=[
+            _make_execute_result([]),  # initial read — nothing cached
+            _make_execute_result([    # bulk re-read
+                _make_db_row("AAPL", "Technology"),
+                _make_db_row("MSFT", "Technology"),
+            ]),
+        ])
+
+        # Track every session created by the factory
+        created_sessions = []
+
+        def session_factory():
+            task_sess = AsyncMock()
+            task_sess.execute = AsyncMock(return_value=_make_execute_result([]))
+            task_sess.commit = AsyncMock()
+            created_sessions.append(task_sess)
+            return _MockTaskSessionContext(task_sess)
+
+        mock_provider.get_symbol_info.return_value = SymbolInfo(
+            symbol="AAPL",
+            name="Apple Inc.",
+            currency="USD",
+            exchange="NASDAQ",
+            sector="Technology",
+            industry="Consumer Electronics",
+        )
+
+        service = DataService(
+            session_factory=session_factory,
+            provider=mock_provider,
+            config=DataServiceConfig(max_retries=1),
+        )
+
+        # Act
+        await service.batch_prefetch_sectors(symbols, caller_session)
+
+        # Assert — factory called once per missing symbol (2 independent sessions)
+        assert len(created_sessions) == 2
+        # Each task session was committed independently
+        for sess in created_sessions:
+            sess.commit.assert_called_once()
+        # Caller's session was never committed (it's the caller's responsibility)
+        caller_session.commit.assert_not_called()

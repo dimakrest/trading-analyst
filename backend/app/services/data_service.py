@@ -237,6 +237,74 @@ class DataService:
             self.logger.warning(f"Failed to fetch sector info for {symbol}: {e}")
             return None
 
+    async def batch_prefetch_sectors(
+        self,
+        symbols: list[str],
+        session: AsyncSession,
+        max_concurrency: int = 5,
+    ) -> dict[str, str | None]:
+        """Fetch and cache sector data for all symbols missing from stock_sectors.
+
+        Queries DB for existing entries first, then fetches Yahoo data only for
+        symbols not yet cached. Each concurrent fetch uses its own DB session
+        (AsyncSession is not task-safe for concurrent use).
+
+        Args:
+            symbols: Stock symbols to prefetch (will be deduped and uppercased)
+            session: Caller's database session (used for initial/final reads only)
+            max_concurrency: Max concurrent Yahoo API calls (default 5)
+
+        Returns:
+            Dict mapping symbol → sector name (Yahoo human-readable, e.g. "Technology")
+            Symbols that fail or have no sector return None.
+        """
+        if not symbols:
+            return {}
+
+        symbols = list({s.upper().strip() for s in symbols})
+
+        # Load what we already have in DB
+        result = await session.execute(
+            select(StockSector.symbol, StockSector.sector)
+            .where(StockSector.symbol.in_(symbols))
+        )
+        existing = {row.symbol: row.sector for row in result.all()}
+
+        missing = [s for s in symbols if s not in existing]
+
+        if missing and self._session_factory is not None:
+            self.logger.info(
+                f"Prefetching sector data for {len(missing)} symbols "
+                f"({len(existing)} already cached)"
+            )
+            semaphore = asyncio.Semaphore(max_concurrency)
+            session_factory = self._session_factory
+
+            async def fetch_one(symbol: str) -> tuple[str, bool]:
+                """Fetch sector for one symbol using its own session."""
+                async with semaphore:
+                    try:
+                        async with session_factory() as task_session:
+                            await self.get_sector_etf(symbol, task_session)
+                            await task_session.commit()
+                        return symbol, True
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Sector prefetch failed for {symbol}: {e}"
+                        )
+                        return symbol, False
+
+            await asyncio.gather(*[fetch_one(s) for s in missing])
+
+            # Single bulk read to pick up all newly inserted sectors
+            result = await session.execute(
+                select(StockSector.symbol, StockSector.sector)
+                .where(StockSector.symbol.in_(symbols))
+            )
+            existing = {row.symbol: row.sector for row in result.all()}
+
+        return {s: existing.get(s) for s in symbols}
+
     async def get_price_data(
         self,
         symbol: str,
