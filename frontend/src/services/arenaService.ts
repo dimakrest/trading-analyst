@@ -96,3 +96,34 @@ export const cancelSimulation = async (id: number): Promise<void> => {
 export const deleteSimulation = async (id: number): Promise<void> => {
   await apiClient.delete(`${API_BASE}/simulations/${id}`);
 };
+
+/**
+ * Single data point for benchmark (SPY / QQQ) price series.
+ * The backend normalizes cumulative_return_pct so that the first bar = 0%.
+ */
+export interface BenchmarkDataPoint {
+  date: string;
+  close: string;
+  cumulative_return_pct: string;
+}
+
+/**
+ * Fetch benchmark price data for a simulation's date range.
+ *
+ * Returns a cumulative-return series normalized to the simulation's start date
+ * (cumulative_return_pct = (close - first_close) / first_close * 100).
+ *
+ * @param simulationId - ID of the simulation whose date range to use
+ * @param symbol - Benchmark symbol; defaults to 'SPY'
+ * @returns Array of benchmark data points ordered by date
+ */
+export const getBenchmarkData = async (
+  simulationId: number,
+  symbol: 'SPY' | 'QQQ' = 'SPY',
+): Promise<BenchmarkDataPoint[]> => {
+  const response = await apiClient.get<BenchmarkDataPoint[]>(
+    `${API_BASE}/simulations/${simulationId}/benchmark`,
+    { params: { symbol } },
+  );
+  return response.data;
+};

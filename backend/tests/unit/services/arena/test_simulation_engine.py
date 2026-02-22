@@ -172,8 +172,14 @@ class TestSimulationEngineInitializeSimulation:
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
         with patch.object(engine.data_service, "get_price_data", return_value=[]):
-            with pytest.raises(ValueError, match="No trading days"):
-                await engine.initialize_simulation(simulation.id)
+            with patch.object(
+                engine.data_service,
+                "batch_prefetch_sectors",
+                new_callable=AsyncMock,
+                return_value={},
+            ):
+                with pytest.raises(ValueError, match="No trading days"):
+                    await engine.initialize_simulation(simulation.id)
 
     @pytest.mark.unit
     async def test_initialize_simulation_success(
@@ -187,12 +193,68 @@ class TestSimulationEngineInitializeSimulation:
 
         engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
 
-        # Mock data service to return price data
+        # Mock data service to return price data and sector prefetch
         with patch.object(engine.data_service, "get_price_data", return_value=mock_price_data):
-            result = await engine.initialize_simulation(simulation.id)
+            with patch.object(
+                engine.data_service,
+                "batch_prefetch_sectors",
+                new_callable=AsyncMock,
+                return_value={"AAPL": "Technology", "MSFT": "Technology"},
+            ):
+                result = await engine.initialize_simulation(simulation.id)
 
         assert result.status == SimulationStatus.RUNNING.value
         assert result.total_days > 0
+
+    @pytest.mark.unit
+    async def test_initialize_simulation_sector_cache_populated_from_prefetch(
+        self, db_session, rollback_session_factory, valid_simulation_data, mock_price_data
+    ) -> None:
+        """After initialize_simulation, sector cache contains data returned by batch_prefetch_sectors."""
+        simulation = ArenaSimulation(**valid_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        expected_sectors = {"AAPL": "Technology", "MSFT": "Financial Services"}
+
+        with patch.object(engine.data_service, "get_price_data", return_value=mock_price_data):
+            with patch.object(
+                engine.data_service,
+                "batch_prefetch_sectors",
+                new_callable=AsyncMock,
+                return_value=expected_sectors,
+            ):
+                await engine.initialize_simulation(simulation.id)
+
+        assert engine._sector_cache[simulation.id] == expected_sectors
+
+    @pytest.mark.unit
+    async def test_initialize_simulation_sector_prefetch_failure_falls_back_to_db(
+        self, db_session, rollback_session_factory, valid_simulation_data, mock_price_data
+    ) -> None:
+        """If batch_prefetch_sectors raises, initialize_simulation falls back to _load_sector_cache."""
+        simulation = ArenaSimulation(**valid_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        with patch.object(engine.data_service, "get_price_data", return_value=mock_price_data):
+            with patch.object(
+                engine.data_service,
+                "batch_prefetch_sectors",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("Yahoo Finance timeout"),
+            ):
+                # Should not raise — sector failures are non-fatal
+                result = await engine.initialize_simulation(simulation.id)
+
+        assert result.status == SimulationStatus.RUNNING.value
+        # Cache should be populated by the DB fallback (_load_sector_cache)
+        assert simulation.id in engine._sector_cache
 
 
 @pytest.mark.usefixtures("db_session")
@@ -1606,11 +1668,17 @@ class TestSimulationEngineCaching:
             for d in trading_days
         ]
 
-        # Mock data service to return price data
+        # Mock data service to return price data and sector prefetch
         with patch.object(
             engine.data_service, "get_price_data", new=AsyncMock(return_value=mock_records)
         ):
-            await engine.initialize_simulation(simulation.id)
+            with patch.object(
+                engine.data_service,
+                "batch_prefetch_sectors",
+                new_callable=AsyncMock,
+                return_value={"AAPL": "Technology", "MSFT": "Technology"},
+            ):
+                await engine.initialize_simulation(simulation.id)
 
         # Verify cache is populated after init
         assert simulation.id in engine._trading_days_cache
@@ -2121,7 +2189,13 @@ class TestSimulationEngineCaching:
         with patch.object(
             engine.data_service, "get_price_data", new=AsyncMock(return_value=mock_records)
         ):
-            await engine.initialize_simulation(simulation.id)
+            with patch.object(
+                engine.data_service,
+                "batch_prefetch_sectors",
+                new_callable=AsyncMock,
+                return_value={"AAPL": "Technology", "MSFT": "Technology"},
+            ):
+                await engine.initialize_simulation(simulation.id)
 
         # Verify cache is populated
         assert simulation.id in engine._price_cache
@@ -2265,8 +2339,8 @@ class TestSimulationEngineCaching:
         assert simulation.id in engine._max_drawdown
         assert simulation.id in engine._sector_cache
 
-        # Finalize simulation
-        await engine._finalize_simulation(simulation)
+        # Finalize simulation (no closed positions — analytics will be skipped)
+        await engine._finalize_simulation(simulation, positions=[])
 
         # Verify caches are cleared
         assert simulation.id not in engine._price_cache

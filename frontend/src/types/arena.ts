@@ -14,7 +14,7 @@ export type SimulationStatus = 'pending' | 'running' | 'paused' | 'completed' | 
 export type PositionStatus = 'pending' | 'open' | 'closed';
 
 /** Why a position was closed */
-export type ExitReason = 'stop_hit' | 'simulation_end';
+export type ExitReason = 'stop_hit' | 'simulation_end' | 'insufficient_capital';
 
 /** Agent information from /api/v1/arena/agents */
 export interface AgentInfo {
@@ -52,6 +52,12 @@ export interface Simulation {
   total_trades: number;
   winning_trades: number;
   max_drawdown_pct: string | null;
+  avg_hold_days: string | null;
+  avg_win_pnl: string | null;
+  avg_loss_pnl: string | null;
+  profit_factor: string | null;
+  sharpe_ratio: string | null;
+  total_realized_pnl: string | null;
   created_at: string;
 }
 
@@ -80,6 +86,7 @@ export interface Position {
   return_pct: string | null;
   agent_reasoning: string | null;
   agent_score: number | null;
+  sector: string | null;
 }
 
 /** Agent decision for a symbol on a given day */
@@ -153,4 +160,11 @@ export interface StepResponse {
   simulation: Simulation;
   snapshot: Snapshot | null;
   is_complete: boolean;
+}
+
+/** Single data point for benchmark (SPY / QQQ) price series. */
+export interface BenchmarkDataPoint {
+  date: string;
+  close: string;
+  cumulative_return_pct: string;
 }

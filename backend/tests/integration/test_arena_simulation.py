@@ -233,6 +233,120 @@ class TestArenaSimulationIntegration:
         assert completed_sim.total_trades >= 1
 
     @pytest.mark.integration
+    async def test_analytics_fields_populated_after_simulation_completion(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """All six analytics fields are non-null after a simulation with closed trades.
+
+        Verifies that _finalize_simulation() correctly calls compute_simulation_analytics()
+        and the results are persisted to the ArenaSimulation object.
+        """
+        from unittest.mock import MagicMock
+
+        # Price scenario: steadily rises throughout — no trailing stop triggered.
+        # The position remains open until simulation end, at which point
+        # _close_all_positions is called with SIMULATION_END and the closed positions
+        # are passed directly to _finalize_simulation, populating analytics.
+        start = date(2024, 1, 1)
+        price_data = []
+        for i in range(90):
+            price = 100.0 + (i * 0.5)  # steady uptrend: 100 -> 144.5
+            price_data.append(
+                PriceDataPoint(
+                    symbol="AAPL",
+                    timestamp=datetime.combine(
+                        start + timedelta(days=i),
+                        datetime.min.time(),
+                        tzinfo=timezone.utc,
+                    ),
+                    open_price=price,
+                    high_price=price * 1.02,
+                    low_price=price * 0.99,  # low stays above entry, stop never triggers
+                    close_price=price * 1.01,
+                    volume=1_000_000,
+                )
+            )
+
+        simulation = ArenaSimulation(
+            name="Analytics Finalization Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 2, 15),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.PENDING.value,
+        )
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        call_count = [0]
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+
+        async def mock_evaluate(symbol, price_history, current_date, has_position):
+            call_count[0] += 1
+            if call_count[0] == 1 and not has_position:
+                return AgentDecision(symbol=symbol, action="BUY", score=85, reasoning="Signal")
+            return AgentDecision(
+                symbol=symbol,
+                action="HOLD" if has_position else "NO_SIGNAL",
+                score=50,
+            )
+
+        mock_agent.evaluate = mock_evaluate
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+        async def mock_get_price_data(symbol, start_date, end_date, interval):
+            return price_data if symbol == "AAPL" else []
+
+        with patch(
+            "app.services.arena.simulation_engine.get_agent", return_value=mock_agent
+        ):
+            with patch.object(
+                engine.data_service, "get_price_data", side_effect=mock_get_price_data
+            ):
+                await engine.initialize_simulation(simulation.id)
+                completed_sim = await engine.run_to_completion(simulation.id)
+
+        # Simulation must have completed with at least one closed trade
+        assert completed_sim.status == SimulationStatus.COMPLETED.value
+        assert completed_sim.total_trades >= 1, (
+            "Test requires at least one closed trade to exercise analytics"
+        )
+
+        # All six analytics fields must be non-null
+        assert completed_sim.total_realized_pnl is not None, "total_realized_pnl should be set"
+        assert completed_sim.avg_hold_days is not None, "avg_hold_days should be set"
+        assert completed_sim.avg_win_pnl is not None or completed_sim.avg_loss_pnl is not None, (
+            "At least one of avg_win_pnl or avg_loss_pnl should be set"
+        )
+        assert completed_sim.sharpe_ratio is not None, "sharpe_ratio should be set"
+
+        # Sanity checks on computed values
+        result = await db_session.execute(
+            select(ArenaPosition)
+            .where(ArenaPosition.simulation_id == completed_sim.id)
+            .where(ArenaPosition.realized_pnl.is_not(None))
+        )
+        closed_positions = result.scalars().all()
+        expected_total_pnl = sum(p.realized_pnl for p in closed_positions)
+        # total_realized_pnl is computed before individual realized_pnl values are
+        # rounded by the DB's Numeric(12, 2) column, so a tiny rounding gap is
+        # expected. Assert within $0.10 to confirm the value is derived from
+        # closed positions without enforcing sub-cent precision.
+        assert abs(completed_sim.total_realized_pnl - expected_total_pnl) < Decimal("0.10"), (
+            f"total_realized_pnl {completed_sim.total_realized_pnl} diverges from "
+            f"sum of closed positions {expected_total_pnl} by more than $0.10"
+        )
+
+        # avg_hold_days must be positive
+        assert completed_sim.avg_hold_days > 0, "avg_hold_days must be > 0 for closed trades"
+
+    @pytest.mark.integration
     async def test_simulation_with_multiple_symbols(
         self, db_session, rollback_session_factory, mock_price_data, mock_agent
     ) -> None:

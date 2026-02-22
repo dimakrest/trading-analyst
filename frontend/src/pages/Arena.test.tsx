@@ -57,6 +57,12 @@ const mockSimulations: Simulation[] = [
     total_trades: 5,
     winning_trades: 3,
     max_drawdown_pct: '2.50',
+    avg_hold_days: null,
+    avg_win_pnl: null,
+    avg_loss_pnl: null,
+    profit_factor: null,
+    sharpe_ratio: null,
+    total_realized_pnl: null,
     created_at: '2024-01-01T10:00:00Z',
   },
 ];
@@ -86,6 +92,12 @@ const mockRunningSimulation: Simulation = {
   total_trades: 2,
   winning_trades: 1,
   max_drawdown_pct: null,
+  avg_hold_days: null,
+  avg_win_pnl: null,
+  avg_loss_pnl: null,
+  profit_factor: null,
+  sharpe_ratio: null,
+  total_realized_pnl: null,
   created_at: '2024-02-01T10:00:00Z',
 };
 
@@ -229,6 +241,12 @@ describe('Arena', () => {
       total_trades: 0,
       winning_trades: 0,
       max_drawdown_pct: null,
+      avg_hold_days: null,
+      avg_win_pnl: null,
+      avg_loss_pnl: null,
+      profit_factor: null,
+      sharpe_ratio: null,
+      total_realized_pnl: null,
       created_at: '2024-03-01T10:00:00Z',
     };
 

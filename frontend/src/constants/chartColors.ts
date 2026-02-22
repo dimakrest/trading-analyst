@@ -80,6 +80,30 @@ export const CHART_COLORS = {
    * Matches Tailwind gray-500: #6b7280
    */
   CCI_REFERENCE: '#6b7280',
+
+  /**
+   * Portfolio equity curve line color
+   * Matches Tailwind indigo-500: #6366f1
+   */
+  EQUITY: '#6366f1',
+
+  /**
+   * MA 50 indicator line color
+   * Matches Tailwind orange-400: #fb923c
+   */
+  MA_50: '#fb923c',
+
+  /**
+   * SPY (S&P 500) benchmark overlay color
+   * Matches Tailwind orange-500: #f97316
+   */
+  SPY: '#f97316',
+
+  /**
+   * QQQ (Nasdaq-100) benchmark overlay color
+   * Matches Tailwind cyan-400: #22d3ee
+   */
+  QQQ: '#22d3ee',
 } as const;
 
 /**

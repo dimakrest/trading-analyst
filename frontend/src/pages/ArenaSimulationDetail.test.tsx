@@ -58,6 +58,12 @@ const mockSimulation: Simulation = {
   total_trades: 12,
   winning_trades: 7,
   max_drawdown_pct: '4.10',
+  avg_hold_days: '5.2',
+  avg_win_pnl: '230.00',
+  avg_loss_pnl: '-110.00',
+  profit_factor: '1.95',
+  sharpe_ratio: '1.20',
+  total_realized_pnl: '830.00',
   created_at: '2024-01-01T10:00:00Z',
 };
 
@@ -79,6 +85,7 @@ const mockPositions: Position[] = [
     return_pct: null,
     agent_reasoning: 'Score: 80/100',
     agent_score: 80,
+    sector: 'Technology',
   },
 ];
 
@@ -156,9 +163,11 @@ describe('ArenaSimulationDetail', () => {
       expect(screen.getByText('Results')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Live20')).toBeInTheDocument();
-    // Return appears in both results table and portfolio, use getAllBy
-    expect(screen.getAllByText('+8.30%').length).toBeGreaterThan(0);
+    // Metrics grid labels ("Return" appears in both ArenaResultsTable and ArenaPortfolio)
+    expect(screen.getAllByText('Return').length).toBeGreaterThan(0);
+    expect(screen.getByText('Win Rate')).toBeInTheDocument();
+    // Return value displayed with 1 decimal
+    expect(screen.getByText('+8.3%')).toBeInTheDocument();
     expect(screen.getByText('58.3%')).toBeInTheDocument(); // Win rate
   });
 

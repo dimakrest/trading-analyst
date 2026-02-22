@@ -27,6 +27,7 @@ from app.models.arena import (
     PositionStatus,
     SimulationStatus,
 )
+from app.services.arena.analytics import compute_simulation_analytics
 from app.models.stock_sector import StockSector
 from app.services.arena.agent_protocol import AgentDecision, PriceBar
 from app.services.arena.agent_registry import get_agent
@@ -132,7 +133,23 @@ class SimulationEngine:
             simulation.end_date,
             lookback_days,
         )
-        await self._load_sector_cache(simulation.id, simulation.symbols)
+        # Prefetch any missing sector data from Yahoo Finance (non-blocking on failure)
+        try:
+            sector_name_map = await self.data_service.batch_prefetch_sectors(
+                simulation.symbols, self.session
+            )
+            # Directly populate cache with freshly fetched data
+            self._sector_cache[simulation.id] = sector_name_map
+            missing_count = sum(1 for v in sector_name_map.values() if v is None)
+            if missing_count:
+                logger.info(
+                    f"Simulation {simulation.id}: {missing_count}/{len(simulation.symbols)} "
+                    f"symbols have no sector data after prefetch"
+                )
+        except Exception as e:
+            logger.warning(f"Sector prefetch failed for simulation {simulation.id}: {e}")
+            # Fall back to DB-only load
+            await self._load_sector_cache(simulation.id, simulation.symbols)
 
         # Get trading days from cache
         trading_days = self._get_trading_days_from_cache(
@@ -234,8 +251,10 @@ class SimulationEngine:
         # Check if simulation is complete
         if simulation.current_day >= len(trading_days):
             # Close all positions and finalize
-            await self._close_all_positions(simulation, trading_days[-1], ExitReason.SIMULATION_END)
-            await self._finalize_simulation(simulation)
+            closed_positions = await self._close_all_positions(
+                simulation, trading_days[-1], ExitReason.SIMULATION_END
+            )
+            await self._finalize_simulation(simulation, closed_positions)
             return None
 
         current_date = trading_days[simulation.current_day]
@@ -796,19 +815,28 @@ class SimulationEngine:
 
     async def _close_all_positions(
         self, simulation: ArenaSimulation, close_date: date, reason: ExitReason
-    ) -> None:
+    ) -> list[ArenaPosition]:
         """Close all open positions at end of simulation.
 
         Args:
             simulation: Simulation object.
             close_date: Date to close positions.
             reason: Exit reason for all positions.
+
+        Returns:
+            List of all positions that were open (now closed).
         """
         open_positions = await self._get_open_positions(simulation.id)
 
         for position in open_positions:
             bar = self._get_cached_bar_for_date(simulation.id, position.symbol, close_date)
             if not bar:
+                logger.warning(
+                    "No price bar found for %s on %s — position %d left unclosed",
+                    position.symbol,
+                    close_date,
+                    position.id,
+                )
                 continue
 
             exit_price = bar.close
@@ -826,6 +854,8 @@ class SimulationEngine:
             if realized_pnl > 0:
                 simulation.winning_trades += 1
 
+        return list(open_positions)
+
     def clear_simulation_cache(self, simulation_id: int) -> None:
         """Clear all in-memory caches for a completed simulation.
 
@@ -839,12 +869,34 @@ class SimulationEngine:
         self._max_drawdown.pop(simulation_id, None)
         self._sector_cache.pop(simulation_id, None)
 
-    async def _finalize_simulation(self, simulation: ArenaSimulation) -> None:
-        """Mark simulation as completed.
+    async def _get_all_snapshots(self, simulation_id: int) -> list[ArenaSnapshot]:
+        """Get all snapshots for a simulation ordered by day number.
+
+        Args:
+            simulation_id: Simulation ID.
+
+        Returns:
+            List of snapshots ordered by day_number ascending.
+        """
+        result = await self.session.execute(
+            select(ArenaSnapshot)
+            .where(ArenaSnapshot.simulation_id == simulation_id)
+            .order_by(ArenaSnapshot.day_number)
+        )
+        return list(result.scalars().all())
+
+    async def _finalize_simulation(
+        self, simulation: ArenaSimulation, positions: list[ArenaPosition]
+    ) -> None:
+        """Compute analytics, mark simulation as completed, and commit.
 
         Args:
             simulation: Simulation to finalize.
+            positions: Closed positions used to compute analytics metrics.
         """
+        snapshots = await self._get_all_snapshots(simulation.id)
+        compute_simulation_analytics(simulation, positions, snapshots)
+
         simulation.status = SimulationStatus.COMPLETED.value
         await self.session.commit()
         self.clear_simulation_cache(simulation.id)  # Free memory

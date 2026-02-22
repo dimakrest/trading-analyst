@@ -824,6 +824,59 @@ class TestGetSimulation:
         assert sim_data["total_trades"] == 3
         assert sim_data["winning_trades"] == 2
 
+        # Analytics fields present but null for non-completed simulation
+        assert "avg_hold_days" in sim_data
+        assert "avg_win_pnl" in sim_data
+        assert "avg_loss_pnl" in sim_data
+        assert "profit_factor" in sim_data
+        assert "sharpe_ratio" in sim_data
+        assert "total_realized_pnl" in sim_data
+        assert sim_data["avg_hold_days"] is None
+        assert sim_data["sharpe_ratio"] is None
+        assert sim_data["total_realized_pnl"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_simulation_includes_analytics_fields_when_populated(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        """Analytics fields appear in GET /simulations/{id} response when set."""
+        sim = ArenaSimulation(
+            name="Analytics Response Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            initial_capital=Decimal("10000"),
+            position_size=Decimal("1000"),
+            agent_type="live20",
+            agent_config={},
+            status=SimulationStatus.COMPLETED.value,
+            total_trades=2,
+            winning_trades=1,
+            # Analytics fields explicitly set
+            total_realized_pnl=Decimal("150.50"),
+            avg_hold_days=Decimal("5.0"),
+            avg_win_pnl=Decimal("300.00"),
+            avg_loss_pnl=Decimal("-149.50"),
+            profit_factor=Decimal("2.008"),
+            sharpe_ratio=Decimal("1.2345"),
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        response = await async_client.get(f"/api/v1/arena/simulations/{sim.id}")
+        assert response.status_code == 200
+        sim_data = response.json()["simulation"]
+
+        assert Decimal(sim_data["total_realized_pnl"]) == Decimal("150.50")
+        assert Decimal(sim_data["avg_hold_days"]) == Decimal("5.0")
+        assert Decimal(sim_data["avg_win_pnl"]) == Decimal("300.00")
+        assert Decimal(sim_data["avg_loss_pnl"]) == Decimal("-149.50")
+        assert Decimal(sim_data["profit_factor"]) == Decimal("2.008")
+        assert Decimal(sim_data["sharpe_ratio"]) == Decimal("1.2345")
+
     @pytest.mark.asyncio
     async def test_get_simulation_includes_positions(
         self,
