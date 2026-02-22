@@ -6,6 +6,7 @@ which manages simulation creation, status tracking, and result retrieval.
 from datetime import date
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 from typing import Literal
 
 from pydantic import Field
@@ -13,6 +14,46 @@ from pydantic import field_validator
 
 from app.core.config import get_settings
 from app.schemas.base import StrictBaseModel
+
+
+# --- Shared validator functions (referenced by both request schemas) ---
+
+
+def _normalize_symbols_value(v: Any) -> list[str]:
+    """Normalize symbols to uppercase and strip whitespace."""
+    if not v:
+        return v
+    return [s.strip().upper() for s in v if s and s.strip()]
+
+
+def _validate_symbols_count_value(v: list[str]) -> list[str]:
+    """Validate that symbols count doesn't exceed configured maximum."""
+    settings = get_settings()
+    max_symbols = settings.arena_max_symbols
+    if len(v) > max_symbols:
+        msg = f"Maximum {max_symbols} symbols allowed, got {len(v)}"
+        raise ValueError(msg)
+    return v
+
+
+def _validate_date_range_value(v: date, info: Any) -> date:
+    """Validate that end_date is after start_date."""
+    start_date = info.data.get("start_date")
+    if start_date and v <= start_date:
+        msg = "end_date must be after start_date"
+        raise ValueError(msg)
+    return v
+
+
+def _validate_agent_type_value(v: str) -> str:
+    """Validate agent_type exists in registry."""
+    from app.services.arena.agent_registry import AGENT_REGISTRY
+
+    if v.lower() not in AGENT_REGISTRY:
+        available = ", ".join(AGENT_REGISTRY.keys())
+        msg = f"Unknown agent type: {v}. Available: {available}"
+        raise ValueError(msg)
+    return v.lower()
 
 
 class CreateSimulationRequest(StrictBaseModel):
@@ -91,46 +132,11 @@ class CreateSimulationRequest(StrictBaseModel):
         description="Max total open positions (None = unlimited)",
     )
 
-    @field_validator("symbols", mode="before")
-    @classmethod
-    def normalize_symbols(cls, v: list[str]) -> list[str]:
-        """Normalize symbols to uppercase and strip whitespace."""
-        if not v:
-            return v
-        return [s.strip().upper() for s in v if s and s.strip()]
-
-    @field_validator("symbols")
-    @classmethod
-    def validate_symbols_count(cls, v: list[str]) -> list[str]:
-        """Validate that symbols count doesn't exceed configured maximum."""
-        settings = get_settings()
-        max_symbols = settings.arena_max_symbols
-        if len(v) > max_symbols:
-            msg = f"Maximum {max_symbols} symbols allowed, got {len(v)}"
-            raise ValueError(msg)
-        return v
-
-    @field_validator("end_date")
-    @classmethod
-    def validate_date_range(cls, v: date, info) -> date:
-        """Validate that end_date is after start_date."""
-        start_date = info.data.get("start_date")
-        if start_date and v <= start_date:
-            msg = "end_date must be after start_date"
-            raise ValueError(msg)
-        return v
-
-    @field_validator("agent_type")
-    @classmethod
-    def validate_agent_type(cls, v: str) -> str:
-        """Validate agent_type exists in registry."""
-        from app.services.arena.agent_registry import AGENT_REGISTRY
-
-        if v.lower() not in AGENT_REGISTRY:
-            available = ", ".join(AGENT_REGISTRY.keys())
-            msg = f"Unknown agent type: {v}. Available: {available}"
-            raise ValueError(msg)
-        return v.lower()
+    # Shared validators — plain functions applied via field_validator(...)
+    _normalize_symbols = field_validator("symbols", mode="before")(_normalize_symbols_value)
+    _validate_symbols_count = field_validator("symbols")(_validate_symbols_count_value)
+    _validate_date_range = field_validator("end_date")(_validate_date_range_value)
+    _validate_agent_type = field_validator("agent_type")(_validate_agent_type_value)
 
     @field_validator("portfolio_strategy")
     @classmethod
@@ -141,6 +147,108 @@ class CreateSimulationRequest(StrictBaseModel):
         if v not in SELECTOR_REGISTRY:
             available = ", ".join(SELECTOR_REGISTRY.keys())
             msg = f"Unknown portfolio strategy: {v}. Available: {available}"
+            raise ValueError(msg)
+        return v
+
+
+class CreateComparisonRequest(StrictBaseModel):
+    """Request to create a multi-strategy comparison run.
+
+    Creates one simulation per selected portfolio strategy, all sharing
+    the same group_id and base configuration. Requires 2-4 strategies.
+    """
+
+    name: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Optional user-provided comparison name (strategy name appended automatically)",
+    )
+    stock_list_id: int | None = Field(
+        default=None,
+        description="ID of stock list used to populate symbols (optional)",
+    )
+    stock_list_name: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Name of stock list at time of creation (optional)",
+    )
+    symbols: list[str] = Field(
+        ...,
+        min_length=1,
+        description="List of stock symbols to trade",
+    )
+    start_date: date = Field(..., description="Simulation start date")
+    end_date: date = Field(..., description="Simulation end date")
+    initial_capital: Decimal = Field(
+        default=Decimal("10000"),
+        gt=0,
+        description="Starting capital amount",
+    )
+    position_size: Decimal = Field(
+        default=Decimal("1000"),
+        gt=0,
+        description="Fixed position size per trade",
+    )
+    agent_type: str = Field(
+        default="live20",
+        description="Agent type: 'live20'",
+    )
+    trailing_stop_pct: float = Field(
+        default=5.0,
+        gt=0,
+        lt=100,
+        description="Trailing stop percentage (e.g., 5.0 for 5%)",
+    )
+    min_buy_score: int = Field(
+        default=60,
+        ge=20,
+        le=100,
+        description="Minimum score (20-100) to generate BUY signal",
+    )
+    agent_config_id: int | None = Field(
+        None,
+        description="ID of agent configuration to use. Overrides scoring_algorithm if provided.",
+    )
+    scoring_algorithm: Literal["cci", "rsi2"] = Field(
+        default="cci",
+        description="Scoring algorithm for momentum criterion: 'cci' (default) or 'rsi2'. Overridden by agent_config_id if provided.",
+    )
+    portfolio_strategies: list[str] = Field(
+        ...,
+        min_length=2,
+        max_length=4,
+        description="Portfolio strategies to compare (2-4 required). Each creates one simulation.",
+    )
+    max_per_sector: int | None = Field(
+        default=None,
+        ge=1,
+        description="Max concurrent positions per sector (None = unlimited)",
+    )
+    max_open_positions: int | None = Field(
+        default=None,
+        ge=1,
+        description="Max total open positions (None = unlimited)",
+    )
+
+    # Shared validators — same standalone functions as CreateSimulationRequest
+    _normalize_symbols = field_validator("symbols", mode="before")(_normalize_symbols_value)
+    _validate_symbols_count = field_validator("symbols")(_validate_symbols_count_value)
+    _validate_date_range = field_validator("end_date")(_validate_date_range_value)
+    _validate_agent_type = field_validator("agent_type")(_validate_agent_type_value)
+
+    @field_validator("portfolio_strategies")
+    @classmethod
+    def validate_strategies(cls, v: list[str]) -> list[str]:
+        """Validate portfolio_strategies are registered and have no duplicates."""
+        from app.services.portfolio_selector import SELECTOR_REGISTRY
+
+        for strategy in v:
+            if strategy not in SELECTOR_REGISTRY:
+                available = ", ".join(SELECTOR_REGISTRY.keys())
+                msg = f"Unknown strategy: {strategy}. Available: {available}"
+                raise ValueError(msg)
+        if len(v) != len(set(v)):
+            msg = "Duplicate strategies are not allowed"
             raise ValueError(msg)
         return v
 
@@ -262,6 +370,7 @@ class SimulationResponse(StrictBaseModel):
     portfolio_strategy: str | None = None
     max_per_sector: int | None = None
     max_open_positions: int | None = None
+    group_id: str | None = None
     status: str
     current_day: int
     total_days: int
@@ -432,6 +541,17 @@ class PortfolioStrategyInfo(StrictBaseModel):
 
     name: str
     description: str
+
+
+class ComparisonResponse(StrictBaseModel):
+    """Response for a multi-strategy comparison group.
+
+    Groups all simulations that share a common group_id, created together
+    via POST /comparisons. Used for both creation response and polling.
+    """
+
+    group_id: str
+    simulations: list[SimulationResponse]
 
 
 class BenchmarkDataPoint(StrictBaseModel):

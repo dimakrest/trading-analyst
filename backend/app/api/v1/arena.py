@@ -1,10 +1,12 @@
 """Arena simulation API endpoints.
 
 This module provides REST API endpoints for managing arena simulations,
-including creation, listing, retrieval, and cancellation/deletion.
+including creation, listing, retrieval, cancellation/deletion, and
+multi-strategy comparison groups.
 """
 
 import logging
+import uuid
 from datetime import datetime, time, timezone
 from decimal import Decimal
 from typing import Literal
@@ -20,6 +22,8 @@ from app.repositories.agent_config_repository import AgentConfigRepository
 from app.schemas.arena import (
     AgentInfo,
     BenchmarkDataPoint,
+    ComparisonResponse,
+    CreateComparisonRequest,
     CreateSimulationRequest,
     PortfolioStrategyInfo,
     PositionResponse,
@@ -70,6 +74,7 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         portfolio_strategy=portfolio_strategy,
         max_per_sector=max_per_sector,
         max_open_positions=max_open_positions,
+        group_id=simulation.group_id,
         status=simulation.status,
         current_day=simulation.current_day,
         total_days=simulation.total_days,
@@ -542,3 +547,156 @@ async def get_benchmark_data(
         )
         for bar in bars
     ]
+
+
+@router.post(
+    "/comparisons",
+    response_model=ComparisonResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Create Multi-Strategy Comparison",
+    description=(
+        "Creates one simulation per selected portfolio strategy, all sharing a common "
+        "group_id. The simulations are created atomically in a single transaction and "
+        "queued for independent execution by the worker. Returns 202 immediately; "
+        "poll GET /comparisons/{group_id} for progress."
+    ),
+    operation_id="create_arena_comparison",
+    responses={
+        400: {"description": "Validation error (invalid strategies, date range, symbols)"},
+        404: {"description": "Agent config not found (when agent_config_id is provided)"},
+    },
+)
+async def create_comparison(
+    request: CreateComparisonRequest,
+    session: AsyncSession = Depends(get_db_session),
+) -> ComparisonResponse:
+    """Create a multi-strategy comparison group.
+
+    Creates N simulations (one per strategy in portfolio_strategies), all sharing
+    the same group_id. Each simulation has identical base configuration but a
+    different portfolio_strategy value.
+
+    Args:
+        request: Comparison configuration with portfolio_strategies list
+        session: Database session
+
+    Returns:
+        ComparisonResponse with group_id and all created simulations
+
+    Raises:
+        HTTPException: 404 if agent_config_id is provided but not found
+    """
+    # Look up agent config if provided (same logic as create_simulation)
+    if request.agent_config_id:
+        config_repo = AgentConfigRepository(session)
+        agent_config_obj = await config_repo.get_by_id(request.agent_config_id)
+        if not agent_config_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Agent config {request.agent_config_id} not found",
+            )
+        scoring_algorithm = agent_config_obj.scoring_algorithm
+    else:
+        scoring_algorithm = request.scoring_algorithm
+
+    group_id = str(uuid.uuid4())
+    simulations = []
+
+    for strategy in request.portfolio_strategies:
+        agent_config = {
+            "trailing_stop_pct": request.trailing_stop_pct,
+            "min_buy_score": request.min_buy_score,
+            "scoring_algorithm": scoring_algorithm,
+            "portfolio_strategy": strategy,
+            "max_per_sector": request.max_per_sector,
+            "max_open_positions": request.max_open_positions,
+        }
+        if request.agent_config_id is not None:
+            agent_config["agent_config_id"] = request.agent_config_id
+
+        sim = ArenaSimulation(
+            name=f"{request.name or 'Comparison'} [{strategy}]",
+            stock_list_id=request.stock_list_id,
+            stock_list_name=request.stock_list_name,
+            symbols=request.symbols,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            position_size=request.position_size,
+            agent_type=request.agent_type,
+            agent_config=agent_config,
+            group_id=group_id,
+            status=SimulationStatus.PENDING.value,
+            current_day=0,
+            total_days=0,
+        )
+        session.add(sim)
+        simulations.append(sim)
+
+    await session.commit()
+    for sim in simulations:
+        await session.refresh(sim)
+
+    logger.info(
+        "Created comparison group %s with %d simulations: %s",
+        group_id,
+        len(simulations),
+        request.portfolio_strategies,
+    )
+
+    return ComparisonResponse(
+        group_id=group_id,
+        simulations=[_build_simulation_response(s) for s in simulations],
+    )
+
+
+@router.get(
+    "/comparisons/{group_id}",
+    response_model=ComparisonResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Comparison Group",
+    description=(
+        "Returns all simulations belonging to the given comparison group, ordered by "
+        "simulation id. Used by the frontend to poll progress and render the comparison "
+        "page. Returns 404 if the group_id is unknown."
+    ),
+    operation_id="get_arena_comparison",
+    responses={
+        404: {"description": "Comparison group not found"},
+    },
+)
+async def get_comparison(
+    group_id: str,
+    session: AsyncSession = Depends(get_db_session),
+) -> ComparisonResponse:
+    """Get all simulations in a comparison group.
+
+    Args:
+        group_id: The UUID shared by all simulations in the comparison group
+        session: Database session
+
+    Returns:
+        ComparisonResponse with group_id and all simulations ordered by id
+
+    Raises:
+        HTTPException: 404 if no simulations found for the given group_id
+    """
+    stmt = (
+        select(ArenaSimulation)
+        .where(ArenaSimulation.group_id == group_id)
+        .order_by(ArenaSimulation.id)
+    )
+    result = await session.execute(stmt)
+    simulations = result.scalars().all()
+
+    if not simulations:
+        logger.warning("Comparison group not found: %s", group_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comparison group not found",
+        )
+
+    return ComparisonResponse(
+        group_id=group_id,
+        simulations=[_build_simulation_response(s) for s in simulations],
+    )
