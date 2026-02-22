@@ -32,6 +32,7 @@ const mockSimulations: Simulation[] = [
     portfolio_strategy: null,
     max_per_sector: null,
     max_open_positions: null,
+    group_id: null,
     status: 'completed',
     current_day: 22,
     total_days: 22,
@@ -65,6 +66,7 @@ const mockSimulations: Simulation[] = [
     portfolio_strategy: null,
     max_per_sector: null,
     max_open_positions: null,
+    group_id: null,
     status: 'running',
     current_day: 10,
     total_days: 20,
@@ -98,6 +100,7 @@ const mockSimulations: Simulation[] = [
     portfolio_strategy: null,
     max_per_sector: null,
     max_open_positions: null,
+    group_id: null,
     status: 'failed',
     current_day: 5,
     total_days: 10,
@@ -113,6 +116,26 @@ const mockSimulations: Simulation[] = [
     sharpe_ratio: null,
     total_realized_pnl: null,
     created_at: '2024-03-01T10:00:00Z',
+  },
+];
+
+/** Two simulations sharing the same group_id for grouping tests. */
+const GROUP_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+const mockGroupedSimulations: Simulation[] = [
+  {
+    ...mockSimulations[0],
+    id: 10,
+    name: 'Comparison [none]',
+    group_id: GROUP_ID,
+    portfolio_strategy: 'none',
+  },
+  {
+    ...mockSimulations[0],
+    id: 11,
+    name: 'Comparison [score_sector_low_atr]',
+    group_id: GROUP_ID,
+    portfolio_strategy: 'score_sector_low_atr',
   },
 ];
 
@@ -337,5 +360,108 @@ describe('ArenaSimulationList', () => {
 
     // All mockSimulations have stock_list_name: null
     expect(screen.queryByText(/List:/)).not.toBeInTheDocument();
+  });
+
+  it('should show Compare badge for simulations with group_id', () => {
+    render(
+      <MemoryRouter>
+        <ArenaSimulationList
+          simulations={mockGroupedSimulations}
+          isLoading={false}
+          onRefresh={mockOnRefresh}
+          onReplay={mockOnReplay}
+        />
+      </MemoryRouter>
+    );
+
+    const compareBadges = screen.getAllByText('Compare');
+    expect(compareBadges).toHaveLength(2);
+  });
+
+  it('should NOT show Compare badge for simulations without group_id', () => {
+    render(
+      <MemoryRouter>
+        <ArenaSimulationList
+          simulations={mockSimulations}
+          isLoading={false}
+          onRefresh={mockOnRefresh}
+          onReplay={mockOnReplay}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByText('Compare')).not.toBeInTheDocument();
+  });
+
+  it('should navigate to compare page when Compare badge is clicked', () => {
+    render(
+      <MemoryRouter>
+        <ArenaSimulationList
+          simulations={mockGroupedSimulations}
+          isLoading={false}
+          onRefresh={mockOnRefresh}
+          onReplay={mockOnReplay}
+        />
+      </MemoryRouter>
+    );
+
+    // Act — click the first Compare badge
+    const compareBadge = screen.getAllByText('Compare')[0];
+    fireEvent.click(compareBadge);
+
+    expect(mockNavigate).toHaveBeenCalledWith(`/arena/compare/${GROUP_ID}`);
+  });
+
+  it('should NOT navigate to simulation detail when Compare badge is clicked', () => {
+    render(
+      <MemoryRouter>
+        <ArenaSimulationList
+          simulations={mockGroupedSimulations}
+          isLoading={false}
+          onRefresh={mockOnRefresh}
+          onReplay={mockOnReplay}
+        />
+      </MemoryRouter>
+    );
+
+    // Act — click the Compare badge (stopPropagation prevents row click)
+    const compareBadge = screen.getAllByText('Compare')[0];
+    fireEvent.click(compareBadge);
+
+    // Should navigate to compare page, NOT to /arena/10
+    expect(mockNavigate).not.toHaveBeenCalledWith('/arena/10');
+    expect(mockNavigate).toHaveBeenCalledWith(`/arena/compare/${GROUP_ID}`);
+  });
+
+  it('should apply the same border color class to simulations with the same group_id', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ArenaSimulationList
+          simulations={mockGroupedSimulations}
+          isLoading={false}
+          onRefresh={mockOnRefresh}
+          onReplay={mockOnReplay}
+        />
+      </MemoryRouter>
+    );
+
+    // Both rows share the same group_id so they must carry the same border-l color class
+    const rows = container.querySelectorAll('tbody tr');
+    expect(rows).toHaveLength(2);
+
+    // Each row gets border-l-2 plus a specific color class
+    const row0Classes = rows[0].className;
+    const row1Classes = rows[1].className;
+
+    expect(row0Classes).toContain('border-l-2');
+    expect(row1Classes).toContain('border-l-2');
+
+    // Extract the border-l-color class from each row and assert they are equal
+    const borderColorRegex = /border-l-[a-z]+-[0-9]+/;
+    const color0 = row0Classes.match(borderColorRegex)?.[0];
+    const color1 = row1Classes.match(borderColorRegex)?.[0];
+
+    expect(color0).toBeDefined();
+    expect(color0).toBe(color1);
   });
 });

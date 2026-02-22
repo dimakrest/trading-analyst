@@ -13,6 +13,7 @@ import { Live20RunDetail } from './pages/Live20RunDetail';
 import { StockLists } from './pages/StockLists';
 import { Agents } from './pages/Agents';
 import { Arena } from './pages/Arena';
+import { ArenaComparison } from './pages/ArenaComparison';
 import { ArenaSimulationDetail } from './pages/ArenaSimulationDetail';
 import './index.css';
 
@@ -46,6 +47,7 @@ function App() {
                     <Route path="/agents" element={<Agents />} />
                     <Route path="/lists" element={<StockLists />} />
                     <Route path="/arena" element={<Arena />} />
+                    <Route path="/arena/compare/:groupId" element={<ArenaComparison />} />
                     <Route path="/arena/:id" element={<ArenaSimulationDetail />} />
                   </Routes>
                 </main>

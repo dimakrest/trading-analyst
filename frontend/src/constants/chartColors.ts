@@ -119,6 +119,12 @@ export const CHART_COLOR_CLASSES = {
 } as const;
 
 /**
+ * Strategy comparison color palette (up to 4 strategies).
+ * Used by ArenaComparisonChart to assign a distinct color to each strategy series.
+ */
+export const STRATEGY_COLORS = ['#2962FF', '#FF6D00', '#00C853', '#AA00FF'] as const;
+
+/**
  * Chart pane configuration
  * Heights in pixels for each indicator pane
  */

@@ -44,6 +44,7 @@ export interface Simulation {
   portfolio_strategy: string | null;
   max_per_sector: number | null;
   max_open_positions: number | null;
+  group_id: string | null;
   status: SimulationStatus;
   current_day: number;
   total_days: number;
@@ -167,4 +168,30 @@ export interface BenchmarkDataPoint {
   date: string;
   close: string;
   cumulative_return_pct: string;
+}
+
+/** Request body for creating a multi-strategy comparison */
+export interface CreateComparisonRequest {
+  name?: string;
+  stock_list_id?: number;
+  stock_list_name?: string;
+  symbols: string[];
+  start_date: string;
+  end_date: string;
+  initial_capital?: number;
+  position_size?: number;
+  agent_type?: string;
+  trailing_stop_pct?: number;
+  min_buy_score?: number;
+  agent_config_id?: number;
+  scoring_algorithm?: ScoringAlgorithm;
+  portfolio_strategies: string[];
+  max_per_sector?: number | null;
+  max_open_positions?: number | null;
+}
+
+/** Response from comparison creation / retrieval */
+export interface ComparisonResponse {
+  group_id: string;
+  simulations: Simulation[];
 }

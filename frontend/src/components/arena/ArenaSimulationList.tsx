@@ -21,6 +21,28 @@ import { cn } from '../../lib/utils';
 import { formatTrailingStop, getStatusBadgeClass } from '../../utils/arena';
 import type { Simulation } from '../../types/arena';
 
+/** Border color classes cycled per group_id to visually cluster grouped simulations. */
+const GROUP_BORDER_COLORS = [
+  'border-l-blue-500',
+  'border-l-orange-500',
+  'border-l-green-500',
+  'border-l-purple-500',
+  'border-l-pink-500',
+  'border-l-yellow-500',
+];
+
+/**
+ * Returns a stable Tailwind border-color class for a given group_id.
+ * Uses a simple polynomial hash to distribute UUIDs across the color palette.
+ */
+function getGroupColorClass(groupId: string): string {
+  let hash = 0;
+  for (let i = 0; i < groupId.length; i++) {
+    hash = (hash * 31 + groupId.charCodeAt(i)) & 0xffffffff;
+  }
+  return GROUP_BORDER_COLORS[Math.abs(hash) % GROUP_BORDER_COLORS.length];
+}
+
 interface ArenaSimulationListProps {
   /** Array of simulations to display */
   simulations: Simulation[];
@@ -105,11 +127,15 @@ export const ArenaSimulationList = ({
             {simulations.map((sim) => {
               const returnPct = sim.total_return_pct ? parseFloat(sim.total_return_pct) : null;
               const isPositive = returnPct !== null && returnPct >= 0;
+              const groupColorClass = sim.group_id ? getGroupColorClass(sim.group_id) : null;
 
               return (
                 <TableRow
                   key={sim.id}
-                  className="cursor-pointer hover:bg-muted/50"
+                  className={cn(
+                    'cursor-pointer hover:bg-muted/50',
+                    groupColorClass ? `border-l-2 ${groupColorClass}` : 'border-l-2 border-l-transparent',
+                  )}
                   onClick={() => navigate(`/arena/${sim.id}`)}
                 >
                   <TableCell className="font-medium">
@@ -126,6 +152,20 @@ export const ArenaSimulationList = ({
                           className="text-[10px] px-1.5 py-0 font-mono"
                         >
                           {sim.portfolio_strategy}
+                        </Badge>
+                      </div>
+                    )}
+                    {sim.group_id && (
+                      <div className="mt-0.5">
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 cursor-pointer hover:bg-accent"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/arena/compare/${sim.group_id}`);
+                          }}
+                        >
+                          Compare
                         </Badge>
                       </div>
                     )}
