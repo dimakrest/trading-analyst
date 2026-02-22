@@ -102,7 +102,7 @@ export const ArenaEquityChart = ({
     value: parseFloat(s.total_equity),
   }));
 
-  const firstEquity = snapshots.length > 0 ? parseFloat(snapshots[0].total_equity) : 1;
+  const firstEquity = snapshots.length > 0 ? (parseFloat(snapshots[0].total_equity) || 1) : 1;
   const normalizedPortfolio = snapshots.map((s) => ({
     time: (new Date(s.snapshot_date).getTime() / 1000) as UTCTimestamp,
     value: ((parseFloat(s.total_equity) - firstEquity) / firstEquity) * 100,
@@ -187,6 +187,9 @@ export const ArenaEquityChart = ({
 
       try {
         const data = await getBenchmarkData(simulationId, symbol);
+        if (data.length === 0) {
+          throw new Error('No data');
+        }
         const timeData = data.map((p) => ({
           time: (new Date(p.date).getTime() / 1000) as UTCTimestamp,
           value: parseFloat(p.cumulative_return_pct),
@@ -197,7 +200,7 @@ export const ArenaEquityChart = ({
         setErrorBenchmarks((prev) => new Set(prev).add(symbol));
         toast.error(`Failed to load ${symbol} benchmark data`);
         setActiveBenchmarks((prev) => { const n = new Set(prev); n.delete(symbol); return n; });
-        seriesRef.current.setData([]);
+        seriesRef.current?.setData([]);
       } finally {
         setLoadingBenchmarks((prev) => { const n = new Set(prev); n.delete(symbol); return n; });
       }

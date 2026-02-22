@@ -160,10 +160,26 @@ describe('ArenaEquityChart', () => {
       expect(screen.getByTestId('benchmark-toggle-qqq')).toBeInTheDocument();
     });
 
-    it('does not show the legend when no benchmark is active', () => {
+    it('shows the legend with only Portfolio when all benchmarks are deactivated', async () => {
+      const { getBenchmarkData } = await import('../../services/arenaService');
+      (getBenchmarkData as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeBenchmarkPoint('2024-01-01', '0.00'),
+        makeBenchmarkPoint('2024-01-02', '1.50'),
+      ]);
+
       render(<ArenaEquityChart snapshots={twoSnapshots} simulationId={1} />);
 
-      expect(screen.queryByTestId('benchmark-legend')).not.toBeInTheDocument();
+      // Wait for auto-fetches to complete, then deactivate both benchmarks
+      await waitFor(() => expect(getBenchmarkData).toHaveBeenCalledTimes(2));
+      fireEvent.click(screen.getByTestId('benchmark-toggle-spy'));
+      fireEvent.click(screen.getByTestId('benchmark-toggle-qqq'));
+
+      await waitFor(() => {
+        const legend = screen.getByTestId('benchmark-legend');
+        expect(legend).toHaveTextContent('Portfolio');
+        expect(legend).not.toHaveTextContent('S&P 500');
+        expect(legend).not.toHaveTextContent('QQQ');
+      });
     });
   });
 
@@ -236,14 +252,14 @@ describe('ArenaEquityChart', () => {
 
       render(<ArenaEquityChart snapshots={twoSnapshots} simulationId={1} />);
 
-      fireEvent.click(screen.getByTestId('benchmark-toggle-spy'));
+      // Both benchmarks are active by default; wait for auto-fetches to complete
+      await waitFor(() => expect(getBenchmarkData).toHaveBeenCalledTimes(2));
 
-      const legend = await screen.findByTestId('benchmark-legend');
-      expect(legend).toBeInTheDocument();
-
-      // The legend contains "Portfolio" and the benchmark name inside the legend element
+      const legend = screen.getByTestId('benchmark-legend');
       expect(legend).toHaveTextContent('Portfolio');
-      expect(legend).toHaveTextContent('SPY');
+      // SPY displays as "S&P 500" in the legend
+      expect(legend).toHaveTextContent('S&P 500');
+      expect(legend).toHaveTextContent('QQQ');
     });
 
     it('shows a loading spinner on the active toggle item while fetch is in flight', async () => {
@@ -273,7 +289,7 @@ describe('ArenaEquityChart', () => {
   });
 
   describe('benchmark toggle OFF', () => {
-    it('restores absolute equity view and hides legend when active benchmark is clicked again', async () => {
+    it('removes benchmark from legend when it is deactivated', async () => {
       const { getBenchmarkData } = await import('../../services/arenaService');
       (getBenchmarkData as ReturnType<typeof vi.fn>).mockResolvedValue([
         makeBenchmarkPoint('2024-01-01', '0.00'),
@@ -282,18 +298,21 @@ describe('ArenaEquityChart', () => {
 
       render(<ArenaEquityChart snapshots={twoSnapshots} simulationId={1} />);
 
-      // Activate SPY
+      // Wait for both auto-fetches to complete — both benchmarks active by default
+      await waitFor(() => expect(getBenchmarkData).toHaveBeenCalledTimes(2));
+
+      const legend = screen.getByTestId('benchmark-legend');
+      expect(legend).toHaveTextContent('S&P 500');
+
+      // Deactivate SPY
       fireEvent.click(screen.getByTestId('benchmark-toggle-spy'));
+
       await waitFor(() =>
-        expect(screen.getByTestId('benchmark-legend')).toBeInTheDocument(),
+        expect(screen.getByTestId('benchmark-legend')).not.toHaveTextContent('S&P 500'),
       );
 
-      // Deactivate SPY by clicking again
-      fireEvent.click(screen.getByTestId('benchmark-toggle-spy'));
-
-      await waitFor(() =>
-        expect(screen.queryByTestId('benchmark-legend')).not.toBeInTheDocument(),
-      );
+      // QQQ should still be shown
+      expect(screen.getByTestId('benchmark-legend')).toHaveTextContent('QQQ');
     });
   });
 
@@ -314,7 +333,7 @@ describe('ArenaEquityChart', () => {
       });
     });
 
-    it('does not show legend after a failed benchmark fetch', async () => {
+    it('does not show benchmark labels in legend after a failed benchmark fetch', async () => {
       const { getBenchmarkData } = await import('../../services/arenaService');
       (getBenchmarkData as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Network error'),
@@ -322,10 +341,11 @@ describe('ArenaEquityChart', () => {
 
       render(<ArenaEquityChart snapshots={twoSnapshots} simulationId={1} />);
 
-      fireEvent.click(screen.getByTestId('benchmark-toggle-spy'));
-
+      // Both auto-fetches fail — wait for both to complete and be removed from active
       await waitFor(() => {
-        expect(screen.queryByTestId('benchmark-legend')).not.toBeInTheDocument();
+        const legend = screen.getByTestId('benchmark-legend');
+        expect(legend).not.toHaveTextContent('S&P 500');
+        expect(legend).not.toHaveTextContent('QQQ');
       });
     });
   });
