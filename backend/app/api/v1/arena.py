@@ -39,6 +39,37 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+async def _resolve_scoring_algorithm(
+    request: CreateSimulationRequest | CreateComparisonRequest,
+    session: AsyncSession,
+) -> str:
+    """Resolve the scoring algorithm from agent config or request field.
+
+    When agent_config_id is provided, looks up the stored config and uses
+    its scoring_algorithm. Otherwise, falls back to request.scoring_algorithm.
+
+    Args:
+        request: Simulation or comparison creation request
+        session: Database session for agent config lookup
+
+    Returns:
+        Resolved scoring algorithm identifier
+
+    Raises:
+        HTTPException: 404 if agent_config_id is provided but not found
+    """
+    if request.agent_config_id:
+        config_repo = AgentConfigRepository(session)
+        agent_config_obj = await config_repo.get_by_id(request.agent_config_id)
+        if not agent_config_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Agent config {request.agent_config_id} not found",
+            )
+        return agent_config_obj.scoring_algorithm
+    return request.scoring_algorithm
+
+
 def _build_simulation_response(simulation: ArenaSimulation) -> SimulationResponse:
     """Convert database model to response schema.
 
@@ -168,18 +199,7 @@ async def create_simulation(
     Raises:
         HTTPException: If validation fails
     """
-    # Look up agent config if provided
-    if request.agent_config_id:
-        config_repo = AgentConfigRepository(session)
-        agent_config_obj = await config_repo.get_by_id(request.agent_config_id)
-        if not agent_config_obj:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Agent config {request.agent_config_id} not found",
-            )
-        scoring_algorithm = agent_config_obj.scoring_algorithm
-    else:
-        scoring_algorithm = request.scoring_algorithm
+    scoring_algorithm = await _resolve_scoring_algorithm(request, session)
 
     # Build agent_config dictionary from request parameters
     agent_config = {
@@ -586,33 +606,25 @@ async def create_comparison(
     Raises:
         HTTPException: 404 if agent_config_id is provided but not found
     """
-    # Look up agent config if provided (same logic as create_simulation)
-    if request.agent_config_id:
-        config_repo = AgentConfigRepository(session)
-        agent_config_obj = await config_repo.get_by_id(request.agent_config_id)
-        if not agent_config_obj:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Agent config {request.agent_config_id} not found",
-            )
-        scoring_algorithm = agent_config_obj.scoring_algorithm
-    else:
-        scoring_algorithm = request.scoring_algorithm
+    scoring_algorithm = await _resolve_scoring_algorithm(request, session)
+
+    # Build base agent_config shared by all strategies; portfolio_strategy
+    # is set per-iteration below.
+    base_agent_config: dict[str, object] = {
+        "trailing_stop_pct": request.trailing_stop_pct,
+        "min_buy_score": request.min_buy_score,
+        "scoring_algorithm": scoring_algorithm,
+        "max_per_sector": request.max_per_sector,
+        "max_open_positions": request.max_open_positions,
+    }
+    if request.agent_config_id is not None:
+        base_agent_config["agent_config_id"] = request.agent_config_id
 
     group_id = str(uuid.uuid4())
     simulations = []
 
     for strategy in request.portfolio_strategies:
-        agent_config = {
-            "trailing_stop_pct": request.trailing_stop_pct,
-            "min_buy_score": request.min_buy_score,
-            "scoring_algorithm": scoring_algorithm,
-            "portfolio_strategy": strategy,
-            "max_per_sector": request.max_per_sector,
-            "max_open_positions": request.max_open_positions,
-        }
-        if request.agent_config_id is not None:
-            agent_config["agent_config_id"] = request.agent_config_id
+        agent_config = {**base_agent_config, "portfolio_strategy": strategy}
 
         sim = ArenaSimulation(
             name=f"{request.name or 'Comparison'} [{strategy}]",
