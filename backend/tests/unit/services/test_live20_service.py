@@ -149,18 +149,12 @@ class TestLive20Service:
             assert result.status == "success"
             rec = result.recommendation
 
-            # Pivot should be calculated as (High + Low + Close) / 3 of the last candle.
-            # Last candle: high=130.0, low=127.0, close=129.0 => PP = (130+127+129)/3 = 128.6667
-            assert rec.live20_pivot is not None
-            assert isinstance(rec.live20_pivot, Decimal)
-            assert rec.live20_pivot > Decimal("0")
+            # Last candle (i=29): high=131.0, low=128.0, close=130.0
+            # PP = (131 + 128 + 130) / 3 = 129.6667
+            assert rec.live20_pivot == Decimal("129.6667")
 
-            # Support 1 = (2 * PP) - High = 2*128.6667 - 130 = 127.3333
-            assert rec.live20_support_1 is not None
-            assert isinstance(rec.live20_support_1, Decimal)
-            assert rec.live20_support_1 < rec.live20_pivot
+            # S1 = (2 * PP) - High = 2 * 129.6667 - 131 = 128.3334
+            assert rec.live20_support_1 == Decimal("128.3333")
 
-            # Resistance 1 = (2 * PP) - Low = 2*128.6667 - 127 = 130.3333
-            assert rec.live20_resistance_1 is not None
-            assert isinstance(rec.live20_resistance_1, Decimal)
-            assert rec.live20_resistance_1 > rec.live20_pivot
+            # R1 = (2 * PP) - Low = 2 * 129.6667 - 128 = 131.3334
+            assert rec.live20_resistance_1 == Decimal("131.3333")
