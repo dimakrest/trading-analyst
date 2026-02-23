@@ -45,14 +45,14 @@ function DirectionBadge({ direction }: { direction: Live20Direction | null }) {
     },
     NO_SETUP: {
       className: 'bg-[rgba(100,116,139,0.15)] text-text-secondary border border-default hover:bg-[rgba(100,116,139,0.15)]',
-      label: 'NO SETUP',
+      label: '\u2014',
     },
   };
 
   const { className, label } = variants[direction];
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-[11px] font-semibold uppercase tracking-wide ${className}`}>
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0 rounded-full font-mono text-[10px] font-semibold uppercase tracking-wide ${className}`}>
       <span className="badge-dot" />
       {label}
     </span>
@@ -236,20 +236,58 @@ export function Live20Table({ results }: Live20TableProps) {
         },
       },
       {
+        accessorKey: 'close_price',
+        header: ({ column }) => (
+          <button
+            className="flex items-center gap-1 hover:text-foreground"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            Price
+            <ArrowUpDown className="h-4 w-4" />
+          </button>
+        ),
+        cell: ({ row }) => {
+          const price = row.original.close_price;
+          return (
+            <span className="font-mono text-xs">
+              {price != null ? price.toFixed(2) : '-'}
+            </span>
+          );
+        },
+      },
+      {
         id: 'support_resistance',
         header: 'S/R',
         cell: ({ row }) => {
-          const { support_1, resistance_1 } = row.original;
+          const { support_1, resistance_1, close_price } = row.original;
           if (support_1 === null && resistance_1 === null) {
             return <span className="text-muted-foreground">-</span>;
           }
+
+          const pct = (level: number) =>
+            close_price != null ? ((level - close_price) / close_price) * 100 : null;
+
           return (
             <div className="flex flex-col text-xs font-mono">
               {resistance_1 !== null && (
-                <span className="text-accent-bearish">R {resistance_1.toFixed(2)}</span>
+                <span className="text-accent-bearish">
+                  R {resistance_1.toFixed(2)}
+                  {pct(resistance_1) != null && (
+                    <span className="text-muted-foreground ml-1">
+                      ({pct(resistance_1)! >= 0 ? '+' : ''}{pct(resistance_1)!.toFixed(2)}%)
+                    </span>
+                  )}
+                </span>
               )}
               {support_1 !== null && (
-                <span className="text-accent-bullish">S {support_1.toFixed(2)}</span>
+                <span className="text-accent-bullish">
+                  S {support_1.toFixed(2)}
+                  {pct(support_1) != null && (
+                    <span className="text-muted-foreground ml-1">
+                      ({pct(support_1)! >= 0 ? '+' : ''}{pct(support_1)!.toFixed(2)}%)
+                    </span>
+                  )}
+                </span>
               )}
             </div>
           );
