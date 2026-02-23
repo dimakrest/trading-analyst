@@ -33,13 +33,15 @@ vi.mock('../../hooks/useAgentConfigs', () => ({
 
 describe('ArenaSetupForm', () => {
   const mockOnSubmit = vi.fn();
+  const mockOnSubmitComparison = vi.fn();
 
   beforeEach(() => {
     mockOnSubmit.mockClear();
+    mockOnSubmitComparison.mockClear();
   });
 
   it('should render with empty state', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     expect(screen.getByRole('textbox', { name: /symbols/i })).toBeInTheDocument();
     expect(screen.getByText(/0 symbols/i)).toBeInTheDocument();
@@ -47,7 +49,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should show symbol count when symbols are entered', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
     fireEvent.change(textarea, { target: { value: 'AAPL, NVDA, TSLA' } });
@@ -56,7 +58,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should parse symbols separated by comma, space, or newline', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
     fireEvent.change(textarea, { target: { value: 'AAPL\nNVDA TSLA,AMD' } });
@@ -65,7 +67,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should uppercase symbols automatically', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
     fireEvent.change(textarea, { target: { value: 'aapl, nvda' } });
@@ -74,7 +76,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should filter out invalid symbols', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
     // Empty strings and very long symbols should be filtered out
@@ -84,7 +86,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should have disabled submit button when no dates entered', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
     fireEvent.change(textarea, { target: { value: 'AAPL, NVDA' } });
@@ -93,7 +95,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should have disabled submit button when start date is after end date', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
     fireEvent.change(textarea, { target: { value: 'AAPL' } });
@@ -108,7 +110,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should enable submit button with valid inputs', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
     fireEvent.change(textarea, { target: { value: 'AAPL' } });
@@ -123,7 +125,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should call onSubmit with parsed data when form is submitted', async () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     // Fill in form
     const textarea = screen.getByRole('textbox', { name: /symbols/i });
@@ -159,7 +161,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should disable form when loading', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={true} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={true} />);
 
     expect(screen.getByRole('textbox', { name: /symbols/i })).toBeDisabled();
     expect(screen.getByLabelText(/start date/i)).toBeDisabled();
@@ -168,14 +170,14 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should show agent configuration section', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     expect(screen.getByText(/agent configuration/i)).toBeInTheDocument();
     expect(screen.getByText(/live20 mean reversion/i)).toBeInTheDocument();
   });
 
   it('should have default values for capital settings', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     const capitalInput = screen.getByLabelText(/capital \(\$\)/i) as HTMLInputElement;
     const positionSizeInput = screen.getByLabelText(/position size/i) as HTMLInputElement;
@@ -188,7 +190,7 @@ describe('ArenaSetupForm', () => {
 
   describe('Minimum Buy Score', () => {
     it('should have default value of 60', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
       expect(minBuyScoreInput).toHaveAttribute('id', 'arena-min-buy-score-input');
@@ -196,7 +198,7 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should update when changed', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
       fireEvent.change(minBuyScoreInput, { target: { value: '80' } });
@@ -205,7 +207,7 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should include min_buy_score in submission', async () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       // Fill in form
       const textarea = screen.getByRole('textbox', { name: /symbols/i });
@@ -241,7 +243,7 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should disable submit when value is below minimum (5)', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       // Fill valid data
       const textarea = screen.getByRole('textbox', { name: /symbols/i });
@@ -260,7 +262,7 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should disable submit when value is above 100', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       // Fill valid data
       const textarea = screen.getByRole('textbox', { name: /symbols/i });
@@ -279,7 +281,7 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should show dynamic help text based on value', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
 
@@ -302,7 +304,7 @@ describe('ArenaSetupForm', () => {
   });
 
   it('should disable submit when too many symbols', () => {
-    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
     // Create 601 symbols (more than max 600)
     const symbols = Array.from({ length: 601 }, (_, i) => `SYM${i}`).join(', ');
@@ -320,13 +322,13 @@ describe('ArenaSetupForm', () => {
 
   describe('Stock List Integration', () => {
     it('renders ListSelector component', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
       expect(screen.getByRole('combobox', { name: /select a stock list/i })).toBeInTheDocument();
     });
 
     it('populates symbols when list is selected', async () => {
       const user = userEvent.setup();
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       await user.click(screen.getByRole('combobox', { name: /select a stock list/i }));
       await user.click(screen.getByRole('option', { name: 'Tech Stocks' }));
@@ -337,7 +339,7 @@ describe('ArenaSetupForm', () => {
 
     it('shows badge with symbol count when list is selected', async () => {
       const user = userEvent.setup();
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       await user.click(screen.getByRole('combobox', { name: /select a stock list/i }));
       await user.click(screen.getByRole('option', { name: 'Tech Stocks' }));
@@ -347,7 +349,7 @@ describe('ArenaSetupForm', () => {
 
     it('includes stock_list_id and stock_list_name in submission', async () => {
       const user = userEvent.setup();
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       // Select stock list
       await user.click(screen.getByRole('combobox', { name: /select a stock list/i }));
@@ -374,7 +376,7 @@ describe('ArenaSetupForm', () => {
 
     it('clears list reference when "None" is selected but keeps symbols', async () => {
       const user = userEvent.setup();
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       // Select a list first
       await user.click(screen.getByRole('combobox', { name: /select a stock list/i }));
@@ -393,13 +395,13 @@ describe('ArenaSetupForm', () => {
     });
 
     it('disables ListSelector during form submission', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={true} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={true} />);
       expect(screen.getByRole('combobox', { name: /select a stock list/i })).toBeDisabled();
     });
 
     it('shows context-aware helper text when list is selected', async () => {
       const user = userEvent.setup();
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
 
       // Before selecting a list - shows symbol count
       expect(screen.getByText(/0 symbols \(max 600\)/i)).toBeInTheDocument();
@@ -412,6 +414,173 @@ describe('ArenaSetupForm', () => {
       expect(
         screen.getByText('Symbols populated from list. You can modify them before starting.')
       ).toBeInTheDocument();
+    });
+  });
+
+  describe('Multi-Strategy Selection', () => {
+    /** Helper: render the form with valid symbols and dates so the submit button can be enabled */
+    const renderWithValidInputs = () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+        />
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+        target: { value: 'AAPL' },
+      });
+      fireEvent.change(screen.getByLabelText(/start date/i), {
+        target: { value: '2024-01-01' },
+      });
+      fireEvent.change(screen.getByLabelText(/end date/i), {
+        target: { value: '2024-06-01' },
+      });
+    };
+
+    it('should show "Start Simulation" button text with 1 strategy selected (default)', () => {
+      renderWithValidInputs();
+      // Default is ['none'] — 1 strategy
+      expect(screen.getByRole('button', { name: /start simulation/i })).toBeEnabled();
+    });
+
+    it('should show "Start Comparison (2 strategies)" button text with 2 strategies selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidInputs();
+
+      // Select a second strategy (Score + Low ATR)
+      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+
+      expect(
+        screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
+      ).toBeEnabled();
+    });
+
+    it('should show "Start Comparison (3 strategies)" button text with 3 strategies selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidInputs();
+
+      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+      await user.click(screen.getByRole('button', { name: /score \+ high atr/i }));
+
+      expect(
+        screen.getByRole('button', { name: /start comparison \(3 strategies\)/i })
+      ).toBeEnabled();
+    });
+
+    it('should show disabled "Select a Strategy" button when 0 strategies selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidInputs();
+
+      // Deselect the default 'none' strategy
+      await user.click(screen.getByRole('button', { name: /none \(symbol order\)/i }));
+
+      expect(
+        screen.getByRole('button', { name: /select a strategy/i })
+      ).toBeDisabled();
+    });
+
+    it('should revert to "Start Simulation" when deselecting from 2 strategies back to 1', async () => {
+      const user = userEvent.setup();
+      renderWithValidInputs();
+
+      // Add a second strategy
+      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+      expect(
+        screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
+      ).toBeEnabled();
+
+      // Deselect the second strategy
+      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+      expect(screen.getByRole('button', { name: /start simulation/i })).toBeEnabled();
+    });
+
+    it('should toggle off a strategy when clicking an already-selected one', async () => {
+      const user = userEvent.setup();
+      renderWithValidInputs();
+
+      const noneButton = screen.getByRole('button', { name: /none \(symbol order\)/i });
+      expect(noneButton).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(noneButton);
+      expect(noneButton).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('should show portfolio constraint fields when any non-"none" strategy is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidInputs();
+
+      // Only 'none' selected by default — constraint fields should NOT appear
+      expect(screen.queryByLabelText(/max per sector/i)).not.toBeInTheDocument();
+
+      // Select a non-none strategy
+      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+
+      expect(screen.getByLabelText(/max per sector/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/max open positions/i)).toBeInTheDocument();
+    });
+
+    it('should NOT show portfolio constraint fields when only "none" is selected', async () => {
+      renderWithValidInputs();
+      // Default is ['none']
+      expect(screen.queryByLabelText(/max per sector/i)).not.toBeInTheDocument();
+    });
+
+    it('should call onSubmit (not onSubmitComparison) when exactly 1 strategy is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidInputs();
+
+      // Default: 1 strategy ('none') selected
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      expect(mockOnSubmit).toHaveBeenCalledOnce();
+      expect(mockOnSubmitComparison).not.toHaveBeenCalled();
+    });
+
+    it('should call onSubmitComparison (not onSubmit) when 2+ strategies are selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidInputs();
+
+      // Add a second strategy
+      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+
+      await user.click(
+        screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
+      );
+
+      expect(mockOnSubmitComparison).toHaveBeenCalledOnce();
+      expect(mockOnSubmit).not.toHaveBeenCalled();
+      expect(mockOnSubmitComparison).toHaveBeenCalledWith(
+        expect.objectContaining({
+          portfolio_strategies: ['none', 'score_sector_low_atr'],
+        })
+      );
+    });
+
+    it('should initialize selectedStrategies from initialValues.portfolio_strategy', () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            portfolio_strategy: 'score_sector_low_atr',
+          }}
+        />
+      );
+
+      const lowAtrButton = screen.getByRole('button', { name: /score \+ low atr/i });
+      expect(lowAtrButton).toHaveAttribute('aria-pressed', 'true');
+
+      const noneButton = screen.getByRole('button', { name: /none \(symbol order\)/i });
+      expect(noneButton).toHaveAttribute('aria-pressed', 'false');
     });
   });
 
@@ -432,6 +601,7 @@ describe('ArenaSetupForm', () => {
       render(
         <ArenaSetupForm
           onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
           isLoading={false}
           initialValues={initialValues}
         />
@@ -480,6 +650,7 @@ describe('ArenaSetupForm', () => {
       render(
         <ArenaSetupForm
           onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
           isLoading={false}
           initialValues={initialValues}
         />
@@ -509,6 +680,7 @@ describe('ArenaSetupForm', () => {
       render(
         <ArenaSetupForm
           onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
           isLoading={false}
           initialValues={initialValues}
         />

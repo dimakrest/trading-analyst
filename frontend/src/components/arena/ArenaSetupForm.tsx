@@ -19,14 +19,16 @@ import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
 import { useAgentConfigs } from '../../hooks/useAgentConfigs';
 import { PORTFOLIO_STRATEGIES } from '../../constants/portfolio';
-import type { CreateSimulationRequest } from '../../types/arena';
+import type { CreateComparisonRequest, CreateSimulationRequest } from '../../types/arena';
 
 // Arena configuration constants
 const MAX_ARENA_SYMBOLS = 600;
 
 interface ArenaSetupFormProps {
-  /** Callback when form is submitted with valid data */
+  /** Callback when form is submitted with a single strategy */
   onSubmit: (request: CreateSimulationRequest) => Promise<void>;
+  /** Callback when form is submitted with 2+ strategies (comparison mode) */
+  onSubmitComparison: (request: CreateComparisonRequest) => Promise<void>;
   /** Whether submission is in progress */
   isLoading: boolean;
   /** Initial values for form pre-population (e.g., from replay) */
@@ -117,6 +119,7 @@ const getMinBuyScoreHelpText = (score: number, scoringAlgorithm: 'cci' | 'rsi2' 
  */
 export const ArenaSetupForm = ({
   onSubmit,
+  onSubmitComparison,
   isLoading,
   initialValues,
 }: ArenaSetupFormProps) => {
@@ -128,7 +131,7 @@ export const ArenaSetupForm = ({
   const [trailingStopPct, setTrailingStopPct] = useState('5');
   const [minBuyScore, setMinBuyScore] = useState(MIN_BUY_SCORE_CONFIG.DEFAULT.toString());
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
-  const [portfolioStrategy, setPortfolioStrategy] = useState('none');
+  const [selectedStrategies, setSelectedStrategies] = useState<string[]>(['none']);
   const [maxPerSector, setMaxPerSector] = useState('2');
   const [maxOpenPositions, setMaxOpenPositions] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -171,7 +174,7 @@ export const ArenaSetupForm = ({
       }
       // Set portfolio strategy fields if available
       if (initialValues.portfolio_strategy != null) {
-        setPortfolioStrategy(initialValues.portfolio_strategy);
+        setSelectedStrategies([initialValues.portfolio_strategy]);
       }
       if (initialValues.max_per_sector != null) {
         setMaxPerSector(initialValues.max_per_sector.toString());
@@ -199,29 +202,60 @@ export const ArenaSetupForm = ({
     }
   };
 
+  /** Toggle a portfolio strategy on or off */
+  const handleStrategyToggle = (strategyName: string) => {
+    setSelectedStrategies((prev) => {
+      if (prev.includes(strategyName)) {
+        return prev.filter((s) => s !== strategyName);
+      }
+      return [...prev, strategyName];
+    });
+  };
+
   const handleSubmit = useCallback(async () => {
     const symbolList = parseSymbols(symbols);
     if (symbolList.length === 0) return;
 
-    // Only send portfolio constraints when strategy is not "none"
-    const hasStrategy = portfolioStrategy !== 'none';
+    // Only send portfolio constraints when any non-"none" strategy is selected
+    const hasStrategy = selectedStrategies.some((s) => s !== 'none');
+    const parsedMaxPerSector = hasStrategy && maxPerSector ? parseInt(maxPerSector, 10) : null;
+    const parsedMaxOpenPositions =
+      hasStrategy && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null;
 
-    await onSubmit({
-      symbols: symbolList,
-      start_date: startDate,
-      end_date: endDate,
-      initial_capital: parseFloat(capital),
-      position_size: parseFloat(positionSize),
-      trailing_stop_pct: parseFloat(trailingStopPct),
-      min_buy_score: parseFloat(minBuyScore),
-      stock_list_id: selectedList?.id,
-      stock_list_name: selectedList?.name,
-      agent_config_id: selectedAgentConfigId,
-      portfolio_strategy: portfolioStrategy,
-      max_per_sector: hasStrategy && maxPerSector ? parseInt(maxPerSector, 10) : null,
-      max_open_positions: hasStrategy && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null,
-    });
-  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, portfolioStrategy, maxPerSector, maxOpenPositions, onSubmit]);
+    if (selectedStrategies.length >= 2) {
+      await onSubmitComparison({
+        symbols: symbolList,
+        start_date: startDate,
+        end_date: endDate,
+        initial_capital: parseFloat(capital),
+        position_size: parseFloat(positionSize),
+        trailing_stop_pct: parseFloat(trailingStopPct),
+        min_buy_score: parseFloat(minBuyScore),
+        stock_list_id: selectedList?.id,
+        stock_list_name: selectedList?.name,
+        agent_config_id: selectedAgentConfigId,
+        portfolio_strategies: selectedStrategies,
+        max_per_sector: parsedMaxPerSector,
+        max_open_positions: parsedMaxOpenPositions,
+      });
+    } else {
+      await onSubmit({
+        symbols: symbolList,
+        start_date: startDate,
+        end_date: endDate,
+        initial_capital: parseFloat(capital),
+        position_size: parseFloat(positionSize),
+        trailing_stop_pct: parseFloat(trailingStopPct),
+        min_buy_score: parseFloat(minBuyScore),
+        stock_list_id: selectedList?.id,
+        stock_list_name: selectedList?.name,
+        agent_config_id: selectedAgentConfigId,
+        portfolio_strategy: selectedStrategies[0] ?? 'none',
+        max_per_sector: parsedMaxPerSector,
+        max_open_positions: parsedMaxOpenPositions,
+      });
+    }
+  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, selectedStrategies, maxPerSector, maxOpenPositions, onSubmit, onSubmitComparison]);
 
   const symbolList = parseSymbols(symbols);
   const hasValidSymbols = symbolList.length > 0 && symbolList.length <= MAX_ARENA_SYMBOLS;
@@ -231,6 +265,8 @@ export const ArenaSetupForm = ({
   const hasValidTrailingStop = parseFloat(trailingStopPct) > 0 && parseFloat(trailingStopPct) <= 100;
   const hasValidMinBuyScore = isValidMinBuyScore(parseFloat(minBuyScore));
 
+  const hasStrategySelected = selectedStrategies.length > 0;
+
   const canSubmit =
     hasValidSymbols &&
     hasValidDates &&
@@ -238,7 +274,15 @@ export const ArenaSetupForm = ({
     hasValidPositionSize &&
     hasValidTrailingStop &&
     hasValidMinBuyScore &&
+    hasStrategySelected &&
     !isLoading;
+
+  const submitButtonLabel = (() => {
+    if (isLoading) return 'Creating...';
+    if (selectedStrategies.length === 0) return 'Select a Strategy';
+    if (selectedStrategies.length >= 2) return `Start Comparison (${selectedStrategies.length} strategies)`;
+    return 'Start Simulation';
+  })();
 
   return (
     <Card>
@@ -445,32 +489,53 @@ export const ArenaSetupForm = ({
 
         {/* Portfolio Selection Strategy */}
         <div className="space-y-3">
-          <h3 className="text-sm font-medium">Portfolio Selection</h3>
-
-          <div className="space-y-2">
-            <Label htmlFor="arena-portfolio-strategy">Strategy</Label>
-            <Select
-              value={portfolioStrategy}
-              onValueChange={setPortfolioStrategy}
-              disabled={isLoading}
-            >
-              <SelectTrigger id="arena-portfolio-strategy">
-                <SelectValue placeholder="Select strategy..." />
-              </SelectTrigger>
-              <SelectContent>
-                {PORTFOLIO_STRATEGIES.map((strategy) => (
-                  <SelectItem key={strategy.name} value={strategy.name}>
-                    {strategy.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {PORTFOLIO_STRATEGIES.find((s) => s.name === portfolioStrategy)?.description}
-            </p>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium">Portfolio Selection</h3>
+            {selectedStrategies.length >= 2 && (
+              <Badge variant="secondary" className="text-xs">
+                Comparison mode
+              </Badge>
+            )}
           </div>
 
-          {portfolioStrategy !== 'none' && (
+          <div className="space-y-2">
+            <Label>Strategy</Label>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Portfolio strategies">
+              {PORTFOLIO_STRATEGIES.map((strategy) => {
+                const isSelected = selectedStrategies.includes(strategy.name);
+                return (
+                  <Button
+                    key={strategy.name}
+                    type="button"
+                    variant={isSelected ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleStrategyToggle(strategy.name)}
+                    disabled={isLoading}
+                    aria-pressed={isSelected}
+                  >
+                    {strategy.label}
+                  </Button>
+                );
+              })}
+            </div>
+            {selectedStrategies.length === 1 && (
+              <p className="text-xs text-muted-foreground">
+                {PORTFOLIO_STRATEGIES.find((s) => s.name === selectedStrategies[0])?.description}
+              </p>
+            )}
+            {selectedStrategies.length >= 2 && (
+              <p className="text-xs text-muted-foreground">
+                Each selected strategy will run as a separate simulation for direct comparison.
+              </p>
+            )}
+            {selectedStrategies.length === 0 && (
+              <p className="text-xs text-destructive">
+                Select at least one strategy to continue.
+              </p>
+            )}
+          </div>
+
+          {selectedStrategies.some((s) => s !== 'none') && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="arena-max-per-sector">Max Per Sector</Label>
@@ -515,7 +580,7 @@ export const ArenaSetupForm = ({
           size="lg"
         >
           <Play className="h-4 w-4 mr-2" />
-          {isLoading ? 'Creating...' : 'Start Simulation'}
+          {submitButtonLabel}
         </Button>
       </CardContent>
     </Card>
