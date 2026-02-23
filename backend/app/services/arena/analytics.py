@@ -41,7 +41,9 @@ def compute_simulation_analytics(
     if hold_days:
         simulation.avg_hold_days = Decimal(sum(hold_days)) / len(hold_days)
 
-    # Separate winners and losers
+    # Separate winners and losers.
+    # Break-even trades (realized_pnl == 0) are intentionally excluded from both
+    # lists but are included in total_realized_pnl and avg_hold_days above.
     winners = [p for p in closed if p.realized_pnl > 0]
     losers = [p for p in closed if p.realized_pnl < 0]
 
@@ -57,7 +59,8 @@ def compute_simulation_analytics(
     if gross_wins > 0 and gross_losses > 0:
         simulation.profit_factor = gross_wins / gross_losses
 
-    # Sharpe ratio (annualized, from daily returns)
+    # Sharpe ratio (annualized, from daily returns).
+    # Includes day-0 return (typically 0%); effect is negligible for simulations > 20 days.
     if len(snapshots) >= 2:
         daily_returns = [float(s.daily_return_pct) / 100 for s in snapshots]
         n = len(daily_returns)

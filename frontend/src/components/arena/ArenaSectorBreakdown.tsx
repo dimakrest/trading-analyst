@@ -153,6 +153,7 @@ const SectorPerformanceTable = ({ rows }: { rows: PerformanceRow[] }) => (
  */
 export const ArenaSectorBreakdown = ({
   positions,
+  snapshot: _snapshot,
 }: ArenaSectorBreakdownProps) => {
   if (positions.length === 0) return null;
 
