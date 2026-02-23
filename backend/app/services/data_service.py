@@ -241,16 +241,18 @@ class DataService:
         self,
         symbols: list[str],
         session: AsyncSession,
+        max_concurrency: int = 5,
     ) -> dict[str, str | None]:
         """Fetch and cache sector data for all symbols missing from stock_sectors.
 
         Queries DB for existing entries first, then fetches Yahoo data only for
-        symbols not yet cached. Each fetch uses its own DB session
+        symbols not yet cached. Each concurrent fetch uses its own DB session
         (AsyncSession is not task-safe for concurrent use).
 
         Args:
             symbols: Stock symbols to prefetch (will be deduped and uppercased)
             session: Caller's database session (used for initial/final reads only)
+            max_concurrency: Max concurrent Yahoo API calls (default 5)
 
         Returns:
             Dict mapping symbol → sector name (Yahoo human-readable, e.g. "Technology")
@@ -275,37 +277,28 @@ class DataService:
                 f"Prefetching sector data for {len(missing)} symbols "
                 f"({len(existing)} already cached)"
             )
+            semaphore = asyncio.Semaphore(max_concurrency)
             session_factory = self._session_factory
-            fetched_any = False
 
-            # Run sequentially rather than concurrently — concurrent sessions on the
-            # same underlying DB connection (as used in savepoint-based test fixtures)
-            # can corrupt each other's savepoint state, causing PendingRollbackError
-            # in subsequent queries. Sequential execution avoids this entirely.
-            # In production with a pool, each session_factory() call gets its own
-            # connection, so concurrency would be safe, but the throughput benefit
-            # for a small symbols list does not outweigh the test-environment risk.
-            for symbol in missing:
-                try:
-                    async with session_factory() as task_session:
-                        await self.get_sector_etf(symbol, task_session)
-                        await task_session.commit()
-                    fetched_any = True
-                except Exception as e:
-                    self.logger.warning(
-                        f"Sector prefetch failed for {symbol}: {e}"
-                    )
+            async def fetch_one(symbol: str) -> None:
+                async with semaphore:
+                    try:
+                        async with session_factory() as task_session:
+                            await self.get_sector_etf(symbol, task_session)
+                            await task_session.commit()
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Sector prefetch failed for {symbol}: {e}"
+                        )
 
-            # Only do the final bulk read if at least one fetch succeeded.
-            # If all fetches failed (e.g. Yahoo API unavailable in tests),
-            # skip the read — there is nothing new to pick up.
-            if fetched_any:
-                # Single bulk read to pick up all newly inserted sectors
-                result = await session.execute(
-                    select(StockSector.symbol, StockSector.sector)
-                    .where(StockSector.symbol.in_(symbols))
-                )
-                existing = {row.symbol: row.sector for row in result.all()}
+            await asyncio.gather(*[fetch_one(s) for s in missing])
+
+            # Single bulk read to pick up all newly inserted sectors
+            result = await session.execute(
+                select(StockSector.symbol, StockSector.sector)
+                .where(StockSector.symbol.in_(symbols))
+            )
+            existing = {row.symbol: row.sector for row in result.all()}
 
         return {s: existing.get(s) for s in symbols}
 

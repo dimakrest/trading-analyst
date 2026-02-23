@@ -381,8 +381,13 @@ class TestArenaSimulationIntegration:
             with patch.object(
                 engine.data_service, "get_price_data", side_effect=mock_get_price_data
             ):
-                await engine.initialize_simulation(simulation.id)
-                completed_sim = await engine.run_to_completion(simulation.id)
+                with patch.object(
+                    engine.data_service,
+                    "batch_prefetch_sectors",
+                    return_value={"AAPL": "Technology", "MSFT": "Technology"},
+                ):
+                    await engine.initialize_simulation(simulation.id)
+                    completed_sim = await engine.run_to_completion(simulation.id)
 
         # Verify both symbols are tracked in snapshots
         result = await db_session.execute(
