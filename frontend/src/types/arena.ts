@@ -41,6 +41,10 @@ export interface Simulation {
   trailing_stop_pct: string | null;
   min_buy_score: number | null;
   scoring_algorithm: ScoringAlgorithm | null;
+  volume_score?: number | null;
+  candle_pattern_score?: number | null;
+  cci_score?: number | null;
+  ma20_distance_score?: number | null;
   portfolio_strategy: string | null;
   max_per_sector: number | null;
   max_open_positions: number | null;

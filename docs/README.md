@@ -10,10 +10,10 @@ Different agents have different contexts to avoid pollution. See the appropriate
   → Start with `.claude/context/CODE_RESEARCH.md`
 
 - **Backend Implementation** (backend-engineer)
-  → Start with `.claude/context/BACKEND_EXECUTION.md`, then see [Backend Testing](./backend/testing.md)
+  → Start with `.claude/context/BACKEND_EXECUTION.md`, then see [Testing Guide](./guides/testing.md)
 
 - **Frontend Implementation** (frontend-engineer)
-  → Start with `.claude/context/FRONTEND_EXECUTION.md`, then see [Frontend Testing](./frontend/testing.md)
+  → Start with `.claude/context/FRONTEND_EXECUTION.md`, then see [Testing Guide](./guides/testing.md)
 
 - **Planning** (/create_plan command)
   → See `.claude/context/WORKFLOW.md`
@@ -23,12 +23,11 @@ Different agents have different contexts to avoid pollution. See the appropriate
 
 ## Quick Navigation
 
-### 📁 [Backend](./backend/)
-- **[Testing](./backend/testing.md)** - Testing standards and practices
+### 📁 Backend
+- **[Testing](./guides/testing.md)** - Backend and frontend testing standards and commands
 
-### 📁 [Frontend](./frontend/)
-- **[Testing](./frontend/testing.md)** - Frontend testing standards
-- **[Testing Checklist](./frontend/TESTING_CHECKLIST.md)** - UI testing checklist
+### 📁 Frontend
+- **[Testing](./guides/testing.md)** - Frontend unit/UI/E2E testing commands and requirements
 - **[Design System](./frontend/DESIGN_SYSTEM.md)** - Colors, typography, components, and styling
 
 ### 📁 [Guides](./guides/)

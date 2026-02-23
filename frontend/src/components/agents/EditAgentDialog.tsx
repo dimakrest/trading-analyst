@@ -44,13 +44,36 @@ export const EditAgentDialog = ({
 }: EditAgentDialogProps) => {
   const [name, setName] = useState('');
   const [scoringAlgorithm, setScoringAlgorithm] = useState<ScoringAlgorithm>('cci');
+  const [volumeScore, setVolumeScore] = useState('25');
+  const [candlePatternScore, setCandlePatternScore] = useState('25');
+  const [cciScore, setCciScore] = useState('25');
+  const [ma20DistanceScore, setMa20DistanceScore] = useState('25');
   const [error, setError] = useState<string | null>(null);
+
+  const parsedVolumeScore = Number.parseInt(volumeScore, 10);
+  const parsedCandlePatternScore = Number.parseInt(candlePatternScore, 10);
+  const parsedCciScore = Number.parseInt(cciScore, 10);
+  const parsedMa20DistanceScore = Number.parseInt(ma20DistanceScore, 10);
+  const scoreValues = [
+    parsedVolumeScore,
+    parsedCandlePatternScore,
+    parsedCciScore,
+    parsedMa20DistanceScore,
+  ];
+  const areScoresValid = scoreValues.every(
+    (score) => Number.isInteger(score) && score >= 0 && score <= 100
+  );
+  const totalScore = areScoresValid ? scoreValues.reduce((sum, score) => sum + score, 0) : null;
 
   // Reset form when config changes or dialog opens
   useEffect(() => {
     if (config && open) {
       setName(config.name);
       setScoringAlgorithm(config.scoring_algorithm);
+      setVolumeScore((config.volume_score ?? 25).toString());
+      setCandlePatternScore((config.candle_pattern_score ?? 25).toString());
+      setCciScore((config.cci_score ?? 25).toString());
+      setMa20DistanceScore((config.ma20_distance_score ?? 25).toString());
       setError(null);
     }
   }, [config, open]);
@@ -67,11 +90,23 @@ export const EditAgentDialog = ({
       setError('Agent name is required');
       return;
     }
+    if (!areScoresValid) {
+      setError('All signal scores must be integers between 0 and 100');
+      return;
+    }
+    if (totalScore !== 100) {
+      setError(`Signal scores must sum to 100 (current total: ${totalScore})`);
+      return;
+    }
 
     try {
       await onSubmit(config.id, {
         name: trimmedName,
         scoring_algorithm: scoringAlgorithm,
+        volume_score: parsedVolumeScore,
+        candle_pattern_score: parsedCandlePatternScore,
+        cci_score: parsedCciScore,
+        ma20_distance_score: parsedMa20DistanceScore,
       });
 
       onOpenChange(false);
@@ -149,6 +184,82 @@ export const EditAgentDialog = ({
                 {scoringAlgorithm === 'cci'
                   ? 'CCI: Binary 20-point momentum scoring (default)'
                   : 'RSI-2: Graduated 0-20 point momentum scoring for mean-reversion'}
+              </p>
+            </div>
+
+            {/* Signal Scores */}
+            <div className="space-y-3">
+              <Label className="text-xs font-semibold uppercase tracking-[0.06em] text-text-muted">
+                Signal Scores (Total = 100)
+              </Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="edit-volume-score" className="text-xs text-text-muted">
+                    Volume
+                  </Label>
+                  <Input
+                    id="edit-volume-score"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={volumeScore}
+                    onChange={(e) => setVolumeScore(e.target.value)}
+                    disabled={isSubmitting}
+                    className="bg-bg-tertiary border-default focus:border-accent-primary focus:ring-2 focus:ring-accent-primary-muted"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="edit-candle-score" className="text-xs text-text-muted">
+                    Candle Pattern
+                  </Label>
+                  <Input
+                    id="edit-candle-score"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={candlePatternScore}
+                    onChange={(e) => setCandlePatternScore(e.target.value)}
+                    disabled={isSubmitting}
+                    className="bg-bg-tertiary border-default focus:border-accent-primary focus:ring-2 focus:ring-accent-primary-muted"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="edit-cci-score" className="text-xs text-text-muted">
+                    CCI / Momentum
+                  </Label>
+                  <Input
+                    id="edit-cci-score"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={cciScore}
+                    onChange={(e) => setCciScore(e.target.value)}
+                    disabled={isSubmitting}
+                    className="bg-bg-tertiary border-default focus:border-accent-primary focus:ring-2 focus:ring-accent-primary-muted"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="edit-ma20-score" className="text-xs text-text-muted">
+                    MA20 Distance
+                  </Label>
+                  <Input
+                    id="edit-ma20-score"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={ma20DistanceScore}
+                    onChange={(e) => setMa20DistanceScore(e.target.value)}
+                    disabled={isSubmitting}
+                    className="bg-bg-tertiary border-default focus:border-accent-primary focus:ring-2 focus:ring-accent-primary-muted"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-text-muted">
+                Current total: <span className={totalScore === 100 ? 'text-text-primary' : 'text-accent-bearish'}>{totalScore ?? '-'}</span>
               </p>
             </div>
 

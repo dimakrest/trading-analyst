@@ -82,6 +82,22 @@ class Live20Run(Base):
         String(20), nullable=True, server_default="cci",
         doc="Scoring algorithm: 'cci' or 'rsi2'"
     )
+    volume_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="25",
+        doc="Score weight for volume signal used for this run"
+    )
+    candle_pattern_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="25",
+        doc="Score weight for candle pattern signal used for this run"
+    )
+    cci_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="25",
+        doc="Score weight for momentum signal (CCI/RSI-2) used for this run"
+    )
+    ma20_distance_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="25",
+        doc="Score weight for MA20 distance signal used for this run"
+    )
 
     # Queue management columns for PostgreSQL-based job queue
     worker_id: Mapped[str | None] = mapped_column(

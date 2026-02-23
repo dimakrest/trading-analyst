@@ -19,6 +19,11 @@ async def create_live20_run(
     status: str = "pending",
     input_symbols: list[str] | None = None,
     existing_recommendations: list[str] | None = None,
+    scoring_algorithm: str = "cci",
+    volume_score: int = 25,
+    candle_pattern_score: int = 25,
+    cci_score: int = 25,
+    ma20_distance_score: int = 25,
 ) -> Live20Run:
     """Helper to create a Live20Run with optional existing recommendations."""
     if input_symbols is None:
@@ -34,6 +39,11 @@ async def create_live20_run(
             retry_count=0,
             max_retries=3,
             processed_count=0,
+            scoring_algorithm=scoring_algorithm,
+            volume_score=volume_score,
+            candle_pattern_score=candle_pattern_score,
+            cci_score=cci_score,
+            ma20_distance_score=ma20_distance_score,
         )
         session.add(run)
         await session.flush()
@@ -221,6 +231,49 @@ class TestLive20WorkerProcessJob:
 
             # Should not process anything
             mock_service._analyze_symbol.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_job_passes_run_signal_scores_to_service(
+        self, rollback_session_factory, mock_queue_service
+    ):
+        """Worker should pass persisted run-level scoring config into Live20Service."""
+        run = await create_live20_run(
+            rollback_session_factory,
+            status="running",
+            input_symbols=["AAPL"],
+            scoring_algorithm="rsi2",
+            volume_score=10,
+            candle_pattern_score=20,
+            cci_score=30,
+            ma20_distance_score=40,
+        )
+
+        worker = Live20Worker(rollback_session_factory, mock_queue_service)
+
+        mock_result = MagicMock()
+        mock_result.status = "success"
+        mock_result.recommendation = MagicMock()
+        mock_result.recommendation.id = 101
+        mock_result.recommendation.live20_direction = "LONG"
+        mock_result.recommendation.confidence_score = 85
+
+        with patch("app.services.live20_worker.Live20Service") as MockService:
+            mock_service = MagicMock()
+            mock_service._analyze_symbol = AsyncMock(return_value=mock_result)
+            MockService.return_value = mock_service
+
+            await worker.process_job(run)
+
+            MockService.assert_called_once_with(
+                rollback_session_factory,
+                scoring_algorithm="rsi2",
+                signal_scores={
+                    "volume": 10,
+                    "candle": 20,
+                    "momentum": 30,
+                    "ma20_distance": 40,
+                },
+            )
 
 
 @pytest.mark.unit

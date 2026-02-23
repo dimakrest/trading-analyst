@@ -11,6 +11,7 @@ import pytest
 
 from app.services.arena.agent_protocol import AgentDecision, PriceBar
 from app.services.arena.agents.live20_agent import Live20ArenaAgent
+from app.services.live20_evaluator import CriterionResult
 
 
 class TestLive20ArenaAgentProperties:
@@ -34,7 +35,7 @@ class TestLive20ArenaAgentProperties:
     @pytest.mark.unit
     def test_weight_per_criterion(self, agent: Live20ArenaAgent) -> None:
         """Test weight per criterion constant."""
-        assert agent.WEIGHT_PER_CRITERION == 20
+        assert agent.WEIGHT_PER_CRITERION == 25
 
     @pytest.mark.unit
     def test_ma20_distance_threshold(self, agent: Live20ArenaAgent) -> None:
@@ -283,10 +284,10 @@ class TestLive20ArenaAgentEvaluate:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_evaluate_decision_score_is_multiple_of_20(
+    async def test_evaluate_decision_score_is_valid_range(
         self, agent: Live20ArenaAgent
     ) -> None:
-        """Test that score is always a multiple of 20 (weight per criterion)."""
+        """Test that score is always in valid 0-100 range."""
         bars = self._create_downtrend_bars()
 
         decision = await agent.evaluate(
@@ -297,7 +298,6 @@ class TestLive20ArenaAgentEvaluate:
         )
 
         assert decision.score is not None
-        assert decision.score % 20 == 0
         assert 0 <= decision.score <= 100
 
     @pytest.mark.unit
@@ -305,7 +305,7 @@ class TestLive20ArenaAgentEvaluate:
     async def test_evaluate_buy_signal_requires_3_criteria(
         self, agent: Live20ArenaAgent
     ) -> None:
-        """Test that BUY signal requires at least 3 aligned criteria."""
+        """Test that BUY signal still requires configured score threshold."""
         # Create a scenario that should generate BUY signal
         # Strong downtrend with price far below MA20
         bars = []
@@ -789,6 +789,50 @@ class TestLive20ArenaAgentConfiguration:
             assert decision.action == "BUY"
         else:
             assert decision.action == "NO_SIGNAL"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_trend_filter_blocks_buy_even_with_high_signal_score(
+        self, monkeypatch
+    ) -> None:
+        """Trend ineligibility must force NO_SIGNAL regardless of signal score."""
+        agent = Live20ArenaAgent(config={"min_buy_score": 20})
+
+        criteria = [
+            CriterionResult("trend", "bullish", False, 0),
+            CriterionResult("ma20_distance", "-8.0%", True, 30),
+            CriterionResult("candle", "morning_star", True, 30),
+            CriterionResult("volume", "2.0x", True, 20),
+            CriterionResult("momentum", "oversold", True, 20),
+        ]
+
+        def _mock_evaluate_criteria(*_args, **_kwargs):
+            return criteria, None, None, "mocked"
+
+        monkeypatch.setattr(agent._evaluator, "evaluate_criteria", _mock_evaluate_criteria)
+
+        bars = [
+            PriceBar(
+                date=date(2024, 1, i),
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal("100"),
+                volume=1000000,
+            )
+            for i in range(1, 31)
+        ]
+
+        decision = await agent.evaluate(
+            symbol="AAPL",
+            price_history=bars,
+            current_date=date(2024, 1, 30),
+            has_open_position=False,
+        )
+
+        assert decision.action == "NO_SIGNAL"
+        assert decision.score == 100
+        assert "Trend eligible: no" in (decision.reasoning or "")
 
 
 class TestLive20ArenaAgentConsistency:

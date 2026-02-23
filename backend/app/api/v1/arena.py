@@ -30,6 +30,7 @@ from app.schemas.arena import (
 )
 from app.services.arena.agent_registry import list_agents
 from app.services.data_service import DataService
+from app.services.live20_evaluator import Live20Evaluator
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -49,6 +50,10 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     trailing_stop_pct = agent_config.get("trailing_stop_pct")
     min_buy_score = agent_config.get("min_buy_score")
     scoring_algorithm = agent_config.get("scoring_algorithm", "cci")
+    volume_score = agent_config.get("volume_score")
+    candle_pattern_score = agent_config.get("candle_pattern_score")
+    cci_score = agent_config.get("cci_score")
+    ma20_distance_score = agent_config.get("ma20_distance_score")
     portfolio_strategy = agent_config.get("portfolio_strategy")
     max_per_sector = agent_config.get("max_per_sector")
     max_open_positions = agent_config.get("max_open_positions")
@@ -67,6 +72,10 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         trailing_stop_pct=trailing_stop_pct,
         min_buy_score=min_buy_score,
         scoring_algorithm=scoring_algorithm,
+        volume_score=volume_score,
+        candle_pattern_score=candle_pattern_score,
+        cci_score=cci_score,
+        ma20_distance_score=ma20_distance_score,
         portfolio_strategy=portfolio_strategy,
         max_per_sector=max_per_sector,
         max_open_positions=max_open_positions,
@@ -173,14 +182,27 @@ async def create_simulation(
                 detail=f"Agent config {request.agent_config_id} not found",
             )
         scoring_algorithm = agent_config_obj.scoring_algorithm
+        volume_score = agent_config_obj.volume_score
+        candle_pattern_score = agent_config_obj.candle_pattern_score
+        cci_score = agent_config_obj.cci_score
+        ma20_distance_score = agent_config_obj.ma20_distance_score
     else:
         scoring_algorithm = request.scoring_algorithm
+        defaults = Live20Evaluator.DEFAULT_SIGNAL_SCORES
+        volume_score = defaults["volume"]
+        candle_pattern_score = defaults["candle"]
+        cci_score = defaults["momentum"]
+        ma20_distance_score = defaults["ma20_distance"]
 
     # Build agent_config dictionary from request parameters
     agent_config = {
         "trailing_stop_pct": request.trailing_stop_pct,
         "min_buy_score": request.min_buy_score,
         "scoring_algorithm": scoring_algorithm,
+        "volume_score": volume_score,
+        "candle_pattern_score": candle_pattern_score,
+        "cci_score": cci_score,
+        "ma20_distance_score": ma20_distance_score,
         "portfolio_strategy": request.portfolio_strategy,
         "max_per_sector": request.max_per_sector,
         "max_open_positions": request.max_open_positions,

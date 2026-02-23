@@ -259,6 +259,10 @@ class SimulationResponse(StrictBaseModel):
     trailing_stop_pct: Decimal | None = None
     min_buy_score: int | None = None
     scoring_algorithm: str | None = None
+    volume_score: int | None = None
+    candle_pattern_score: int | None = None
+    cci_score: int | None = None
+    ma20_distance_score: int | None = None
     portfolio_strategy: str | None = None
     max_per_sector: int | None = None
     max_open_positions: int | None = None

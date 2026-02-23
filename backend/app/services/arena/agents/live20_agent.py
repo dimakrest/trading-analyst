@@ -19,11 +19,11 @@ class Live20ArenaAgent(BaseAgent):
     """Live20 mean reversion agent for arena simulations.
 
     Uses Live20Evaluator for the 5-criterion scoring and filters to LONG-only:
-    1. Recent Trend (10-day) - Counter-trend setup
-    2. MA20 Distance - Price stretched from moving average (>5%)
-    3. Candle Pattern - Reversal patterns (multi-day: Morning Star, Piercing Line, etc.)
-    4. Volume - Exhaustion or Accumulation/Distribution
-    5. CCI - Momentum confirmation
+    1. Recent Trend (10-day) - eligibility filter (non-scoring)
+    2. MA20 Distance - weighted score
+    3. Candle Pattern - weighted score
+    4. Volume - weighted score
+    5. CCI/RSI-2 Momentum - weighted score
 
     Returns BUY signal when score >= min_buy_score (configurable, default 60).
     """
@@ -55,10 +55,30 @@ class Live20ArenaAgent(BaseAgent):
             )
             self._scoring_algorithm = ScoringAlgorithm.CCI
 
+        # Load configurable non-trend signal scores (trend is eligibility-only)
+        raw_signal_scores = {
+            "volume": self._config.get("volume_score"),
+            "candle": self._config.get("candle_pattern_score"),
+            "momentum": self._config.get("cci_score"),
+            "ma20_distance": self._config.get("ma20_distance_score"),
+        }
+        # Drop missing keys so evaluator defaults can fill legacy configs
+        compact_signal_scores = {
+            key: value for key, value in raw_signal_scores.items() if value is not None
+        }
+        try:
+            self._signal_scores = self._evaluator.normalize_signal_scores(compact_signal_scores)
+        except ValueError as exc:
+            logger.error(
+                "Invalid signal score config for Live20ArenaAgent: %s. Falling back to defaults.",
+                exc,
+            )
+            self._signal_scores = self._evaluator.normalize_signal_scores(None)
+
     # Expose constants for backward compatibility (used in tests)
     @property
     def WEIGHT_PER_CRITERION(self) -> int:
-        """Weight per criterion (20 points each)."""
+        """Default score per non-trend criterion (for backward compatibility)."""
         return self._evaluator.WEIGHT_PER_CRITERION
 
     @property
@@ -141,24 +161,31 @@ class Live20ArenaAgent(BaseAgent):
         criteria, _, _, _ = self._evaluator.evaluate_criteria(
             opens, highs, lows, closes, volumes,
             scoring_algorithm=self._scoring_algorithm,
+            signal_scores=self._signal_scores,
         )
 
-        # Sum-based scoring to support graduated algorithms (equivalent to count*20 for CCI)
-        aligned_count = sum(1 for c in criteria if c.aligned_for_long)
-        score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
+        trend_criterion = next((c for c in criteria if c.name == "trend"), None)
+        if trend_criterion is None:
+            raise ValueError("Trend criterion missing from evaluator output")
+
+        signal_criteria = [c for c in criteria if c.name != "trend"]
+        aligned_count = sum(1 for c in signal_criteria if c.aligned_for_long)
+        score = sum(c.score_for_long for c in signal_criteria if c.aligned_for_long)
 
         # Build reasoning
-        aligned_criteria = [c.name for c in criteria if c.aligned_for_long]
-        not_aligned = [c.name for c in criteria if not c.aligned_for_long]
+        aligned_criteria = [c.name for c in signal_criteria if c.aligned_for_long]
+        not_aligned = [c.name for c in signal_criteria if not c.aligned_for_long]
+        trend_ok = trend_criterion.aligned_for_long
 
         reasoning_parts = [
-            f"Score: {score}/100 ({aligned_count}/5 criteria aligned)",
+            f"Trend eligible: {'yes' if trend_ok else 'no'}",
+            f"Score: {score}/100 ({aligned_count}/4 signal criteria aligned)",
             f"Aligned: {', '.join(aligned_criteria) if aligned_criteria else 'none'}",
             f"Not aligned: {', '.join(not_aligned) if not_aligned else 'none'}",
         ]
 
-        # Determine action (LONG-only)
-        if score >= self._min_buy_score:
+        # Determine action (LONG-only): trend must be eligible and score must pass threshold
+        if trend_ok and score >= self._min_buy_score:
             action = "BUY"
         else:
             action = "NO_SIGNAL"
