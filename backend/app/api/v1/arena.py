@@ -14,6 +14,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db_session
 from app.core.deps import get_data_service
@@ -22,12 +23,15 @@ from app.repositories.agent_config_repository import AgentConfigRepository
 from app.schemas.arena import (
     AgentInfo,
     BenchmarkDataPoint,
+    ComparisonEquityCurvesResponse,
     ComparisonResponse,
     CreateComparisonRequest,
     CreateSimulationRequest,
+    EquityCurvePoint,
     PortfolioStrategyInfo,
     PositionResponse,
     SimulationDetailResponse,
+    SimulationEquityCurve,
     SimulationListResponse,
     SimulationResponse,
     SnapshotResponse,
@@ -712,4 +716,56 @@ async def get_comparison(
     return ComparisonResponse(
         group_id=group_id,
         simulations=[_build_simulation_response(s) for s in simulations],
+    )
+
+
+@router.get(
+    "/comparisons/{group_id}/equity-curves",
+    response_model=ComparisonEquityCurvesResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Equity Curves for Comparison Group",
+    description=(
+        "Returns lightweight equity curve data (snapshot_date + total_equity) "
+        "for all simulations in a comparison group. Designed for chart rendering "
+        "without the overhead of full simulation details."
+    ),
+    operation_id="get_comparison_equity_curves",
+    responses={404: {"description": "Comparison group not found"}},
+)
+async def get_comparison_equity_curves(
+    group_id: str,
+    session: AsyncSession = Depends(get_db_session),
+) -> ComparisonEquityCurvesResponse:
+    """Get lightweight equity curves for a comparison group."""
+    stmt = (
+        select(ArenaSimulation)
+        .where(ArenaSimulation.group_id == group_id)
+        .order_by(ArenaSimulation.id)
+        .options(selectinload(ArenaSimulation.snapshots))
+    )
+    result = await session.execute(stmt)
+    simulations = result.scalars().all()
+
+    if not simulations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comparison group not found",
+        )
+
+    return ComparisonEquityCurvesResponse(
+        group_id=group_id,
+        simulations=[
+            SimulationEquityCurve(
+                simulation_id=sim.id,
+                portfolio_strategy=(sim.agent_config or {}).get("portfolio_strategy"),
+                snapshots=[
+                    EquityCurvePoint(
+                        snapshot_date=snap.snapshot_date,
+                        total_equity=snap.total_equity,
+                    )
+                    for snap in sorted(sim.snapshots, key=lambda s: s.snapshot_date)
+                ],
+            )
+            for sim in simulations
+        ],
     )

@@ -195,3 +195,29 @@ export interface ComparisonResponse {
   group_id: string;
   simulations: Simulation[];
 }
+
+/** A single data point in an equity curve (date + equity value). */
+export interface EquityCurvePoint {
+  /** Date of the snapshot */
+  snapshot_date: string;
+  /** Portfolio total equity at this point (USD amount as string) */
+  total_equity: string;
+}
+
+/** Equity curve for a single simulation in a comparison group. */
+export interface SimulationEquityCurve {
+  /** ID of the simulation */
+  simulation_id: number;
+  /** Portfolio strategy name (null if not set) */
+  portfolio_strategy: string | null;
+  /** Time-series data points for the equity curve */
+  snapshots: EquityCurvePoint[];
+}
+
+/** Lightweight equity curves for all simulations in a comparison group. */
+export interface ComparisonEquityCurvesResponse {
+  /** UUID of the comparison group */
+  group_id: string;
+  /** Equity curves for all simulations in the group */
+  simulations: SimulationEquityCurve[];
+}

@@ -163,7 +163,7 @@ export const ArenaComparison = () => {
         <Card>
           <CardContent className="pt-6">
             <h2 className="text-sm font-semibold mb-4">Equity Curve Comparison</h2>
-            <ArenaComparisonChart simulations={completedSims} />
+            <ArenaComparisonChart groupId={groupId ?? ''} simulations={completedSims} />
           </CardContent>
         </Card>
       )}

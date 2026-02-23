@@ -14,7 +14,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.arena import ArenaSimulation, SimulationStatus
+from app.models.arena import ArenaSimulation, ArenaSnapshot, SimulationStatus
 
 
 # ---------------------------------------------------------------------------
@@ -824,3 +824,159 @@ class TestSharedValidatorFunctions:
             },
         )
         assert cmp_response.status_code == 422
+
+
+class TestGetComparisonEquityCurves:
+    """Tests for GET /api/v1/arena/comparisons/{group_id}/equity-curves endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_equity_curves_returns_lightweight_data(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        """Equity curves response contains only group_id, simulation_id, portfolio_strategy, and snapshots with snapshot_date + total_equity."""
+        # Arrange: create a comparison group and seed snapshots for one simulation
+        create_response = await async_client.post(
+            "/api/v1/arena/comparisons",
+            json=BASE_COMPARISON_REQUEST,
+        )
+        assert create_response.status_code == 202
+        data = create_response.json()
+        group_id = data["group_id"]
+        sim_id = data["simulations"][0]["id"]
+
+        # Seed a snapshot directly in the DB
+        snap = ArenaSnapshot(
+            simulation_id=sim_id,
+            snapshot_date=date(2024, 1, 2),
+            day_number=0,
+            cash=Decimal("9000.00"),
+            positions_value=Decimal("1000.00"),
+            total_equity=Decimal("10000.00"),
+            daily_pnl=Decimal("0.00"),
+            daily_return_pct=Decimal("0.0000"),
+            cumulative_return_pct=Decimal("0.0000"),
+            open_position_count=1,
+            decisions={},
+        )
+        db_session.add(snap)
+        await db_session.commit()
+
+        # Act
+        response = await async_client.get(
+            f"/api/v1/arena/comparisons/{group_id}/equity-curves"
+        )
+
+        # Assert
+        assert response.status_code == 200
+        body = response.json()
+        assert body["group_id"] == group_id
+        assert "simulations" in body
+        # Find the simulation with our snapshot
+        sim_curve = next(s for s in body["simulations"] if s["simulation_id"] == sim_id)
+        assert "simulation_id" in sim_curve
+        assert "portfolio_strategy" in sim_curve
+        assert "snapshots" in sim_curve
+        assert len(sim_curve["snapshots"]) == 1
+        point = sim_curve["snapshots"][0]
+        assert set(point.keys()) == {"snapshot_date", "total_equity"}
+        assert point["snapshot_date"] == "2024-01-02"
+        assert Decimal(point["total_equity"]) == Decimal("10000.00")
+
+    @pytest.mark.asyncio
+    async def test_get_equity_curves_404_for_unknown_group(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        """GET /comparisons/{group_id}/equity-curves returns 404 for unknown group_id."""
+        # Act
+        response = await async_client.get(
+            "/api/v1/arena/comparisons/00000000-0000-0000-0000-000000000000/equity-curves"
+        )
+
+        # Assert
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_get_equity_curves_includes_all_simulations(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        """All simulations in the comparison group appear in the equity curves response."""
+        # Arrange
+        strategies = ["none", "score_sector_low_atr", "score_sector_high_atr"]
+        create_response = await async_client.post(
+            "/api/v1/arena/comparisons",
+            json={
+                **BASE_COMPARISON_REQUEST,
+                "portfolio_strategies": strategies,
+            },
+        )
+        assert create_response.status_code == 202
+        group_id = create_response.json()["group_id"]
+        created_ids = {s["id"] for s in create_response.json()["simulations"]}
+
+        # Act
+        response = await async_client.get(
+            f"/api/v1/arena/comparisons/{group_id}/equity-curves"
+        )
+
+        # Assert
+        assert response.status_code == 200
+        body = response.json()
+        returned_ids = {s["simulation_id"] for s in body["simulations"]}
+        assert returned_ids == created_ids
+
+    @pytest.mark.asyncio
+    async def test_get_equity_curves_snapshots_ordered_by_date(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        """Snapshots within each simulation are sorted in ascending chronological order."""
+        # Arrange: create a comparison and seed out-of-order snapshots
+        create_response = await async_client.post(
+            "/api/v1/arena/comparisons",
+            json=BASE_COMPARISON_REQUEST,
+        )
+        assert create_response.status_code == 202
+        group_id = create_response.json()["group_id"]
+        sim_id = create_response.json()["simulations"][0]["id"]
+
+        # Insert snapshots in reverse chronological order
+        for day_number, snap_date in enumerate(
+            [date(2024, 1, 4), date(2024, 1, 3), date(2024, 1, 2)]
+        ):
+            snap = ArenaSnapshot(
+                simulation_id=sim_id,
+                snapshot_date=snap_date,
+                day_number=day_number,
+                cash=Decimal("9000.00"),
+                positions_value=Decimal("1000.00"),
+                total_equity=Decimal("10000.00"),
+                daily_pnl=Decimal("0.00"),
+                daily_return_pct=Decimal("0.0000"),
+                cumulative_return_pct=Decimal("0.0000"),
+                open_position_count=0,
+                decisions={},
+            )
+            db_session.add(snap)
+        await db_session.commit()
+
+        # Act
+        response = await async_client.get(
+            f"/api/v1/arena/comparisons/{group_id}/equity-curves"
+        )
+
+        # Assert
+        assert response.status_code == 200
+        body = response.json()
+        sim_curve = next(
+            s for s in body["simulations"] if s["simulation_id"] == sim_id
+        )
+        dates = [p["snapshot_date"] for p in sim_curve["snapshots"]]
+        assert dates == sorted(dates), "Snapshots must be in ascending date order"

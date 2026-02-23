@@ -7,6 +7,8 @@
 import { apiClient } from '../lib/apiClient';
 import type {
   AgentInfo,
+  BenchmarkDataPoint,
+  ComparisonEquityCurvesResponse,
   ComparisonResponse,
   CreateComparisonRequest,
   CreateSimulationRequest,
@@ -129,14 +131,20 @@ export const getComparison = async (groupId: string): Promise<ComparisonResponse
 };
 
 /**
- * Single data point for benchmark (SPY / QQQ) price series.
- * The backend normalizes cumulative_return_pct so that the first bar = 0%.
+ * Get lightweight equity curves for a comparison group.
+ * Returns only snapshot_date + total_equity per simulation (for charting).
+ *
+ * @param groupId - UUID of the comparison group
+ * @returns Promise resolving to equity curves for all simulations in the group
  */
-export interface BenchmarkDataPoint {
-  date: string;
-  close: string;
-  cumulative_return_pct: string;
-}
+export const getComparisonEquityCurves = async (
+  groupId: string,
+): Promise<ComparisonEquityCurvesResponse> => {
+  const response = await apiClient.get<ComparisonEquityCurvesResponse>(
+    `${API_BASE}/comparisons/${groupId}/equity-curves`,
+  );
+  return response.data;
+};
 
 /**
  * Fetch benchmark price data for a simulation's date range.

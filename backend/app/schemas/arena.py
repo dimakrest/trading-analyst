@@ -564,3 +564,25 @@ class BenchmarkDataPoint(StrictBaseModel):
     date: date
     close: Decimal
     cumulative_return_pct: Decimal
+
+
+class EquityCurvePoint(StrictBaseModel):
+    """A single point in an equity curve time series."""
+
+    snapshot_date: date
+    total_equity: Decimal
+
+
+class SimulationEquityCurve(StrictBaseModel):
+    """Equity curve for a single simulation."""
+
+    simulation_id: int
+    portfolio_strategy: str | None = None
+    snapshots: list[EquityCurvePoint]
+
+
+class ComparisonEquityCurvesResponse(StrictBaseModel):
+    """Lightweight equity curves for all simulations in a comparison group."""
+
+    group_id: str
+    simulations: list[SimulationEquityCurve]

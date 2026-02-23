@@ -19,11 +19,13 @@ import {
 import { Loader2 } from 'lucide-react';
 import { useChartTheme } from '../../hooks/useChartTheme';
 import { CHART_COLORS, STRATEGY_COLORS } from '../../constants/chartColors';
-import { getBenchmarkData, getSimulation } from '../../services/arenaService';
+import { getBenchmarkData, getComparisonEquityCurves } from '../../services/arenaService';
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group';
-import type { Simulation, SimulationDetail } from '../../types/arena';
+import type { Simulation } from '../../types/arena';
 
 interface ArenaComparisonChartProps {
+  /** UUID of the comparison group — used to fetch equity curves */
+  groupId: string;
   /** All completed simulations in the comparison group */
   simulations: Simulation[];
 }
@@ -42,7 +44,7 @@ const PERCENT_PRICE_FORMAT = {
 
 const CHART_HEIGHT = 320;
 
-export const ArenaComparisonChart = ({ simulations }: ArenaComparisonChartProps) => {
+export const ArenaComparisonChart = ({ groupId, simulations }: ArenaComparisonChartProps) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   // Strategy series keyed by simulation id
@@ -147,7 +149,7 @@ export const ArenaComparisonChart = ({ simulations }: ArenaComparisonChartProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartTheme]);
 
-  // Fetch all simulation details in parallel and populate series
+  // Fetch all equity curves in a single request and populate series
   useEffect(() => {
     if (simulations.length === 0) return;
     let cancelled = false;
@@ -155,53 +157,47 @@ export const ArenaComparisonChart = ({ simulations }: ArenaComparisonChartProps)
     const fetchAll = async () => {
       setIsLoading(true);
 
-      const results = await Promise.allSettled(
-        simulations.map((sim) => getSimulation(sim.id)),
-      );
+      try {
+        const response = await getComparisonEquityCurves(groupId);
 
-      if (cancelled) return;
+        if (cancelled) return;
 
-      const failed: string[] = [];
-      let firstSuccessSimId: number | null = null;
+        let firstSuccessSimId: number | null = null;
 
-      results.forEach((result, idx) => {
-        const sim = simulations[idx];
-        const series = strategySeriesRef.current.get(sim.id);
-        if (!series) return;
+        response.simulations.forEach((curve) => {
+          const series = strategySeriesRef.current.get(curve.simulation_id);
+          if (!series) return;
 
-        if (result.status === 'rejected') {
-          failed.push(sim.portfolio_strategy ?? `Simulation #${sim.id}`);
-          return;
-        }
+          if (curve.snapshots.length < 2) return;
 
-        const detail: SimulationDetail = result.value;
-        const snapshots = detail.snapshots;
-        if (snapshots.length < 2) return;
+          const firstEquity = parseFloat(curve.snapshots[0].total_equity) || 1;
+          const normalizedData = curve.snapshots.map((s) => ({
+            time: (new Date(s.snapshot_date).getTime() / 1000) as UTCTimestamp,
+            value: ((parseFloat(s.total_equity) - firstEquity) / firstEquity) * 100,
+          }));
 
-        const firstEquity = parseFloat(snapshots[0].total_equity) || 1;
-        const normalizedData = snapshots.map((s) => ({
-          time: (new Date(s.snapshot_date).getTime() / 1000) as UTCTimestamp,
-          value: ((parseFloat(s.total_equity) - firstEquity) / firstEquity) * 100,
-        }));
+          series.setData(normalizedData);
 
-        series.setData(normalizedData);
+          if (firstSuccessSimId === null) {
+            firstSuccessSimId = curve.simulation_id;
+          }
+        });
 
-        if (firstSuccessSimId === null) {
-          firstSuccessSimId = sim.id;
-        }
-      });
-
-      setFailedStrategies(failed);
-      setBenchmarkSimId(firstSuccessSimId);
-      setIsLoading(false);
-
-      chartRef.current?.timeScale().fitContent();
+        setBenchmarkSimId(firstSuccessSimId);
+      } catch {
+        // Single request failed — report all strategies as failed
+        setFailedStrategies(
+          simulations.map((sim) => sim.portfolio_strategy ?? `Simulation #${sim.id}`),
+        );
+      } finally {
+        setIsLoading(false);
+        chartRef.current?.timeScale().fitContent();
+      }
     };
 
     fetchAll();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [simulations]);
+  }, [groupId, simulations]);
 
   const getSeriesRef = (symbol: BenchmarkSymbol) =>
     symbol === 'SPY' ? spySeriesRef : qqqSeriesRef;
@@ -244,7 +240,6 @@ export const ArenaComparisonChart = ({ simulations }: ArenaComparisonChartProps)
         });
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [benchmarkSimId],
   );
 
