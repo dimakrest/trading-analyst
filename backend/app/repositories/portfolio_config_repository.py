@@ -30,7 +30,6 @@ class PortfolioConfigRepository(BaseRepository[PortfolioConfig]):
             select(func.count())
             .select_from(PortfolioConfig)
             .where(PortfolioConfig.name == name)
-            .where(PortfolioConfig.deleted_at.is_(None))
         )
         if exclude_id is not None:
             query = query.where(PortfolioConfig.id != exclude_id)

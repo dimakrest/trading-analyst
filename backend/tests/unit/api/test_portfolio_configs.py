@@ -69,6 +69,18 @@ class TestPortfolioConfigsAPI:
         response = await async_client.post("/api/v1/portfolio-configs", json=payload)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
+    async def test_create_portfolio_config_whitespace_name_rejected(
+        self, async_client: AsyncClient
+    ):
+        """Whitespace-only names should be rejected."""
+        payload = {
+            "name": "   ",
+            "portfolio_strategy": "none",
+        }
+
+        response = await async_client.post("/api/v1/portfolio-configs", json=payload)
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
     async def test_get_portfolio_config_by_id(self, async_client: AsyncClient):
         """Test retrieving a specific portfolio config by ID."""
         create_response = await async_client.post(
@@ -154,6 +166,22 @@ class TestPortfolioConfigsAPI:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in response.json()["detail"]
 
+    async def test_update_portfolio_config_whitespace_name_rejected(
+        self, async_client: AsyncClient
+    ):
+        """Whitespace-only names should be rejected on update."""
+        create_response = await async_client.post(
+            "/api/v1/portfolio-configs",
+            json={"name": "Config For Update", "portfolio_strategy": "none"},
+        )
+        config_id = create_response.json()["id"]
+
+        response = await async_client.put(
+            f"/api/v1/portfolio-configs/{config_id}",
+            json={"name": "   "},
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
     async def test_delete_portfolio_config(self, async_client: AsyncClient):
         """Test soft-deleting a portfolio config."""
         create_response = await async_client.post(
@@ -171,6 +199,27 @@ class TestPortfolioConfigsAPI:
         list_response = await async_client.get("/api/v1/portfolio-configs")
         items = list_response.json()["items"]
         assert not any(item["id"] == config_id for item in items)
+
+    async def test_create_portfolio_config_reuses_deleted_name_returns_400(
+        self, async_client: AsyncClient
+    ):
+        """Reusing a soft-deleted name should return a client error, not 500."""
+        create_response = await async_client.post(
+            "/api/v1/portfolio-configs",
+            json={"name": "Soft Deleted Name", "portfolio_strategy": "none"},
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        config_id = create_response.json()["id"]
+
+        delete_response = await async_client.delete(f"/api/v1/portfolio-configs/{config_id}")
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+        recreate_response = await async_client.post(
+            "/api/v1/portfolio-configs",
+            json={"name": "Soft Deleted Name", "portfolio_strategy": "none"},
+        )
+        assert recreate_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in recreate_response.json()["detail"]
 
     async def test_update_portfolio_config_strategy_none_clears_caps(
         self,

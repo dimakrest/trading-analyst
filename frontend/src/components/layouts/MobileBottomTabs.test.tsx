@@ -38,12 +38,13 @@ describe('MobileBottomTabs', () => {
       expect(screen.getByRole('link', { name: /portfolios/i })).toBeInTheDocument();
     });
 
-    it('uses 4-column grid layout', () => {
+    it('uses dynamic grid layout based on nav item count', () => {
       renderWithRouter();
 
       const nav = screen.getByRole('navigation', { name: /mobile navigation/i });
-      const grid = nav.querySelector('.grid-cols-4');
+      const grid = nav.querySelector('.grid');
       expect(grid).toBeInTheDocument();
+      expect(grid).toHaveStyle({ gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' });
     });
   });
 

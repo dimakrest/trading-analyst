@@ -16,6 +16,14 @@ def _validate_portfolio_strategy(value: str) -> str:
     return value
 
 
+def _normalize_and_validate_name(value: str) -> str:
+    """Trim and validate non-empty portfolio setup names."""
+    name = value.strip()
+    if not name:
+        raise ValueError("Name cannot be empty or whitespace")
+    return name
+
+
 class PortfolioConfigCreate(StrictBaseModel):
     """Request to create a new portfolio configuration."""
 
@@ -61,6 +69,11 @@ class PortfolioConfigCreate(StrictBaseModel):
     @classmethod
     def validate_portfolio_strategy(cls, value: str) -> str:
         return _validate_portfolio_strategy(value)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _normalize_and_validate_name(value)
 
 
 class PortfolioConfigUpdate(StrictBaseModel):
@@ -110,6 +123,13 @@ class PortfolioConfigUpdate(StrictBaseModel):
         if value is None:
             return value
         return _validate_portfolio_strategy(value)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return _normalize_and_validate_name(value)
 
 
 class PortfolioConfigResponse(StrictBaseModel):

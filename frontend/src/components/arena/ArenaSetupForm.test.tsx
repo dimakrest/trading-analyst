@@ -463,17 +463,39 @@ describe('ArenaSetupForm', () => {
       expect(screen.queryByText(/symbols from/i)).not.toBeInTheDocument();
     });
 
+    it('should not auto-select a setup when replay has no portfolio_config_id', () => {
+      const initialValues = {
+        symbols: ['AAPL'],
+        start_date: '2025-01-01',
+        end_date: '2025-12-31',
+        initial_capital: 10000,
+        stock_list_id: null,
+        stock_list_name: null,
+      };
+
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          isLoading={false}
+          initialValues={initialValues}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
+      expect(
+        screen.getByText('Create setups in the Portfolios page to run Arena simulations')
+      ).toBeInTheDocument();
+    });
+
     it('should allow modifying pre-populated values before submission', async () => {
       const initialValues = {
         symbols: ['AAPL', 'NVDA'],
         start_date: '2025-01-01',
         end_date: '2025-06-30',
         initial_capital: 10000,
-        position_size: 1000,
-        trailing_stop_pct: 5,
-        min_buy_score: 60,
         stock_list_id: null,
         stock_list_name: null,
+        portfolio_config_id: 1,
       };
 
       render(

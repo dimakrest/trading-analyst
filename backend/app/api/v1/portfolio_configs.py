@@ -1,10 +1,12 @@
 """API endpoints for Portfolio Configuration management."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
 from app.models.portfolio_config import PortfolioConfig
+from app.repositories.base import DuplicateError
 from app.repositories.portfolio_config_repository import PortfolioConfigRepository
 from app.schemas.portfolio_config import (
     PortfolioConfigCreate,
@@ -89,6 +91,11 @@ async def create_portfolio_config(
     """Create a new portfolio configuration."""
     repo = PortfolioConfigRepository(db)
     name = request.name.strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Setup name cannot be empty",
+        )
 
     if await repo.name_exists(name):
         raise HTTPException(
@@ -96,19 +103,34 @@ async def create_portfolio_config(
             detail=f"A portfolio configuration named '{name}' already exists",
         )
 
-    config = await repo.create(
-        name=name,
-        portfolio_strategy=request.portfolio_strategy,
-        position_size=request.position_size,
-        min_buy_score=request.min_buy_score,
-        trailing_stop_pct=request.trailing_stop_pct,
-        max_per_sector=(
-            None if request.portfolio_strategy == "none" else request.max_per_sector
-        ),
-        max_open_positions=(
-            None if request.portfolio_strategy == "none" else request.max_open_positions
-        ),
-    )
+    try:
+        config = await repo.create(
+            name=name,
+            portfolio_strategy=request.portfolio_strategy,
+            position_size=request.position_size,
+            min_buy_score=request.min_buy_score,
+            trailing_stop_pct=request.trailing_stop_pct,
+            max_per_sector=(
+                None if request.portfolio_strategy == "none" else request.max_per_sector
+            ),
+            max_open_positions=(
+                None if request.portfolio_strategy == "none" else request.max_open_positions
+            ),
+        )
+    except DuplicateError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A portfolio configuration named '{name}' already exists",
+        ) from None
+    try:
+        await db.commit()
+        await db.refresh(config)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A portfolio configuration named '{name}' already exists",
+        ) from None
 
     return _to_response(config)
 
@@ -137,6 +159,11 @@ async def update_portfolio_config(
 
     if request.name is not None:
         name = request.name.strip()
+        if not name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Setup name cannot be empty",
+            )
         if await repo.name_exists(name, exclude_id=config_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -167,8 +194,15 @@ async def update_portfolio_config(
         config.max_per_sector = None
         config.max_open_positions = None
 
-    await db.commit()
-    await db.refresh(config)
+    try:
+        await db.commit()
+        await db.refresh(config)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A portfolio configuration named '{config.name}' already exists",
+        ) from None
 
     return _to_response(config)
 

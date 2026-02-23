@@ -23,7 +23,10 @@ export const MobileBottomTabs = () => {
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       aria-label="Mobile navigation"
     >
-      <div className="grid grid-cols-4 py-2 px-2 gap-1">
+      <div
+        className="grid py-2 px-2 gap-1"
+        style={{ gridTemplateColumns: `repeat(${NAV_ITEMS.length}, minmax(0, 1fr))` }}
+      >
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = isNavItemActive(item.path, location.pathname);

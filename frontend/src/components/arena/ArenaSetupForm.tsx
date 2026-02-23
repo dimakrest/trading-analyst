@@ -135,12 +135,14 @@ export const ArenaSetupForm = ({
     }
   }, [initialValues]);
 
-  // Auto-select first setup to keep arena configuration fully portfolio-driven.
+  // Auto-select first setup for new runs, but do not mutate replayed runs that
+  // originally had no portfolio setup selected.
   useEffect(() => {
     if (selectedPortfolioConfigId !== null) return;
     if (portfolioConfigs.length === 0) return;
+    if (initialValues && initialValues.portfolio_config_id == null) return;
     setSelectedPortfolioConfigId(portfolioConfigs[0].id);
-  }, [portfolioConfigs, selectedPortfolioConfigId]);
+  }, [portfolioConfigs, selectedPortfolioConfigId, initialValues]);
 
   /**
    * Handle list selection.
