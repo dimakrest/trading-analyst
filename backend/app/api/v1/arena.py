@@ -1,10 +1,12 @@
 """Arena simulation API endpoints.
 
 This module provides REST API endpoints for managing arena simulations,
-including creation, listing, retrieval, and cancellation/deletion.
+including creation, listing, retrieval, cancellation/deletion, and
+multi-strategy comparison groups.
 """
 
 import logging
+import uuid
 from datetime import datetime, time, timezone
 from decimal import Decimal
 from typing import Literal
@@ -12,6 +14,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db_session
 from app.core.deps import get_data_service
@@ -20,19 +23,56 @@ from app.repositories.agent_config_repository import AgentConfigRepository
 from app.schemas.arena import (
     AgentInfo,
     BenchmarkDataPoint,
+    ComparisonEquityCurvesResponse,
+    ComparisonResponse,
+    CreateComparisonRequest,
     CreateSimulationRequest,
+    EquityCurvePoint,
     PortfolioStrategyInfo,
     PositionResponse,
     SimulationDetailResponse,
+    SimulationEquityCurve,
     SimulationListResponse,
     SimulationResponse,
     SnapshotResponse,
 )
 from app.services.arena.agent_registry import list_agents
 from app.services.data_service import DataService
+from app.services.live20_evaluator import Live20Evaluator
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def _resolve_scoring_algorithm(
+    request: CreateSimulationRequest | CreateComparisonRequest,
+    session: AsyncSession,
+) -> str:
+    """Resolve the scoring algorithm from agent config or request field.
+
+    When agent_config_id is provided, looks up the stored config and uses
+    its scoring_algorithm. Otherwise, falls back to request.scoring_algorithm.
+
+    Args:
+        request: Simulation or comparison creation request
+        session: Database session for agent config lookup
+
+    Returns:
+        Resolved scoring algorithm identifier
+
+    Raises:
+        HTTPException: 404 if agent_config_id is provided but not found
+    """
+    if request.agent_config_id:
+        config_repo = AgentConfigRepository(session)
+        agent_config_obj = await config_repo.get_by_id(request.agent_config_id)
+        if not agent_config_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Agent config {request.agent_config_id} not found",
+            )
+        return agent_config_obj.scoring_algorithm
+    return request.scoring_algorithm
 
 
 def _build_simulation_response(simulation: ArenaSimulation) -> SimulationResponse:
@@ -49,6 +89,10 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     trailing_stop_pct = agent_config.get("trailing_stop_pct")
     min_buy_score = agent_config.get("min_buy_score")
     scoring_algorithm = agent_config.get("scoring_algorithm", "cci")
+    volume_score = agent_config.get("volume_score")
+    candle_pattern_score = agent_config.get("candle_pattern_score")
+    cci_score = agent_config.get("cci_score")
+    ma20_distance_score = agent_config.get("ma20_distance_score")
     portfolio_strategy = agent_config.get("portfolio_strategy")
     max_per_sector = agent_config.get("max_per_sector")
     max_open_positions = agent_config.get("max_open_positions")
@@ -67,9 +111,14 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         trailing_stop_pct=trailing_stop_pct,
         min_buy_score=min_buy_score,
         scoring_algorithm=scoring_algorithm,
+        volume_score=volume_score,
+        candle_pattern_score=candle_pattern_score,
+        cci_score=cci_score,
+        ma20_distance_score=ma20_distance_score,
         portfolio_strategy=portfolio_strategy,
         max_per_sector=max_per_sector,
         max_open_positions=max_open_positions,
+        group_id=simulation.group_id,
         status=simulation.status,
         current_day=simulation.current_day,
         total_days=simulation.total_days,
@@ -173,14 +222,27 @@ async def create_simulation(
                 detail=f"Agent config {request.agent_config_id} not found",
             )
         scoring_algorithm = agent_config_obj.scoring_algorithm
+        volume_score = agent_config_obj.volume_score
+        candle_pattern_score = agent_config_obj.candle_pattern_score
+        cci_score = agent_config_obj.cci_score
+        ma20_distance_score = agent_config_obj.ma20_distance_score
     else:
         scoring_algorithm = request.scoring_algorithm
+        defaults = Live20Evaluator.DEFAULT_SIGNAL_SCORES
+        volume_score = defaults["volume"]
+        candle_pattern_score = defaults["candle"]
+        cci_score = defaults["momentum"]
+        ma20_distance_score = defaults["ma20_distance"]
 
     # Build agent_config dictionary from request parameters
     agent_config = {
         "trailing_stop_pct": request.trailing_stop_pct,
         "min_buy_score": request.min_buy_score,
         "scoring_algorithm": scoring_algorithm,
+        "volume_score": volume_score,
+        "candle_pattern_score": candle_pattern_score,
+        "cci_score": cci_score,
+        "ma20_distance_score": ma20_distance_score,
         "portfolio_strategy": request.portfolio_strategy,
         "max_per_sector": request.max_per_sector,
         "max_open_positions": request.max_open_positions,
@@ -542,3 +604,201 @@ async def get_benchmark_data(
         )
         for bar in bars
     ]
+
+
+@router.post(
+    "/comparisons",
+    response_model=ComparisonResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Create Multi-Strategy Comparison",
+    description=(
+        "Creates one simulation per selected portfolio strategy, all sharing a common "
+        "group_id. The simulations are created atomically in a single transaction and "
+        "queued for independent execution by the worker. Returns 202 immediately; "
+        "poll GET /comparisons/{group_id} for progress."
+    ),
+    operation_id="create_arena_comparison",
+    responses={
+        400: {"description": "Validation error (invalid strategies, date range, symbols)"},
+        404: {"description": "Agent config not found (when agent_config_id is provided)"},
+    },
+)
+async def create_comparison(
+    request: CreateComparisonRequest,
+    session: AsyncSession = Depends(get_db_session),
+) -> ComparisonResponse:
+    """Create a multi-strategy comparison group.
+
+    Creates N simulations (one per strategy in portfolio_strategies), all sharing
+    the same group_id. Each simulation has identical base configuration but a
+    different portfolio_strategy value.
+
+    Args:
+        request: Comparison configuration with portfolio_strategies list
+        session: Database session
+
+    Returns:
+        ComparisonResponse with group_id and all created simulations
+
+    Raises:
+        HTTPException: 404 if agent_config_id is provided but not found
+    """
+    scoring_algorithm = await _resolve_scoring_algorithm(request, session)
+
+    # Build base agent_config shared by all strategies; portfolio_strategy
+    # is set per-iteration below.
+    base_agent_config: dict[str, object] = {
+        "trailing_stop_pct": request.trailing_stop_pct,
+        "min_buy_score": request.min_buy_score,
+        "scoring_algorithm": scoring_algorithm,
+        "max_per_sector": request.max_per_sector,
+        "max_open_positions": request.max_open_positions,
+    }
+    if request.agent_config_id is not None:
+        base_agent_config["agent_config_id"] = request.agent_config_id
+
+    group_id = str(uuid.uuid4())
+    simulations = []
+
+    for strategy in request.portfolio_strategies:
+        agent_config = {**base_agent_config, "portfolio_strategy": strategy}
+
+        sim = ArenaSimulation(
+            name=f"{request.name or 'Comparison'} [{strategy}]",
+            stock_list_id=request.stock_list_id,
+            stock_list_name=request.stock_list_name,
+            symbols=request.symbols,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            position_size=request.position_size,
+            agent_type=request.agent_type,
+            agent_config=agent_config,
+            group_id=group_id,
+            status=SimulationStatus.PENDING.value,
+            current_day=0,
+            total_days=0,
+        )
+        session.add(sim)
+        simulations.append(sim)
+
+    await session.commit()
+    for sim in simulations:
+        await session.refresh(sim)
+
+    logger.info(
+        "Created comparison group %s with %d simulations: %s (scoring_algorithm=%s)",
+        group_id,
+        len(simulations),
+        request.portfolio_strategies,
+        scoring_algorithm,
+    )
+
+    return ComparisonResponse(
+        group_id=group_id,
+        simulations=[_build_simulation_response(s) for s in simulations],
+    )
+
+
+@router.get(
+    "/comparisons/{group_id}",
+    response_model=ComparisonResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Comparison Group",
+    description=(
+        "Returns all simulations belonging to the given comparison group, ordered by "
+        "simulation id. Used by the frontend to poll progress and render the comparison "
+        "page. Returns 404 if the group_id is unknown."
+    ),
+    operation_id="get_arena_comparison",
+    responses={
+        404: {"description": "Comparison group not found"},
+    },
+)
+async def get_comparison(
+    group_id: str,
+    session: AsyncSession = Depends(get_db_session),
+) -> ComparisonResponse:
+    """Get all simulations in a comparison group.
+
+    Args:
+        group_id: The UUID shared by all simulations in the comparison group
+        session: Database session
+
+    Returns:
+        ComparisonResponse with group_id and all simulations ordered by id
+
+    Raises:
+        HTTPException: 404 if no simulations found for the given group_id
+    """
+    stmt = (
+        select(ArenaSimulation)
+        .where(ArenaSimulation.group_id == group_id)
+        .order_by(ArenaSimulation.id)
+    )
+    result = await session.execute(stmt)
+    simulations = result.scalars().all()
+
+    if not simulations:
+        logger.warning("Comparison group not found: %s", group_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comparison group not found",
+        )
+
+    return ComparisonResponse(
+        group_id=group_id,
+        simulations=[_build_simulation_response(s) for s in simulations],
+    )
+
+
+@router.get(
+    "/comparisons/{group_id}/equity-curves",
+    response_model=ComparisonEquityCurvesResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Equity Curves for Comparison Group",
+    description=(
+        "Returns lightweight equity curve data (snapshot_date + total_equity) "
+        "for all simulations in a comparison group. Designed for chart rendering "
+        "without the overhead of full simulation details."
+    ),
+    operation_id="get_comparison_equity_curves",
+    responses={404: {"description": "Comparison group not found"}},
+)
+async def get_comparison_equity_curves(
+    group_id: str,
+    session: AsyncSession = Depends(get_db_session),
+) -> ComparisonEquityCurvesResponse:
+    """Get lightweight equity curves for a comparison group."""
+    stmt = (
+        select(ArenaSimulation)
+        .where(ArenaSimulation.group_id == group_id)
+        .order_by(ArenaSimulation.id)
+        .options(selectinload(ArenaSimulation.snapshots))
+    )
+    result = await session.execute(stmt)
+    simulations = result.scalars().all()
+
+    if not simulations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comparison group not found",
+        )
+
+    return ComparisonEquityCurvesResponse(
+        group_id=group_id,
+        simulations=[
+            SimulationEquityCurve(
+                simulation_id=sim.id,
+                portfolio_strategy=(sim.agent_config or {}).get("portfolio_strategy"),
+                snapshots=[
+                    EquityCurvePoint(
+                        snapshot_date=snap.snapshot_date,
+                        total_equity=snap.total_equity,
+                    )
+                    for snap in sorted(sim.snapshots, key=lambda s: s.snapshot_date)
+                ],
+            )
+            for sim in simulations
+        ],
+    )

@@ -1,8 +1,8 @@
 """Live20 evaluation logic shared between service and arena agent.
 
 This module contains the core scoring logic for the Live20 mean reversion strategy.
-It evaluates 5 criteria (20 points each, 100 total) and determines LONG/NO_SETUP
-direction based on criteria alignment.
+Trend is a non-scoring eligibility filter; 4 remaining criteria use configurable
+weights that must sum to 100.
 
 Usage:
     evaluator = Live20Evaluator()
@@ -44,7 +44,7 @@ class CriterionResult:
         name: Criterion identifier (trend, ma20_distance, candle, volume, momentum)
         value: Display value for UI (e.g., "bearish", "-7.2%", "hammer", "1.5x")
         aligned_for_long: Whether criterion supports LONG setup
-        score_for_long: Points awarded when direction is LONG (0-20)
+        score_for_long: Points awarded when criterion aligns (0-100 depending on weights)
     """
 
     name: str
@@ -56,16 +56,17 @@ class CriterionResult:
 class Live20Evaluator:
     """Core evaluation logic for Live20 mean reversion strategy.
 
-    Evaluates stocks using 5 criteria (20 points each, 100 total):
-    1. Recent Trend (10-day) - Looking for counter-trend setup
-    2. MA20 Distance - Price stretched from moving average (>5%)
-    3. Candle Pattern - Reversal patterns (multi-day: Morning Star, Piercing Line, etc.)
-    4. Volume (Dual Approach) - Exhaustion OR Accumulation/Distribution
-    5. Momentum (CCI or RSI-2) - Momentum confirmation
+    Evaluates stocks using:
+    1. Trend filter (10-day) - eligibility only, contributes 0 score
+    2. MA20 Distance - weighted score
+    3. Candle Pattern - weighted score
+    4. Volume - weighted score
+    5. Momentum (CCI or RSI-2) - weighted score
 
     Mean Reversion Logic:
-    - LONG: Downtrend + far below MA20 (expecting bounce)
-    - NO_SETUP: Less than 3 criteria aligned
+    - Trend must be bearish (eligibility filter)
+    - LONG: Trend eligible + at least 2 of 4 non-trend criteria aligned
+    - NO_SETUP: Trend ineligible or fewer than 2 non-trend criteria aligned
 
     Note:
         Requires minimum 25 price bars for accurate evaluation. The calling
@@ -73,9 +74,58 @@ class Live20Evaluator:
         calling evaluate_criteria().
     """
 
-    WEIGHT_PER_CRITERION = 20
+    TREND_CRITERION_NAME = "trend"
+    DEFAULT_SIGNAL_SCORES = {
+        "volume": 25,
+        "candle": 25,
+        "momentum": 25,
+        "ma20_distance": 25,
+    }
+    DEFAULT_WEIGHT_PER_SIGNAL = 25
     MA20_DISTANCE_THRESHOLD = 5.0  # 5% threshold for "far" from MA20
-    MIN_CRITERIA_FOR_SETUP = 3
+    MIN_CRITERIA_FOR_SETUP = 3  # Legacy threshold including trend
+    MIN_NON_TREND_CRITERIA_FOR_SETUP = 2
+
+    @classmethod
+    def normalize_signal_scores(cls, signal_scores: dict[str, int] | None) -> dict[str, int]:
+        """Normalize and validate signal score weights.
+
+        Missing keys fall back to defaults, enabling backward compatibility with
+        historical simulations/configs that predate configurable scores.
+
+        Args:
+            signal_scores: Optional score map for keys:
+                volume, candle, momentum, ma20_distance
+
+        Returns:
+            Normalized score map containing all required keys.
+
+        Raises:
+            ValueError: If any score is invalid or total does not equal 100.
+        """
+        normalized: dict[str, int] = {}
+        source = signal_scores or {}
+
+        for key, default_value in cls.DEFAULT_SIGNAL_SCORES.items():
+            raw_value = source.get(key, default_value)
+            if not isinstance(raw_value, int):
+                raise ValueError(f"Signal score '{key}' must be an integer (got {raw_value!r})")
+            if raw_value < 0 or raw_value > 100:
+                raise ValueError(
+                    f"Signal score '{key}' must be in range 0-100 (got {raw_value})"
+                )
+            normalized[key] = raw_value
+
+        total = sum(normalized.values())
+        if total != 100:
+            raise ValueError(
+                "Signal scores must sum to 100 "
+                f"(got {total}: volume={normalized['volume']}, "
+                f"candle={normalized['candle']}, momentum={normalized['momentum']}, "
+                f"ma20_distance={normalized['ma20_distance']})"
+            )
+
+        return normalized
 
     def evaluate_criteria(
         self,
@@ -85,6 +135,7 @@ class Live20Evaluator:
         closes: list[float],
         volumes: list[float],
         scoring_algorithm: ScoringAlgorithm = ScoringAlgorithm.CCI,
+        signal_scores: dict[str, int] | None = None,
     ) -> tuple[list[CriterionResult], VolumeSignalAnalysis, MomentumAnalysis, str]:
         """Evaluate all 5 criteria for mean reversion strategy.
 
@@ -95,6 +146,7 @@ class Live20Evaluator:
             closes: Closing prices
             volumes: Volume data
             scoring_algorithm: Scoring algorithm for momentum criterion (default CCI)
+            signal_scores: Weight configuration for non-trend criteria
 
         Returns:
             Tuple of:
@@ -104,15 +156,16 @@ class Live20Evaluator:
                 - candle_explanation: Human-readable pattern explanation
         """
         criteria = []
+        weights = self.normalize_signal_scores(signal_scores)
 
-        # 1. Recent Trend (10-day) - MEAN REVERSION: opposite trend is good
+        # 1. Recent Trend (10-day) - eligibility filter only (non-scoring)
         trend = detect_trend(closes, period=10)
         criteria.append(
             CriterionResult(
-                name="trend",
+                name=self.TREND_CRITERION_NAME,
                 value=trend.value,
                 aligned_for_long=trend == TrendDirection.BEARISH,
-                score_for_long=self.WEIGHT_PER_CRITERION,
+                score_for_long=0,
             )
         )
 
@@ -125,7 +178,7 @@ class Live20Evaluator:
                 name="ma20_distance",
                 value=f"{distance_pct:+.1f}%",
                 aligned_for_long=is_far_below,
-                score_for_long=self.WEIGHT_PER_CRITERION,
+                score_for_long=weights["ma20_distance"],
             )
         )
 
@@ -136,7 +189,7 @@ class Live20Evaluator:
                 name="candle",
                 value=multi_day_result.pattern_name,
                 aligned_for_long=multi_day_result.aligned_for_long,
-                score_for_long=self.WEIGHT_PER_CRITERION,
+                score_for_long=weights["candle"],
             )
         )
         candle_explanation = multi_day_result.explanation
@@ -148,7 +201,7 @@ class Live20Evaluator:
                 name="volume",
                 value=f"{volume_signal.rvol}x",
                 aligned_for_long=volume_signal.aligned_for_long,
-                score_for_long=self.WEIGHT_PER_CRITERION,
+                score_for_long=weights["volume"],
             )
         )
 
@@ -158,13 +211,16 @@ class Live20Evaluator:
         # Current choice: "momentum" for both (generic, algorithm-agnostic)
         if scoring_algorithm == ScoringAlgorithm.RSI2:
             rsi2_analysis = analyze_rsi2(closes)
+            weighted_momentum_score = int(
+                round(weights["momentum"] * (rsi2_analysis.long_score / 20))
+            )
 
             criteria.append(
                 CriterionResult(
                     name="momentum",  # Standardized name (same as CCI below)
                     value=f"RSI-2: {rsi2_analysis.value:.0f}",
-                    aligned_for_long=rsi2_analysis.long_score > 0,
-                    score_for_long=rsi2_analysis.long_score,
+                    aligned_for_long=weighted_momentum_score > 0,
+                    score_for_long=weighted_momentum_score,
                 )
             )
             momentum_analysis: MomentumAnalysis = rsi2_analysis
@@ -185,7 +241,7 @@ class Live20Evaluator:
                     name="momentum",  # Changed from "cci" to "momentum" for consistency
                     value=cci_analysis.zone.value,
                     aligned_for_long=aligned_for_long,
-                    score_for_long=self.WEIGHT_PER_CRITERION,
+                    score_for_long=weights["momentum"],
                 )
             )
             momentum_analysis = cci_analysis
@@ -195,7 +251,9 @@ class Live20Evaluator:
     def determine_direction_and_score(self, criteria: list[CriterionResult]) -> tuple[str, int]:
         """Determine direction and calculate score based on LONG criteria alignment.
 
-        LONG-only: returns LONG when >= 3 criteria aligned, NO_SETUP otherwise.
+        Trend is an eligibility filter:
+        - If trend is not bearish, direction is always NO_SETUP.
+        - If trend is bearish, LONG requires at least 2 aligned non-trend criteria.
 
         Args:
             criteria: List of CriterionResult from evaluate_criteria()
@@ -203,14 +261,23 @@ class Live20Evaluator:
         Returns:
             Tuple of (direction, score) where direction is LONG/NO_SETUP
         """
-        long_aligned = sum(1 for c in criteria if c.aligned_for_long)
+        trend_criterion = next(
+            (c for c in criteria if c.name == self.TREND_CRITERION_NAME), None
+        )
+        if trend_criterion is None:
+            raise ValueError("Trend criterion is required for direction determination")
 
-        if long_aligned >= self.MIN_CRITERIA_FOR_SETUP:
+        signal_criteria = [c for c in criteria if c.name != self.TREND_CRITERION_NAME]
+        non_trend_aligned = sum(1 for c in signal_criteria if c.aligned_for_long)
+        score = sum(c.score_for_long for c in signal_criteria if c.aligned_for_long)
+
+        if (
+            trend_criterion.aligned_for_long
+            and non_trend_aligned >= self.MIN_NON_TREND_CRITERIA_FOR_SETUP
+        ):
             direction = Live20Direction.LONG
-            score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
         else:
             direction = Live20Direction.NO_SETUP
-            score = sum(c.score_for_long for c in criteria if c.aligned_for_long)
 
         return direction, score
 

@@ -14,8 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { ArenaSetupForm } from '../components/arena/ArenaSetupForm';
 import { ArenaSimulationList } from '../components/arena/ArenaSimulationList';
 import { useActiveArenaSimulation } from '../hooks/useActiveArenaSimulation';
-import { createSimulation, listSimulations } from '../services/arenaService';
-import type { CreateSimulationRequest, Simulation } from '../types/arena';
+import { createComparison, createSimulation, listSimulations } from '../services/arenaService';
+import type { CreateComparisonRequest, CreateSimulationRequest, Simulation } from '../types/arena';
 
 /** Type for navigation state when replaying */
 interface ReplayState {
@@ -108,6 +108,20 @@ export const Arena = () => {
     }
   };
 
+  // Handle creating a comparison (2+ strategies)
+  const handleCreateComparison = async (request: CreateComparisonRequest) => {
+    try {
+      setIsCreating(true);
+      const comparison = await createComparison(request);
+      toast.success(`Comparison started — ${comparison.simulations.length} simulations`);
+      navigate(`/arena/compare/${comparison.group_id}`);
+    } catch {
+      toast.error('Failed to create comparison');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   // Handle resuming active simulation
   const handleResumeActive = () => {
     if (activeSimulation) {
@@ -157,6 +171,7 @@ export const Arena = () => {
           <div className="max-w-2xl">
             <ArenaSetupForm
               onSubmit={handleCreate}
+              onSubmitComparison={handleCreateComparison}
               isLoading={isCreating}
               initialValues={initialValues}
             />

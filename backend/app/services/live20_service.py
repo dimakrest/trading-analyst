@@ -50,17 +50,20 @@ class Live20Service:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        scoring_algorithm: str = "cci"
+        scoring_algorithm: str = "cci",
+        signal_scores: dict[str, int] | None = None,
     ) -> None:
         """Initialize Live20Service with database session factory.
 
         Args:
             session_factory: Factory for creating async database sessions.
             scoring_algorithm: Scoring algorithm to use ('cci' or 'rsi2', default 'cci')
+            signal_scores: Score weights for signals (volume, candle, momentum, ma20_distance)
         """
         self.session_factory = session_factory
         self._evaluator = Live20Evaluator()
         self._scoring_algorithm = ScoringAlgorithm(scoring_algorithm)
+        self._signal_scores = self._evaluator.normalize_signal_scores(signal_scores)
 
     async def _analyze_symbol(self, symbol: str) -> Live20Result:
         """Analyze a single symbol and save result."""
@@ -113,6 +116,7 @@ class Live20Service:
             ) = self._evaluator.evaluate_criteria(
                 opens, highs, lows, closes, volumes,
                 scoring_algorithm=self._scoring_algorithm,
+                signal_scores=self._signal_scores,
             )
 
             # Determine direction based on aligned criteria

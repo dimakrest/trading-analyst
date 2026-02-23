@@ -8,6 +8,9 @@ import { apiClient } from '../lib/apiClient';
 import type {
   AgentInfo,
   BenchmarkDataPoint,
+  ComparisonEquityCurvesResponse,
+  ComparisonResponse,
+  CreateComparisonRequest,
   CreateSimulationRequest,
   Simulation,
   SimulationDetail,
@@ -96,6 +99,51 @@ export const cancelSimulation = async (id: number): Promise<void> => {
  */
 export const deleteSimulation = async (id: number): Promise<void> => {
   await apiClient.delete(`${API_BASE}/simulations/${id}`);
+};
+
+/**
+ * Create a multi-strategy comparison (runs one simulation per strategy)
+ *
+ * @param request - Comparison configuration with portfolio_strategies array
+ * @returns Promise resolving to comparison response with group_id and simulations
+ */
+export const createComparison = async (
+  request: CreateComparisonRequest,
+): Promise<ComparisonResponse> => {
+  const response = await apiClient.post<ComparisonResponse>(
+    `${API_BASE}/comparisons`,
+    request,
+  );
+  return response.data;
+};
+
+/**
+ * Get a comparison group by ID
+ *
+ * @param groupId - UUID of the comparison group
+ * @returns Promise resolving to comparison response with simulations
+ */
+export const getComparison = async (groupId: string): Promise<ComparisonResponse> => {
+  const response = await apiClient.get<ComparisonResponse>(
+    `${API_BASE}/comparisons/${groupId}`,
+  );
+  return response.data;
+};
+
+/**
+ * Get lightweight equity curves for a comparison group.
+ * Returns only snapshot_date + total_equity per simulation (for charting).
+ *
+ * @param groupId - UUID of the comparison group
+ * @returns Promise resolving to equity curves for all simulations in the group
+ */
+export const getComparisonEquityCurves = async (
+  groupId: string,
+): Promise<ComparisonEquityCurvesResponse> => {
+  const response = await apiClient.get<ComparisonEquityCurvesResponse>(
+    `${API_BASE}/comparisons/${groupId}/equity-curves`,
+  );
+  return response.data;
 };
 
 /**

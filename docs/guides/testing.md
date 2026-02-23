@@ -14,6 +14,44 @@ Start development services before running any tests:
 
 ---
 
+## Run Location and Preflight Checks
+
+Run commands from the repository root unless a section explicitly says to `cd frontend`.
+
+Preflight checks:
+
+```bash
+# 1) Confirm backend services are up
+./scripts/dc.sh ps
+
+# 2) Ensure frontend dependencies exist before Vitest/Playwright commands
+cd frontend && npm ci
+```
+
+---
+
+## Agent Test Quickstart
+
+Copy-paste baseline flow for agents:
+
+```bash
+# From repo root
+./scripts/dc.sh up -d
+./scripts/dc.sh ps
+
+# Backend
+./scripts/dc.sh exec backend-dev pytest -v --cov=app --cov-report=term-missing
+
+# Frontend
+cd frontend
+npm ci
+npm run test:unit
+npm run test:ui
+npm run test:e2e
+```
+
+---
+
 ## Quick Reference
 
 ```bash
@@ -73,7 +111,7 @@ cd frontend
 
 # Unit tests
 npm run test:unit           # Run once
-npm run test:unit -- --watch # Watch mode
+npm run test:unit:watch     # Watch mode
 
 # Coverage (view frontend/coverage/index.html)
 npm run test:coverage
@@ -83,7 +121,8 @@ npm run test:ui
 
 # E2E tests (requires backend running)
 npm run test:e2e            # Headless
-npm run test:e2e:headed     # See browser
+npm run test:e2e:watch      # Playwright UI mode
+npm run test:e2e:debug      # Playwright debug mode
 
 # All tests
 npm run test:all

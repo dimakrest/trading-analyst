@@ -120,7 +120,7 @@ export const Agents = () => {
             Agents
           </h1>
           <p className="text-sm text-text-muted mt-1">
-            Manage scoring algorithm configurations for Live20 and Arena
+            Manage scoring algorithms and weighted signal profiles for Live20 and Arena
           </p>
         </div>
         <Button
@@ -184,6 +184,9 @@ export const Agents = () => {
                     </div>
                     <p className="text-xs text-text-muted mt-1">
                       Agent type: {config.agent_type}
+                    </p>
+                    <p className="text-xs text-text-muted mt-1 font-mono">
+                      Scores V:{config.volume_score ?? 25} C:{config.candle_pattern_score ?? 25} M:{config.cci_score ?? 25} MA20:{config.ma20_distance_score ?? 25}
                     </p>
                   </div>
 

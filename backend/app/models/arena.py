@@ -108,6 +108,12 @@ class ArenaSimulation(Base):
         doc="Agent-specific configuration (e.g., trailing_stop_pct)",
     )
 
+    # Comparison grouping
+    group_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True,
+        doc="UUID linking simulations in a multi-strategy comparison group",
+    )
+
     # State tracking
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=SimulationStatus.PENDING.value

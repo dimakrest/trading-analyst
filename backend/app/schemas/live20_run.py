@@ -34,6 +34,10 @@ class Live20RunSummary(StrictBaseModel):
     )
     agent_config_id: int | None = None
     scoring_algorithm: str | None = None
+    volume_score: int | None = None
+    candle_pattern_score: int | None = None
+    cci_score: int | None = None
+    ma20_distance_score: int | None = None
     failed_count: int = Field(
         default=0, description="Number of symbols that failed analysis"
     )
@@ -98,6 +102,10 @@ class Live20RunSummary(StrictBaseModel):
             source_lists=getattr(obj, "source_lists", None),
             agent_config_id=getattr(obj, "agent_config_id", None),
             scoring_algorithm=getattr(obj, "scoring_algorithm", None),
+            volume_score=getattr(obj, "volume_score", None),
+            candle_pattern_score=getattr(obj, "candle_pattern_score", None),
+            cci_score=getattr(obj, "cci_score", None),
+            ma20_distance_score=getattr(obj, "ma20_distance_score", None),
             failed_count=failed_count,
         )
 
@@ -139,6 +147,10 @@ class Live20RunDetailResponse(StrictBaseModel):
     )
     agent_config_id: int | None = None
     scoring_algorithm: str | None = None
+    volume_score: int | None = None
+    candle_pattern_score: int | None = None
+    cci_score: int | None = None
+    ma20_distance_score: int | None = None
     results: list[Live20ResultResponse]
     failed_symbols: dict[str, str] = Field(
         default_factory=dict,

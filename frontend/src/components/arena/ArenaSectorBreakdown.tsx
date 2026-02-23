@@ -18,10 +18,11 @@ import {
 } from '../ui/table';
 import { cn } from '../../lib/utils';
 import { formatCurrency } from '../../utils/formatters';
-import type { Position } from '../../types/arena';
+import type { Position, Snapshot } from '../../types/arena';
 
 interface ArenaSectorBreakdownProps {
   positions: Position[];
+  snapshot: Snapshot | null;
 }
 
 /** Resolve null sector to the display label "Unknown" */
@@ -152,6 +153,7 @@ const SectorPerformanceTable = ({ rows }: { rows: PerformanceRow[] }) => (
  */
 export const ArenaSectorBreakdown = ({
   positions,
+  snapshot: _snapshot,
 }: ArenaSectorBreakdownProps) => {
   if (positions.length === 0) return null;
 

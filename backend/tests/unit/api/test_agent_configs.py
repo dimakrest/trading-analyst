@@ -36,6 +36,10 @@ class TestAgentConfigsAPI:
         assert data["name"] == "RSI-2 Strategy"
         assert data["agent_type"] == "live20"
         assert data["scoring_algorithm"] == "rsi2"
+        assert data["volume_score"] == 25
+        assert data["candle_pattern_score"] == 25
+        assert data["cci_score"] == 25
+        assert data["ma20_distance_score"] == 25
         assert "id" in data
 
     async def test_create_agent_config_duplicate_name(self, async_client: AsyncClient):
@@ -59,6 +63,20 @@ class TestAgentConfigsAPI:
         payload = {
             "name": "Invalid Config",
             "scoring_algorithm": "invalid"
+        }
+
+        response = await async_client.post("/api/v1/agent-configs", json=payload)
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    async def test_create_agent_config_invalid_score_total(self, async_client: AsyncClient):
+        """Test that score weights must sum to 100."""
+        payload = {
+            "name": "Bad Score Total",
+            "scoring_algorithm": "cci",
+            "volume_score": 30,
+            "candle_pattern_score": 30,
+            "cci_score": 30,
+            "ma20_distance_score": 30,
         }
 
         response = await async_client.post("/api/v1/agent-configs", json=payload)
@@ -155,6 +173,24 @@ class TestAgentConfigsAPI:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in response.json()["detail"]
+
+    async def test_update_agent_config_invalid_score_total(self, async_client: AsyncClient):
+        """Test that updates cannot result in score total != 100."""
+        create_response = await async_client.post(
+            "/api/v1/agent-configs",
+            json={
+                "name": "Score Update Test",
+                "scoring_algorithm": "cci",
+            },
+        )
+        config_id = create_response.json()["id"]
+
+        response = await async_client.put(
+            f"/api/v1/agent-configs/{config_id}",
+            json={"volume_score": 40},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "sum to 100" in response.json()["detail"]
 
     async def test_delete_agent_config(self, async_client: AsyncClient):
         """Test soft-deleting an agent config."""

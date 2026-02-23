@@ -46,6 +46,10 @@ class Live20RunRepository:
         source_lists: list[dict] | None = None,
         scoring_algorithm: str = "cci",
         agent_config_id: int | None = None,
+        volume_score: int = 25,
+        candle_pattern_score: int = 25,
+        cci_score: int = 25,
+        ma20_distance_score: int = 25,
     ) -> Live20Run:
         """Create a new Live20Run.
 
@@ -60,6 +64,10 @@ class Live20RunRepository:
             source_lists: Array of source lists when multiple lists combined, if any
             scoring_algorithm: Scoring algorithm to use ('cci' or 'rsi2', default 'cci')
             agent_config_id: ID of agent config used for this run, if any
+            volume_score: Score weight for volume signal
+            candle_pattern_score: Score weight for candle pattern signal
+            cci_score: Score weight for momentum signal (CCI/RSI-2)
+            ma20_distance_score: Score weight for MA20 distance signal
 
         Returns:
             Created Live20Run instance
@@ -75,6 +83,10 @@ class Live20RunRepository:
             source_lists=source_lists,
             scoring_algorithm=scoring_algorithm,
             agent_config_id=agent_config_id,
+            volume_score=volume_score,
+            candle_pattern_score=candle_pattern_score,
+            cci_score=cci_score,
+            ma20_distance_score=ma20_distance_score,
         )
         self.session.add(run)
         await self.session.flush()

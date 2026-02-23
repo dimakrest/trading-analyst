@@ -59,6 +59,12 @@ class Live20Worker(JobWorker[Live20Run]):
         service = Live20Service(
             self.session_factory,
             scoring_algorithm=run.scoring_algorithm or "cci",
+            signal_scores={
+                "volume": run.volume_score,
+                "candle": run.candle_pattern_score,
+                "momentum": run.cci_score,
+                "ma20_distance": run.ma20_distance_score,
+            },
         )
 
         # Track counts for updating run at the end
