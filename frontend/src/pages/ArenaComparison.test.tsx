@@ -14,7 +14,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ArenaComparison } from './ArenaComparison';
-import type { ComparisonResponse } from '../types/arena';
+import type { ComparisonResponse, SimulationStatus } from '../types/arena';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -42,7 +42,7 @@ import { useComparisonPolling } from '../hooks/useComparisonPolling';
 
 const mockUseComparisonPolling = useComparisonPolling as ReturnType<typeof vi.fn>;
 
-const makeSim = (id: number, status: string, strategy: string) => ({
+const makeSim = (id: number, status: SimulationStatus, strategy: string) => ({
   id,
   name: null,
   stock_list_id: null,
@@ -140,8 +140,8 @@ describe('ArenaComparison', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
         simulations: [
-          makeSim(1, 'running', 'none') as never,
-          makeSim(2, 'running', 'score_sector_low_atr') as never,
+          makeSim(1, 'running', 'none'),
+          makeSim(2, 'running', 'score_sector_low_atr'),
         ],
       };
 
@@ -158,8 +158,8 @@ describe('ArenaComparison', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
         simulations: [
-          makeSim(1, 'running', 'none') as never,
-          makeSim(2, 'pending', 'high_atr') as never,
+          makeSim(1, 'running', 'none'),
+          makeSim(2, 'pending', 'high_atr'),
         ],
       };
 
@@ -180,8 +180,8 @@ describe('ArenaComparison', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
         simulations: [
-          makeSim(1, 'running', 'none') as never,
-          makeSim(2, 'running', 'high_atr') as never,
+          makeSim(1, 'running', 'none'),
+          makeSim(2, 'running', 'high_atr'),
         ],
       };
 
@@ -196,8 +196,8 @@ describe('ArenaComparison', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
         simulations: [
-          makeSim(1, 'completed', 'none') as never,
-          makeSim(2, 'running', 'high_atr') as never,
+          makeSim(1, 'completed', 'none'),
+          makeSim(2, 'running', 'high_atr'),
         ],
       };
 
@@ -214,8 +214,8 @@ describe('ArenaComparison', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
         simulations: [
-          makeSim(1, 'completed', 'none') as never,
-          makeSim(2, 'running', 'high_atr') as never,
+          makeSim(1, 'completed', 'none'),
+          makeSim(2, 'running', 'high_atr'),
         ],
       };
 
@@ -230,8 +230,8 @@ describe('ArenaComparison', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
         simulations: [
-          makeSim(1, 'completed', 'none') as never,
-          makeSim(2, 'completed', 'high_atr') as never,
+          makeSim(1, 'completed', 'none'),
+          makeSim(2, 'completed', 'high_atr'),
         ],
       };
 
@@ -248,8 +248,8 @@ describe('ArenaComparison', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
         simulations: [
-          makeSim(1, 'failed', 'none') as never,
-          makeSim(2, 'cancelled', 'high_atr') as never,
+          makeSim(1, 'failed', 'none'),
+          makeSim(2, 'cancelled', 'high_atr'),
         ],
       };
 
@@ -268,8 +268,8 @@ describe('ArenaComparison', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
         simulations: [
-          makeSim(1, 'completed', 'none') as never,
-          makeSim(2, 'cancelled', 'high_atr') as never,
+          makeSim(1, 'completed', 'none'),
+          makeSim(2, 'cancelled', 'high_atr'),
         ],
       };
 
@@ -287,7 +287,7 @@ describe('ArenaComparison', () => {
     it('renders the Strategy Comparison heading', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
-        simulations: [makeSim(1, 'running', 'none') as never],
+        simulations: [makeSim(1, 'running', 'none')],
       };
 
       mockUseComparisonPolling.mockReturnValue({ data, isPolling: true, error: null });
@@ -300,7 +300,7 @@ describe('ArenaComparison', () => {
     it('navigates to /arena when the Back to Arena button is clicked', async () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
-        simulations: [makeSim(1, 'running', 'none') as never],
+        simulations: [makeSim(1, 'running', 'none')],
       };
 
       mockUseComparisonPolling.mockReturnValue({ data, isPolling: true, error: null });
@@ -319,7 +319,7 @@ describe('ArenaComparison', () => {
     it('shows polling spinner when isPolling is true', () => {
       const data: ComparisonResponse = {
         group_id: 'test-group',
-        simulations: [makeSim(1, 'running', 'none') as never],
+        simulations: [makeSim(1, 'running', 'none')],
       };
 
       mockUseComparisonPolling.mockReturnValue({ data, isPolling: true, error: null });

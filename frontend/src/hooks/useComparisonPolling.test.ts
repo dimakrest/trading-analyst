@@ -11,13 +11,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useComparisonPolling } from './useComparisonPolling';
 import * as arenaService from '../services/arenaService';
-import type { ComparisonResponse } from '../types/arena';
+import type { ComparisonResponse, SimulationStatus } from '../types/arena';
 
 vi.mock('../services/arenaService', () => ({
   getComparison: vi.fn(),
 }));
 
-const makeComparison = (statuses: string[]): ComparisonResponse => ({
+const makeComparison = (statuses: SimulationStatus[]): ComparisonResponse => ({
   group_id: 'test-group',
   simulations: statuses.map((status, idx) => ({
     id: idx + 1,
@@ -37,7 +37,7 @@ const makeComparison = (statuses: string[]): ComparisonResponse => ({
     max_per_sector: null,
     max_open_positions: null,
     group_id: 'test-group',
-    status: status as never,
+    status,
     current_day: 10,
     total_days: 20,
     final_equity: status === 'completed' ? '10500' : null,

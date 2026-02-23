@@ -49,8 +49,14 @@ export const useComparisonPolling = (groupId: string) => {
       }
     };
 
-    fetchData();
-    intervalRef.current = setInterval(fetchData, POLL_INTERVAL_MS);
+    const startPolling = async () => {
+      await fetchData();
+      if (!cancelled) {
+        intervalRef.current = setInterval(fetchData, POLL_INTERVAL_MS);
+      }
+    };
+
+    startPolling();
 
     return () => {
       cancelled = true;

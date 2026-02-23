@@ -40,7 +40,7 @@ function getGroupColorClass(groupId: string): string {
   for (let i = 0; i < groupId.length; i++) {
     hash = (hash * 31 + groupId.charCodeAt(i)) & 0xffffffff;
   }
-  return GROUP_BORDER_COLORS[Math.abs(hash) % GROUP_BORDER_COLORS.length];
+  return GROUP_BORDER_COLORS[(hash >>> 0) % GROUP_BORDER_COLORS.length];
 }
 
 interface ArenaSimulationListProps {
