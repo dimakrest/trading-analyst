@@ -48,6 +48,7 @@ export interface Simulation {
   portfolio_strategy: string | null;
   max_per_sector: number | null;
   max_open_positions: number | null;
+  group_id: string | null;
   status: SimulationStatus;
   current_day: number;
   total_days: number;
@@ -171,4 +172,56 @@ export interface BenchmarkDataPoint {
   date: string;
   close: string;
   cumulative_return_pct: string;
+}
+
+/** Request body for creating a multi-strategy comparison */
+export interface CreateComparisonRequest {
+  name?: string;
+  stock_list_id?: number;
+  stock_list_name?: string;
+  symbols: string[];
+  start_date: string;
+  end_date: string;
+  initial_capital?: number;
+  position_size?: number;
+  agent_type?: string;
+  trailing_stop_pct?: number;
+  min_buy_score?: number;
+  agent_config_id?: number;
+  scoring_algorithm?: ScoringAlgorithm;
+  portfolio_strategies: string[];
+  max_per_sector?: number | null;
+  max_open_positions?: number | null;
+}
+
+/** Response from comparison creation / retrieval */
+export interface ComparisonResponse {
+  group_id: string;
+  simulations: Simulation[];
+}
+
+/** A single data point in an equity curve (date + equity value). */
+export interface EquityCurvePoint {
+  /** Date of the snapshot */
+  snapshot_date: string;
+  /** Portfolio total equity at this point (USD amount as string) */
+  total_equity: string;
+}
+
+/** Equity curve for a single simulation in a comparison group. */
+export interface SimulationEquityCurve {
+  /** ID of the simulation */
+  simulation_id: number;
+  /** Portfolio strategy name (null if not set) */
+  portfolio_strategy: string | null;
+  /** Time-series data points for the equity curve */
+  snapshots: EquityCurvePoint[];
+}
+
+/** Lightweight equity curves for all simulations in a comparison group. */
+export interface ComparisonEquityCurvesResponse {
+  /** UUID of the comparison group */
+  group_id: string;
+  /** Equity curves for all simulations in the group */
+  simulations: SimulationEquityCurve[];
 }

@@ -168,8 +168,14 @@ export const ArenaSimulationDetail = () => {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate('/arena')}
-            aria-label="Back to Arena"
+            onClick={() =>
+              navigate(
+                simulation.group_id
+                  ? `/arena/compare/${simulation.group_id}`
+                  : '/arena',
+              )
+            }
+            aria-label={simulation.group_id ? 'Back to Comparison' : 'Back to Arena'}
             className="mt-1"
           >
             <ArrowLeft className="h-5 w-5" />

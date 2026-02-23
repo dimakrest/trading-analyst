@@ -96,14 +96,19 @@ export const ArenaEquityChart = ({
   // Guard against double-fetching on mount when snapshots prop is stable
   const initialFetchDoneRef = useRef(false);
 
-  // Pre-compute both data representations from current snapshots.
-  const absoluteData = snapshots.map((s) => ({
+  // Sort snapshots by date — Lightweight Charts requires ascending time order.
+  const sorted = [...snapshots].sort(
+    (a, b) => new Date(a.snapshot_date).getTime() - new Date(b.snapshot_date).getTime(),
+  );
+
+  // Pre-compute both data representations from sorted snapshots.
+  const absoluteData = sorted.map((s) => ({
     time: (new Date(s.snapshot_date).getTime() / 1000) as UTCTimestamp,
     value: parseFloat(s.total_equity),
   }));
 
-  const firstEquity = snapshots.length > 0 ? (parseFloat(snapshots[0].total_equity) || 1) : 1;
-  const normalizedPortfolio = snapshots.map((s) => ({
+  const firstEquity = sorted.length > 0 ? (parseFloat(sorted[0].total_equity) || 1) : 1;
+  const normalizedPortfolio = sorted.map((s) => ({
     time: (new Date(s.snapshot_date).getTime() / 1000) as UTCTimestamp,
     value: ((parseFloat(s.total_equity) - firstEquity) / firstEquity) * 100,
   }));
