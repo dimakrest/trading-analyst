@@ -650,10 +650,11 @@ async def create_comparison(
         await session.refresh(sim)
 
     logger.info(
-        "Created comparison group %s with %d simulations: %s",
+        "Created comparison group %s with %d simulations: %s (scoring_algorithm=%s)",
         group_id,
         len(simulations),
         request.portfolio_strategies,
+        scoring_algorithm,
     )
 
     return ComparisonResponse(

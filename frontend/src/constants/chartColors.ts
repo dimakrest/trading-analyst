@@ -121,6 +121,9 @@ export const CHART_COLOR_CLASSES = {
 /**
  * Strategy comparison color palette (up to 4 strategies).
  * Used by ArenaComparisonChart to assign a distinct color to each strategy series.
+ *
+ * Intentionally sized to match the backend maximum of 4 strategies per comparison
+ * (see CreateComparisonRequest.portfolio_strategies max_length=4 in arena schemas).
  */
 export const STRATEGY_COLORS = ['#2962FF', '#FF6D00', '#00C853', '#AA00FF'] as const;
 
