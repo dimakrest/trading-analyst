@@ -170,8 +170,13 @@ export const ArenaComparisonChart = ({ groupId, simulations }: ArenaComparisonCh
 
           if (curve.snapshots.length < 2) return;
 
-          const firstEquity = parseFloat(curve.snapshots[0].total_equity) || 1;
-          const normalizedData = curve.snapshots.map((s) => ({
+          // Sort by date — Lightweight Charts requires ascending time order.
+          const sorted = [...curve.snapshots].sort(
+            (a, b) => new Date(a.snapshot_date).getTime() - new Date(b.snapshot_date).getTime(),
+          );
+
+          const firstEquity = parseFloat(sorted[0].total_equity) || 1;
+          const normalizedData = sorted.map((s) => ({
             time: (new Date(s.snapshot_date).getTime() / 1000) as UTCTimestamp,
             value: ((parseFloat(s.total_equity) - firstEquity) / firstEquity) * 100,
           }));
@@ -271,20 +276,6 @@ export const ArenaComparisonChart = ({ groupId, simulations }: ArenaComparisonCh
     [activeBenchmarks, fetchBenchmark],
   );
 
-  if (isLoading) {
-    return (
-      <div
-        className="flex items-center justify-center rounded-lg border border-gray-700 bg-black"
-        style={{ height: `${CHART_HEIGHT}px` }}
-        role="status"
-        aria-label="Loading comparison chart"
-        data-testid="comparison-chart-loading"
-      >
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   const isAnyLoading = loadingBenchmarks.size > 0;
 
   return (
@@ -297,58 +288,72 @@ export const ArenaComparisonChart = ({ groupId, simulations }: ArenaComparisonCh
       )}
 
       {/* Controls row */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
-          Cumulative return % — all strategies vs benchmark
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Benchmark</span>
-          <ToggleGroup
-            type="multiple"
-            size="sm"
-            value={[...activeBenchmarks]}
-            onValueChange={handleToggle}
-            aria-label="Toggle benchmark overlays"
-          >
-            {(['SPY', 'QQQ'] as const).map((symbol) => {
-              const isActive = activeBenchmarks.has(symbol);
-              const isSymbolLoading = loadingBenchmarks.has(symbol);
-              const isErrored = errorBenchmarks.has(symbol);
+      {!isLoading && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
+            Cumulative return % — all strategies vs benchmark
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Benchmark</span>
+            <ToggleGroup
+              type="multiple"
+              size="sm"
+              value={[...activeBenchmarks]}
+              onValueChange={handleToggle}
+              aria-label="Toggle benchmark overlays"
+            >
+              {(['SPY', 'QQQ'] as const).map((symbol) => {
+                const isActive = activeBenchmarks.has(symbol);
+                const isSymbolLoading = loadingBenchmarks.has(symbol);
+                const isErrored = errorBenchmarks.has(symbol);
 
-              return (
-                <ToggleGroupItem
-                  key={symbol}
-                  value={symbol}
-                  aria-label={`Toggle ${BENCHMARK_CONFIG[symbol].label} benchmark`}
-                  aria-pressed={isActive}
-                  disabled={isAnyLoading}
-                  className={isErrored ? 'text-accent-bearish' : undefined}
-                  data-testid={`comparison-benchmark-toggle-${symbol.toLowerCase()}`}
-                >
-                  {isSymbolLoading ? (
-                    <Loader2
-                      className="h-3 w-3 animate-spin"
-                      aria-label={`Loading ${symbol} benchmark`}
-                    />
-                  ) : (
-                    symbol
-                  )}
-                </ToggleGroupItem>
-              );
-            })}
-          </ToggleGroup>
+                return (
+                  <ToggleGroupItem
+                    key={symbol}
+                    value={symbol}
+                    aria-label={`Toggle ${BENCHMARK_CONFIG[symbol].label} benchmark`}
+                    aria-pressed={isActive}
+                    disabled={isAnyLoading}
+                    className={isErrored ? 'text-accent-bearish' : undefined}
+                    data-testid={`comparison-benchmark-toggle-${symbol.toLowerCase()}`}
+                  >
+                    {isSymbolLoading ? (
+                      <Loader2
+                        className="h-3 w-3 animate-spin"
+                        aria-label={`Loading ${symbol} benchmark`}
+                      />
+                    ) : (
+                      symbol
+                    )}
+                  </ToggleGroupItem>
+                );
+              })}
+            </ToggleGroup>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Chart canvas */}
-      <div
-        ref={chartContainerRef}
-        className="w-full rounded-lg border border-gray-700 bg-black"
-        style={{ height: `${CHART_HEIGHT}px` }}
-        role="img"
-        aria-label="Strategy comparison equity curves"
-        data-testid="arena-comparison-chart"
-      />
+      {/* Chart canvas — always rendered so the ref is available for chart init */}
+      <div className="relative" style={{ height: `${CHART_HEIGHT}px` }}>
+        <div
+          ref={chartContainerRef}
+          className="w-full rounded-lg border border-gray-700 bg-black"
+          style={{ height: `${CHART_HEIGHT}px` }}
+          role="img"
+          aria-label="Strategy comparison equity curves"
+          data-testid="arena-comparison-chart"
+        />
+        {isLoading && (
+          <div
+            className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/80"
+            role="status"
+            aria-label="Loading comparison chart"
+            data-testid="comparison-chart-loading"
+          >
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+      </div>
 
       {/* Legend */}
       <div
