@@ -68,7 +68,12 @@ class AgentConfigCreate(StrictBaseModel):
 
 
 class AgentConfigUpdate(StrictBaseModel):
-    """Request to update an agent configuration."""
+    """Request to update an agent configuration.
+
+    Note: Signal score weights are validated as a group. Omitted scores keep
+    their current values, but the resulting total (existing + provided) must
+    still equal 100. To change one score, send all four scores in the request.
+    """
 
     name: str | None = Field(
         None,
@@ -84,25 +89,25 @@ class AgentConfigUpdate(StrictBaseModel):
         None,
         ge=0,
         le=100,
-        description="New score weight for volume signal"
+        description="New score weight for volume signal (all 4 scores must sum to 100)"
     )
     candle_pattern_score: int | None = Field(
         None,
         ge=0,
         le=100,
-        description="New score weight for candle pattern signal"
+        description="New score weight for candle pattern signal (all 4 scores must sum to 100)"
     )
     cci_score: int | None = Field(
         None,
         ge=0,
         le=100,
-        description="New score weight for momentum signal (CCI/RSI-2)"
+        description="New score weight for momentum signal (all 4 scores must sum to 100)"
     )
     ma20_distance_score: int | None = Field(
         None,
         ge=0,
         le=100,
-        description="New score weight for MA20 distance signal"
+        description="New score weight for MA20 distance signal (all 4 scores must sum to 100)"
     )
 
 

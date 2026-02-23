@@ -33,9 +33,9 @@ class TestLive20ArenaAgentProperties:
         assert agent.required_lookback_days == 60
 
     @pytest.mark.unit
-    def test_weight_per_criterion(self, agent: Live20ArenaAgent) -> None:
-        """Test weight per criterion constant."""
-        assert agent.WEIGHT_PER_CRITERION == 25
+    def test_default_weight_per_signal(self, agent: Live20ArenaAgent) -> None:
+        """Test default weight per signal constant."""
+        assert agent.DEFAULT_WEIGHT_PER_SIGNAL == 25
 
     @pytest.mark.unit
     def test_ma20_distance_threshold(self, agent: Live20ArenaAgent) -> None:

@@ -74,13 +74,14 @@ class Live20Evaluator:
         calling evaluate_criteria().
     """
 
+    TREND_CRITERION_NAME = "trend"
     DEFAULT_SIGNAL_SCORES = {
         "volume": 25,
         "candle": 25,
         "momentum": 25,
         "ma20_distance": 25,
     }
-    WEIGHT_PER_CRITERION = 25  # Backward-compatibility constant for callers/tests
+    DEFAULT_WEIGHT_PER_SIGNAL = 25
     MA20_DISTANCE_THRESHOLD = 5.0  # 5% threshold for "far" from MA20
     MIN_CRITERIA_FOR_SETUP = 3  # Legacy threshold including trend
     MIN_NON_TREND_CRITERIA_FOR_SETUP = 2
@@ -161,7 +162,7 @@ class Live20Evaluator:
         trend = detect_trend(closes, period=10)
         criteria.append(
             CriterionResult(
-                name="trend",
+                name=self.TREND_CRITERION_NAME,
                 value=trend.value,
                 aligned_for_long=trend == TrendDirection.BEARISH,
                 score_for_long=0,
@@ -260,11 +261,13 @@ class Live20Evaluator:
         Returns:
             Tuple of (direction, score) where direction is LONG/NO_SETUP
         """
-        trend_criterion = next((c for c in criteria if c.name == "trend"), None)
+        trend_criterion = next(
+            (c for c in criteria if c.name == self.TREND_CRITERION_NAME), None
+        )
         if trend_criterion is None:
             raise ValueError("Trend criterion is required for direction determination")
 
-        signal_criteria = [c for c in criteria if c.name != "trend"]
+        signal_criteria = [c for c in criteria if c.name != self.TREND_CRITERION_NAME]
         non_trend_aligned = sum(1 for c in signal_criteria if c.aligned_for_long)
         score = sum(c.score_for_long for c in signal_criteria if c.aligned_for_long)
 

@@ -15,10 +15,10 @@ from app.models.recommendation import ScoringAlgorithm
 class TestLive20EvaluatorConstants:
     """Test evaluator constants."""
 
-    def test_weight_per_criterion(self):
-        """Verify default non-trend criterion weight is 25."""
+    def test_default_weight_per_signal(self):
+        """Verify default non-trend signal weight is 25."""
         evaluator = Live20Evaluator()
-        assert evaluator.WEIGHT_PER_CRITERION == 25
+        assert evaluator.DEFAULT_WEIGHT_PER_SIGNAL == 25
 
     def test_ma20_distance_threshold(self):
         """Verify MA20_DISTANCE_THRESHOLD is 5.0."""
@@ -619,7 +619,9 @@ class TestRSI2Integration:
         direction, score = evaluator.determine_direction_and_score(criteria)
 
         expected_score = sum(
-            c.score_for_long for c in criteria if c.aligned_for_long and c.name != "trend"
+            c.score_for_long
+            for c in criteria
+            if c.aligned_for_long and c.name != Live20Evaluator.TREND_CRITERION_NAME
         )
 
         assert score == expected_score, f"CCI regression failed: score={score}, expected={expected_score}"

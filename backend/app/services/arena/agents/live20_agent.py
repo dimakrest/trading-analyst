@@ -77,9 +77,9 @@ class Live20ArenaAgent(BaseAgent):
 
     # Expose constants for backward compatibility (used in tests)
     @property
-    def WEIGHT_PER_CRITERION(self) -> int:
-        """Default score per non-trend criterion (for backward compatibility)."""
-        return self._evaluator.WEIGHT_PER_CRITERION
+    def DEFAULT_WEIGHT_PER_SIGNAL(self) -> int:
+        """Default score per non-trend signal criterion."""
+        return self._evaluator.DEFAULT_WEIGHT_PER_SIGNAL
 
     @property
     def MA20_DISTANCE_THRESHOLD(self) -> float:
@@ -164,11 +164,15 @@ class Live20ArenaAgent(BaseAgent):
             signal_scores=self._signal_scores,
         )
 
-        trend_criterion = next((c for c in criteria if c.name == "trend"), None)
+        trend_criterion = next(
+            (c for c in criteria if c.name == Live20Evaluator.TREND_CRITERION_NAME), None
+        )
         if trend_criterion is None:
             raise ValueError("Trend criterion missing from evaluator output")
 
-        signal_criteria = [c for c in criteria if c.name != "trend"]
+        signal_criteria = [
+            c for c in criteria if c.name != Live20Evaluator.TREND_CRITERION_NAME
+        ]
         aligned_count = sum(1 for c in signal_criteria if c.aligned_for_long)
         score = sum(c.score_for_long for c in signal_criteria if c.aligned_for_long)
 
