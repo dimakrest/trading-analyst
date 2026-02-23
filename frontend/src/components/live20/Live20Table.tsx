@@ -236,6 +236,26 @@ export function Live20Table({ results }: Live20TableProps) {
         },
       },
       {
+        id: 'support_resistance',
+        header: 'S/R',
+        cell: ({ row }) => {
+          const { support_1, resistance_1 } = row.original;
+          if (support_1 === null && resistance_1 === null) {
+            return <span className="text-muted-foreground">-</span>;
+          }
+          return (
+            <div className="flex flex-col text-xs font-mono">
+              {resistance_1 !== null && (
+                <span className="text-accent-bearish">R {resistance_1.toFixed(2)}</span>
+              )}
+              {support_1 !== null && (
+                <span className="text-accent-bullish">S {support_1.toFixed(2)}</span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
         accessorKey: 'trend_aligned',
         header: 'Trend',
         cell: ({ row }) => (

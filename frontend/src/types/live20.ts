@@ -11,6 +11,9 @@ export interface Live20Result {
   recommendation: Live20Direction;
   confidence_score: number;
   atr: number | null;
+  pivot: number | null;
+  support_1: number | null;
+  resistance_1: number | null;
 
   // Criteria details
   trend_direction: string | null;

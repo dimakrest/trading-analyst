@@ -32,6 +32,9 @@ function makeResult(overrides: Partial<Live20Result> = {}): Live20Result {
     scoring_algorithm: null,
     rsi2_value: null,
     rsi2_score: null,
+    pivot: null,
+    support_1: null,
+    resistance_1: null,
     ...overrides,
   } as Live20Result;
 }

@@ -65,7 +65,7 @@ class TestLive20Service:
                 high_price=Decimal("102.0") + i,
                 low_price=Decimal("99.0") + i,
                 close_price=Decimal("101.0") + i,
-                volume=Decimal("1000000"),
+                volume=1000000,
             )
             for i in range(30)
         ]
@@ -134,3 +134,33 @@ class TestLive20Service:
 
             assert result.status == "error"
             assert "Insufficient data" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_analyze_symbol_persists_support_resistance(self, service, mock_session_factory, sample_price_data):
+        """Test that S/R levels (pivot, support_1, resistance_1) are persisted."""
+        with patch(
+            "app.services.live20_service.DataService.get_price_data",
+            new_callable=AsyncMock,
+        ) as mock_get_data:
+            mock_get_data.return_value = sample_price_data
+
+            result = await service._analyze_symbol("AAPL")
+
+            assert result.status == "success"
+            rec = result.recommendation
+
+            # Pivot should be calculated as (High + Low + Close) / 3 of the last candle.
+            # Last candle: high=130.0, low=127.0, close=129.0 => PP = (130+127+129)/3 = 128.6667
+            assert rec.live20_pivot is not None
+            assert isinstance(rec.live20_pivot, Decimal)
+            assert rec.live20_pivot > Decimal("0")
+
+            # Support 1 = (2 * PP) - High = 2*128.6667 - 130 = 127.3333
+            assert rec.live20_support_1 is not None
+            assert isinstance(rec.live20_support_1, Decimal)
+            assert rec.live20_support_1 < rec.live20_pivot
+
+            # Resistance 1 = (2 * PP) - Low = 2*128.6667 - 127 = 130.3333
+            assert rec.live20_resistance_1 is not None
+            assert isinstance(rec.live20_resistance_1, Decimal)
+            assert rec.live20_resistance_1 > rec.live20_pivot

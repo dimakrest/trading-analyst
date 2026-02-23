@@ -53,6 +53,12 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 5,
     direction: 'LONG',
     atr: 3.45,
+    pivot: null,
+    support_1: null,
+    resistance_1: null,
+    scoring_algorithm: null,
+    rsi2_value: null,
+    rsi2_score: null,
   },
   {
     id: 2,
@@ -79,6 +85,12 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 4,
     direction: 'NO_SETUP',
     atr: 5.80,
+    pivot: null,
+    support_1: null,
+    resistance_1: null,
+    scoring_algorithm: null,
+    rsi2_value: null,
+    rsi2_score: null,
   },
   {
     id: 3,
@@ -105,6 +117,12 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 4,
     direction: 'LONG',
     atr: 12.50,
+    pivot: null,
+    support_1: null,
+    resistance_1: null,
+    scoring_algorithm: null,
+    rsi2_value: null,
+    rsi2_score: null,
   },
 ];
 

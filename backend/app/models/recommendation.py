@@ -160,6 +160,17 @@ class Recommendation(Base):
         String(10), nullable=True, doc="Sector SPDR ETF symbol (e.g., 'XLK', 'XLE')"
     )
 
+    # Support/Resistance levels (Standard Pivot Points based on most recent candle)
+    live20_pivot: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True, doc="Pivot point: (High + Low + Close) / 3"
+    )
+    live20_support_1: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True, doc="Support level 1: (2 * PP) - High"
+    )
+    live20_resistance_1: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True, doc="Resistance level 1: (2 * PP) - Low"
+    )
+
     live20_run_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("live20_runs.id", ondelete="SET NULL"),

@@ -3,6 +3,7 @@ import { fetchSectorTrend, type SectorTrend } from '../../services/live20Service
 import { fetchStockDataByDateRange, fetchIndicators } from '../../services/stockService';
 import type { Live20Result } from '../../types/live20';
 import type { StockPrice, IndicatorData } from '../../types/stock';
+import type { ChartPriceLine } from '../../types/chart';
 import { CandlestickChart } from '../organisms/CandlestickChart/CandlestickChart';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -26,6 +27,48 @@ function getTrendIcon(direction: SectorTrend['trend_direction']) {
  */
 function getMaBadgeVariant(position: 'above' | 'below'): 'default' | 'secondary' {
   return position === 'above' ? 'default' : 'secondary';
+}
+
+/**
+ * Build price lines array for support, resistance, and pivot levels
+ */
+function buildPriceLines(result: Live20Result): ChartPriceLine[] {
+  const lines: ChartPriceLine[] = [];
+
+  if (result.support_1 !== null) {
+    lines.push({
+      price: result.support_1,
+      color: '#22c55e',
+      lineWidth: 1,
+      lineStyle: 'dashed',
+      label: 'S1',
+      labelVisible: true,
+    });
+  }
+
+  if (result.resistance_1 !== null) {
+    lines.push({
+      price: result.resistance_1,
+      color: '#ef4444',
+      lineWidth: 1,
+      lineStyle: 'dashed',
+      label: 'R1',
+      labelVisible: true,
+    });
+  }
+
+  if (result.pivot !== null) {
+    lines.push({
+      price: result.pivot,
+      color: '#eab308',
+      lineWidth: 1,
+      lineStyle: 'dotted',
+      label: 'PP',
+      labelVisible: true,
+    });
+  }
+
+  return lines;
 }
 
 /**
@@ -274,6 +317,7 @@ export function ExpandedRowContent({ result }: ExpandedRowContentProps) {
               data={stockData}
               symbol={result.stock}
               height={600}
+              priceLines={buildPriceLines(result)}
             />
           ) : (
             <div className="flex items-center justify-center h-[600px] border border-subtle rounded-lg bg-bg-secondary">

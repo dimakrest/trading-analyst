@@ -49,6 +49,12 @@ const createMockResult = (id: number, stock: string, direction: 'LONG' | 'NO_SET
   criteria_aligned: 5,
   direction,
   atr: 2.35,  // ATR is always calculated, regardless of direction
+  pivot: null,
+  support_1: null,
+  resistance_1: null,
+  scoring_algorithm: null,
+  rsi2_value: null,
+  rsi2_score: null,
 });
 
 const mockResults = [

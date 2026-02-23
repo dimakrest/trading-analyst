@@ -36,6 +36,12 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   cci_aligned: true,
   criteria_aligned: 5,
   direction: 'LONG',
+  pivot: null,
+  support_1: null,
+  resistance_1: null,
+  scoring_algorithm: null,
+  rsi2_value: null,
+  rsi2_score: null,
   ...overrides,
 });
 

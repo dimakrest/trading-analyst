@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.indicators.cci_analysis import CCIAnalysis
 from app.indicators.rsi2_analysis import RSI2Analysis
+from app.indicators.technical import support_resistance_levels
 from app.models.recommendation import Recommendation, RecommendationSource, ScoringAlgorithm
 from app.services.data_service import DataService
 from app.services.live20_evaluator import (
@@ -107,6 +108,14 @@ class Live20Service:
             # Calculate ATR independently (for ALL stocks, regardless of direction)
             atr_percentage = calculate_atr_percentage(highs, lows, closes)
 
+            # Calculate support/resistance levels (Standard Pivot Points)
+            sr_support, sr_resistance, sr_pivot = support_resistance_levels(
+                highs, lows, closes, num_levels=1
+            )
+            pivot_decimal = Decimal(str(round(sr_pivot, 4))) if sr_pivot is not None else None
+            support_1_decimal = Decimal(str(round(sr_support[0], 4))) if sr_support[0] is not None else None
+            resistance_1_decimal = Decimal(str(round(sr_resistance[0], 4))) if sr_resistance[0] is not None else None
+
             # Evaluate all criteria
             (
                 criteria,
@@ -155,6 +164,9 @@ class Live20Service:
                 live20_criteria_aligned=sum(1 for c in criteria if c.aligned_for_long),
                 live20_direction=direction,
                 live20_sector_etf=sector_etf,
+                live20_pivot=pivot_decimal,
+                live20_support_1=support_1_decimal,
+                live20_resistance_1=resistance_1_decimal,
             )
 
             # Algorithm-specific fields (mutually exclusive — never cross-populate)
