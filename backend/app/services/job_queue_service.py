@@ -128,7 +128,7 @@ class JobQueueService(Generic[T]):
                 result = await session.execute(
                     select(self.model_class)
                     .where(self.model_class.status == "pending")
-                    .order_by(self.model_class.created_at)
+                    .order_by(self.model_class.created_at, self.model_class.id)
                     .limit(1)
                     .with_for_update(skip_locked=True)
                 )
