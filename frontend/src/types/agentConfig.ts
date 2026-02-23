@@ -8,6 +8,10 @@ export interface AgentConfig {
   name: string;
   agent_type: string;
   scoring_algorithm: ScoringAlgorithm;
+  volume_score?: number;
+  candle_pattern_score?: number;
+  cci_score?: number;
+  ma20_distance_score?: number;
 }
 
 /**
@@ -25,6 +29,10 @@ export interface CreateAgentConfigRequest {
   name: string;
   agent_type?: string;
   scoring_algorithm?: ScoringAlgorithm;
+  volume_score?: number;
+  candle_pattern_score?: number;
+  cci_score?: number;
+  ma20_distance_score?: number;
 }
 
 /**
@@ -33,4 +41,8 @@ export interface CreateAgentConfigRequest {
 export interface UpdateAgentConfigRequest {
   name?: string;
   scoring_algorithm?: ScoringAlgorithm;
+  volume_score?: number;
+  candle_pattern_score?: number;
+  cci_score?: number;
+  ma20_distance_score?: number;
 }

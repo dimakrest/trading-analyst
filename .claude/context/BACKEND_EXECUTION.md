@@ -97,17 +97,17 @@ gh pr create --title "Title" --body "Description"
 
 ```bash
 # Create migration
-alembic revision --autogenerate -m "Add column"
+./scripts/dc.sh exec backend-dev alembic revision --autogenerate -m "Add column"
 
 # Apply migrations
-alembic upgrade head
+./scripts/dc.sh exec backend-dev alembic upgrade head
 
 # Rollback
-alembic downgrade -1
+./scripts/dc.sh exec backend-dev alembic downgrade -1
 
 # Check status
-alembic current
-alembic history
+./scripts/dc.sh exec backend-dev alembic current
+./scripts/dc.sh exec backend-dev alembic history
 ```
 
 **Best Practices**:

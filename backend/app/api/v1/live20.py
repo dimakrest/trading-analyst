@@ -33,6 +33,7 @@ from app.schemas.live20_run import (
     Live20RunListResponse,
     Live20RunSummary,
 )
+from app.services.live20_evaluator import Live20Evaluator
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -90,6 +91,17 @@ async def analyze_symbols(
 
         # Determine scoring algorithm: agent_config_id takes precedence
         scoring_algorithm = agent_config.scoring_algorithm if agent_config else request.scoring_algorithm
+        if agent_config:
+            volume_score = agent_config.volume_score
+            candle_pattern_score = agent_config.candle_pattern_score
+            cci_score = agent_config.cci_score
+            ma20_distance_score = agent_config.ma20_distance_score
+        else:
+            defaults = Live20Evaluator.DEFAULT_SIGNAL_SCORES
+            volume_score = defaults["volume"]
+            candle_pattern_score = defaults["candle"]
+            cci_score = defaults["momentum"]
+            ma20_distance_score = defaults["ma20_distance"]
 
         repo = Live20RunRepository(session)
         run = await repo.create(
@@ -101,6 +113,10 @@ async def analyze_symbols(
             source_lists=source_lists_dict,
             scoring_algorithm=scoring_algorithm,
             agent_config_id=request.agent_config_id,
+            volume_score=volume_score,
+            candle_pattern_score=candle_pattern_score,
+            cci_score=cci_score,
+            ma20_distance_score=ma20_distance_score,
         )
         run_id = run.id
         await session.commit()
@@ -298,6 +314,10 @@ async def get_run(
         source_lists=run.source_lists,
         agent_config_id=run.agent_config_id,
         scoring_algorithm=run.scoring_algorithm,
+        volume_score=run.volume_score,
+        candle_pattern_score=run.candle_pattern_score,
+        cci_score=run.cci_score,
+        ma20_distance_score=run.ma20_distance_score,
         results=[Live20ResultResponse.from_recommendation(r) for r in recommendations],
         failed_symbols=run.failed_symbols or {},
     )

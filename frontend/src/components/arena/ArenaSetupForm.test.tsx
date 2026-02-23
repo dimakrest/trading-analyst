@@ -287,19 +287,20 @@ describe('ArenaSetupForm', () => {
 
       // Test score >= 80
       fireEvent.change(minBuyScoreInput, { target: { value: '80' } });
-      expect(screen.getByText(/at least 4 of 5 criteria/i)).toBeInTheDocument();
+      expect(screen.getByText(/trend must be bearish/i)).toBeInTheDocument();
+      expect(screen.getByText(/very selective/i)).toBeInTheDocument();
 
       // Test score >= 60
       fireEvent.change(minBuyScoreInput, { target: { value: '60' } });
-      expect(screen.getByText(/at least 3 of 5 criteria/i)).toBeInTheDocument();
+      expect(screen.getByText(/balances selectivity and trade frequency/i)).toBeInTheDocument();
 
       // Test score >= 40
       fireEvent.change(minBuyScoreInput, { target: { value: '40' } });
-      expect(screen.getByText(/at least 2 of 5 criteria/i)).toBeInTheDocument();
+      expect(screen.getByText(/allows moderate setups/i)).toBeInTheDocument();
 
       // Test score < 40
       fireEvent.change(minBuyScoreInput, { target: { value: '20' } });
-      expect(screen.getByText(/at least 1 of 5 criteria/i)).toBeInTheDocument();
+      expect(screen.getByText(/is permissive/i)).toBeInTheDocument();
     });
   });
 

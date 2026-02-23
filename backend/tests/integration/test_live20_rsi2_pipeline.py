@@ -184,12 +184,12 @@ class TestLive20RSI2Pipeline:
         assert 0 <= rec.confidence_score <= 100
 
     @pytest.mark.asyncio
-    async def test_cci_backward_compatibility_score_multiple_of_20(
+    async def test_cci_backward_compatibility_score_multiple_of_25(
         self,
         test_session_factory,
         db_session: AsyncSession,
     ):
-        """CCI scoring should remain binary (scores are multiples of 20)."""
+        """Default CCI scoring should remain binary (multiples of default 25)."""
         service = Live20Service(test_session_factory, scoring_algorithm="cci")
 
         result = await service._analyze_symbol("AAPL")
@@ -201,6 +201,6 @@ class TestLive20RSI2Pipeline:
         assert result.status == "success", f"Analysis failed: {result.error_message}"
         rec = result.recommendation
 
-        # CCI uses binary scoring, so total score should be multiple of 20
-        assert rec.confidence_score % 20 == 0
+        # Default CCI uses binary weighted scoring (25-point increments)
+        assert rec.confidence_score % 25 == 0
         assert 0 <= rec.confidence_score <= 100

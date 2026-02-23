@@ -78,6 +78,10 @@ export interface Live20RunSummary {
   stock_list_name: string | null;
   source_lists?: Array<{ id: number; name: string }> | null;
   scoring_algorithm: ScoringAlgorithm | null;
+  volume_score?: number | null;
+  candle_pattern_score?: number | null;
+  cci_score?: number | null;
+  ma20_distance_score?: number | null;
 }
 
 export interface Live20RunListResponse {
@@ -104,6 +108,10 @@ export interface Live20RunDetail {
   error_message?: string | null;
   failed_symbols?: Record<string, string>;
   scoring_algorithm: ScoringAlgorithm | null;
+  volume_score?: number | null;
+  candle_pattern_score?: number | null;
+  cci_score?: number | null;
+  ma20_distance_score?: number | null;
 }
 
 /** Portfolio recommendation types -- used by Live20 Recommend Portfolio feature */

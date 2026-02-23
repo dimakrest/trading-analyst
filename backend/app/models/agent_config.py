@@ -1,5 +1,5 @@
 """Agent configuration model for named scoring presets."""
-from sqlalchemy import String
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -27,4 +27,20 @@ class AgentConfig(Base):
     scoring_algorithm: Mapped[str] = mapped_column(
         String(20), nullable=False, default="cci",
         doc="Scoring algorithm: 'cci' or 'rsi2'"
+    )
+    volume_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=25,
+        doc="Score weight for volume signal (0-100)"
+    )
+    candle_pattern_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=25,
+        doc="Score weight for candle pattern signal (0-100)"
+    )
+    cci_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=25,
+        doc="Score weight for momentum signal (CCI/RSI-2) (0-100)"
+    )
+    ma20_distance_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=25,
+        doc="Score weight for MA20 distance signal (0-100)"
     )

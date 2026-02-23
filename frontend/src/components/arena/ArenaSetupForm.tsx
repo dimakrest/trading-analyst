@@ -82,28 +82,22 @@ const isValidMinBuyScore = (score: number): boolean => {
 };
 
 /**
- * Get dynamic help text based on minimum buy score and algorithm
+ * Get dynamic help text based on minimum buy score.
  *
- * Shows how many criteria must align for the agent to buy.
- * Context-aware: different text for CCI (multiples of 20) vs RSI-2 (multiples of 5).
+ * Trend is an eligibility filter (non-scoring). Buy threshold applies to the
+ * weighted total from MA20 distance, candle pattern, volume, and momentum.
  */
-const getMinBuyScoreHelpText = (score: number, scoringAlgorithm: 'cci' | 'rsi2' | null): string => {
-  if (scoringAlgorithm === 'rsi2') {
-    // RSI-2 uses graduated scoring (0/5/10/15/20 per criterion)
-    return 'Minimum total score required to trigger a buy signal. With RSI-2, criteria contribute graduated scores (5/10/15/20 pts), so total scores can be any multiple of 5.';
-  }
-
-  // CCI uses binary 20-point scoring
+const getMinBuyScoreHelpText = (score: number): string => {
   if (score >= 80) {
-    return 'Agent buys when at least 4 of 5 criteria align. Each criterion contributes 20 points.';
+    return 'Trend must be bearish. This threshold is very selective and requires strong weighted confirmation.';
   }
   if (score >= 60) {
-    return 'Agent buys when at least 3 of 5 criteria align. Each criterion contributes 20 points.';
+    return 'Trend must be bearish. This threshold balances selectivity and trade frequency.';
   }
   if (score >= 40) {
-    return 'Agent buys when at least 2 of 5 criteria align. Each criterion contributes 20 points.';
+    return 'Trend must be bearish. This threshold allows moderate setups based on weighted signals.';
   }
-  return 'Agent buys when at least 1 of 5 criteria align. Each criterion contributes 20 points.';
+  return 'Trend must be bearish. This threshold is permissive and may increase trade frequency.';
 };
 
 /**
@@ -479,10 +473,7 @@ export const ArenaSetupForm = ({
             />
 
             <p className="text-xs text-muted-foreground mt-2">
-              {getMinBuyScoreHelpText(
-                parseFloat(minBuyScore),
-                agentConfigs.find((c) => c.id === selectedAgentConfigId)?.scoring_algorithm ?? null
-              )}
+              {getMinBuyScoreHelpText(parseFloat(minBuyScore))}
             </p>
           </div>
         </div>

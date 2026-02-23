@@ -69,9 +69,9 @@ To regenerate configuration: delete `.env.dev` and run `./scripts/dc.sh` again.
 ## Database Operations
 
 ```bash
-# Generate migration
-cd backend && alembic revision --autogenerate -m "Add new table"
-alembic upgrade head
+# Dev - use wrapper script from repo root
+./scripts/dc.sh exec backend-dev alembic revision --autogenerate -m "Add new table"
+./scripts/dc.sh exec backend-dev alembic upgrade head
 ```
 
 ---

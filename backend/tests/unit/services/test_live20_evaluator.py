@@ -15,10 +15,10 @@ from app.models.recommendation import ScoringAlgorithm
 class TestLive20EvaluatorConstants:
     """Test evaluator constants."""
 
-    def test_weight_per_criterion(self):
-        """Verify WEIGHT_PER_CRITERION is 20."""
+    def test_default_weight_per_signal(self):
+        """Verify default non-trend signal weight is 25."""
         evaluator = Live20Evaluator()
-        assert evaluator.WEIGHT_PER_CRITERION == 20
+        assert evaluator.DEFAULT_WEIGHT_PER_SIGNAL == 25
 
     def test_ma20_distance_threshold(self):
         """Verify MA20_DISTANCE_THRESHOLD is 5.0."""
@@ -29,6 +29,33 @@ class TestLive20EvaluatorConstants:
         """Verify MIN_CRITERIA_FOR_SETUP is 3."""
         evaluator = Live20Evaluator()
         assert evaluator.MIN_CRITERIA_FOR_SETUP == 3
+
+
+class TestSignalScoreNormalization:
+    """Test signal score normalization and validation."""
+
+    def test_normalize_signal_scores_uses_defaults_when_none(self):
+        """None input should produce default signal weights."""
+        normalized = Live20Evaluator.normalize_signal_scores(None)
+
+        assert normalized == {
+            "volume": 25,
+            "candle": 25,
+            "momentum": 25,
+            "ma20_distance": 25,
+        }
+
+    def test_normalize_signal_scores_rejects_invalid_total(self):
+        """Scores must sum to 100."""
+        with pytest.raises(ValueError, match="must sum to 100"):
+            Live20Evaluator.normalize_signal_scores(
+                {
+                    "volume": 50,
+                    "candle": 30,
+                    "momentum": 10,
+                    "ma20_distance": 5,
+                }
+            )
 
 
 class TestLive20EvaluatorEvaluateCriteria:
@@ -88,17 +115,23 @@ class TestLive20EvaluatorEvaluateCriteria:
         names = [c.name for c in criteria]
         assert names == ["trend", "ma20_distance", "candle", "volume", "momentum"]
 
-    def test_all_criteria_have_binary_scores_20(self, evaluator, sample_price_data):
-        """Verify each criterion has a score of 20 for CCI (default)."""
+    def test_default_scores_trend_zero_others_25(self, evaluator, sample_price_data):
+        """Verify default score profile: trend=0, non-trend criteria=25."""
         # Arrange
         opens, highs, lows, closes, volumes = sample_price_data
 
         # Act
         criteria, _, _, _ = evaluator.evaluate_criteria(opens, highs, lows, closes, volumes)
 
-        # Assert - with default CCI, all criteria have score_for_long = 20
+        expected_scores = {
+            "trend": 0,
+            "ma20_distance": 25,
+            "candle": 25,
+            "volume": 25,
+            "momentum": 25,
+        }
         for c in criteria:
-            assert c.score_for_long == 20, f"Criterion {c.name} has score_for_long {c.score_for_long}, expected 20"
+            assert c.score_for_long == expected_scores[c.name]
 
     def test_returns_volume_signal(self, evaluator, sample_price_data):
         """Verify volume_signal has aligned_for_long, rvol attributes."""
@@ -148,7 +181,7 @@ class TestLive20EvaluatorDetermineDirection:
         return Live20Evaluator()
 
     def test_long_direction_when_3_long_aligned(self, evaluator):
-        """Test 3 criteria aligned for LONG returns direction=LONG, score=60."""
+        """Trend + 2 non-trend aligned returns LONG and excludes trend from score."""
         # Arrange
         criteria = [
             CriterionResult("trend", "bearish", True, 20),
@@ -163,10 +196,10 @@ class TestLive20EvaluatorDetermineDirection:
 
         # Assert
         assert direction == Live20Direction.LONG
-        assert score == 60
+        assert score == 40
 
     def test_no_setup_when_less_than_3_aligned(self, evaluator):
-        """Test only 1 aligned returns direction=NO_SETUP, score=20."""
+        """Trend-only alignment returns NO_SETUP and score=0 (trend is non-scoring)."""
         # Arrange
         criteria = [
             CriterionResult("trend", "bearish", True, 20),
@@ -181,10 +214,10 @@ class TestLive20EvaluatorDetermineDirection:
 
         # Assert
         assert direction == Live20Direction.NO_SETUP
-        assert score == 20
+        assert score == 0
 
     def test_max_score_is_100(self, evaluator):
-        """Test 5 aligned returns score=100."""
+        """Test all 4 non-trend criteria aligned returns score=80 with these fixtures."""
         # Arrange
         criteria = [
             CriterionResult("trend", "bearish", True, 20),
@@ -199,6 +232,21 @@ class TestLive20EvaluatorDetermineDirection:
 
         # Assert
         assert direction == Live20Direction.LONG
+        assert score == 80
+
+    def test_no_setup_when_trend_not_bearish_even_with_high_signal_score(self, evaluator):
+        """Trend is a hard filter: bullish trend cannot produce LONG."""
+        criteria = [
+            CriterionResult("trend", "bullish", False, 0),
+            CriterionResult("ma20_distance", "-8%", True, 25),
+            CriterionResult("candle", "morning_star", True, 25),
+            CriterionResult("volume", "2.1x", True, 25),
+            CriterionResult("momentum", "oversold", True, 25),
+        ]
+
+        direction, score = evaluator.determine_direction_and_score(criteria)
+
+        assert direction == Live20Direction.NO_SETUP
         assert score == 100
 
 
@@ -559,8 +607,8 @@ class TestRSI2Integration:
         momentum_rsi2 = [c for c in criteria_rsi2 if c.name == "momentum"]
         assert len(momentum_rsi2) == 1
 
-    def test_cci_regression_sum_equals_count_times_20(self, evaluator, sample_price_data):
-        """Test CCI backward compatibility: sum of aligned scores == aligned_count * 20."""
+    def test_cci_regression_sum_equals_non_trend_weight_sum(self, evaluator, sample_price_data):
+        """Test CCI score is the sum of aligned non-trend criterion scores."""
         opens, highs, lows, closes, volumes = sample_price_data
 
         criteria, _, _, _ = evaluator.evaluate_criteria(
@@ -570,9 +618,11 @@ class TestRSI2Integration:
 
         direction, score = evaluator.determine_direction_and_score(criteria)
 
-        # Count aligned criteria and compute expected score
-        aligned_count = sum(1 for c in criteria if c.aligned_for_long)
-        expected_score = aligned_count * 20
+        expected_score = sum(
+            c.score_for_long
+            for c in criteria
+            if c.aligned_for_long and c.name != Live20Evaluator.TREND_CRITERION_NAME
+        )
 
         assert score == expected_score, f"CCI regression failed: score={score}, expected={expected_score}"
 
@@ -623,8 +673,8 @@ class TestGraduatedScoring:
         """Create Live20Evaluator instance."""
         return Live20Evaluator()
 
-    def test_direction_determined_by_count_not_score(self, evaluator):
-        """Test that direction is determined by aligned COUNT, not score sum."""
+    def test_direction_determined_by_non_trend_count_with_trend_filter(self, evaluator):
+        """Direction requires trend eligibility and >=2 aligned non-trend criteria."""
         # 3 binary criteria aligned for LONG (20 pts each) + 1 RSI-2 (5 pts) = 65 total
         criteria = [
             CriterionResult("trend", "bearish", True, 20),   # LONG
@@ -636,10 +686,10 @@ class TestGraduatedScoring:
 
         direction, score = evaluator.determine_direction_and_score(criteria)
 
-        # Direction is LONG (4 aligned count)
+        # Direction is LONG (3 aligned non-trend criteria, trend eligible)
         assert direction == Live20Direction.LONG
-        # Score is 20+20+20+5 = 65
-        assert score == 65
+        # Score excludes trend: 20+20+5 = 45
+        assert score == 45
 
     def test_graduated_scoring_total(self, evaluator):
         """Test that total score correctly sums graduated scores."""
@@ -655,7 +705,7 @@ class TestGraduatedScoring:
         direction, score = evaluator.determine_direction_and_score(criteria)
 
         assert direction == Live20Direction.LONG
-        assert score == 95  # 20+20+20+20+15
+        assert score == 75  # 20+20+20+15 (trend excluded)
 
     def test_no_setup_score_is_sum_of_long_aligned(self, evaluator):
         """Test NO_SETUP score is sum of long-aligned criteria scores."""
@@ -671,7 +721,7 @@ class TestGraduatedScoring:
         direction, score = evaluator.determine_direction_and_score(criteria)
 
         assert direction == Live20Direction.NO_SETUP
-        assert score == 35  # 20+15
+        assert score == 15  # trend excluded, momentum only
 
 
 class TestCriterionNames:

@@ -42,6 +42,10 @@ class TestAgentConfigPipeline:
         assert run_data["agent_config_id"] == agent_config_id
         # Verify scoring_algorithm from agent config is used
         assert run_data["scoring_algorithm"] == "rsi2"
+        assert run_data["volume_score"] == 25
+        assert run_data["candle_pattern_score"] == 25
+        assert run_data["cci_score"] == 25
+        assert run_data["ma20_distance_score"] == 25
 
     async def test_live20_without_agent_config_defaults_to_cci(
         self,
@@ -65,6 +69,10 @@ class TestAgentConfigPipeline:
         # Should default to CCI
         assert run_data["scoring_algorithm"] == "cci"
         assert run_data["agent_config_id"] is None
+        assert run_data["volume_score"] == 25
+        assert run_data["candle_pattern_score"] == 25
+        assert run_data["cci_score"] == 25
+        assert run_data["ma20_distance_score"] == 25
 
     async def test_arena_with_agent_config(
         self,
@@ -96,6 +104,88 @@ class TestAgentConfigPipeline:
 
         # Verify scoring_algorithm from agent config was used
         assert sim_data["scoring_algorithm"] == "rsi2"
+        assert sim_data["volume_score"] == 25
+        assert sim_data["candle_pattern_score"] == 25
+        assert sim_data["cci_score"] == 25
+        assert sim_data["ma20_distance_score"] == 25
+
+    async def test_live20_with_agent_config_custom_signal_scores(
+        self,
+        async_client: AsyncClient,
+    ):
+        """Test Live20 run stores custom signal score weights from agent config."""
+        config_response = await async_client.post(
+            "/api/v1/agent-configs",
+            json={
+                "name": "Custom Weights Live20",
+                "scoring_algorithm": "rsi2",
+                "volume_score": 10,
+                "candle_pattern_score": 20,
+                "cci_score": 30,
+                "ma20_distance_score": 40,
+            },
+        )
+        assert config_response.status_code == status.HTTP_201_CREATED
+        agent_config_id = config_response.json()["id"]
+
+        analyze_response = await async_client.post(
+            "/api/v1/live-20/analyze",
+            json={
+                "symbols": ["AAPL"],
+                "agent_config_id": agent_config_id,
+            },
+        )
+        assert analyze_response.status_code == status.HTTP_200_OK
+        run_id = analyze_response.json()["run_id"]
+
+        run_response = await async_client.get(f"/api/v1/live-20/runs/{run_id}")
+        assert run_response.status_code == status.HTTP_200_OK
+        run_data = run_response.json()
+
+        assert run_data["scoring_algorithm"] == "rsi2"
+        assert run_data["volume_score"] == 10
+        assert run_data["candle_pattern_score"] == 20
+        assert run_data["cci_score"] == 30
+        assert run_data["ma20_distance_score"] == 40
+
+    async def test_arena_with_agent_config_custom_signal_scores(
+        self,
+        async_client: AsyncClient,
+    ):
+        """Test Arena simulation response includes custom score weights from agent config."""
+        config_response = await async_client.post(
+            "/api/v1/agent-configs",
+            json={
+                "name": "Custom Weights Arena",
+                "scoring_algorithm": "cci",
+                "volume_score": 40,
+                "candle_pattern_score": 30,
+                "cci_score": 20,
+                "ma20_distance_score": 10,
+            },
+        )
+        assert config_response.status_code == status.HTTP_201_CREATED
+        agent_config_id = config_response.json()["id"]
+
+        sim_response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json={
+                "symbols": ["AAPL", "MSFT"],
+                "start_date": "2025-01-01",
+                "end_date": "2025-01-31",
+                "initial_capital": 10000,
+                "position_size": 1000,
+                "agent_config_id": agent_config_id,
+            },
+        )
+        assert sim_response.status_code == status.HTTP_202_ACCEPTED
+        sim_data = sim_response.json()
+
+        assert sim_data["scoring_algorithm"] == "cci"
+        assert sim_data["volume_score"] == 40
+        assert sim_data["candle_pattern_score"] == 30
+        assert sim_data["cci_score"] == 20
+        assert sim_data["ma20_distance_score"] == 10
 
     async def test_arena_without_agent_config_uses_request_algorithm(
         self,
@@ -117,6 +207,10 @@ class TestAgentConfigPipeline:
         assert sim_response.status_code == status.HTTP_202_ACCEPTED
         sim_data = sim_response.json()
         assert sim_data["scoring_algorithm"] == "rsi2"
+        assert sim_data["volume_score"] == 25
+        assert sim_data["candle_pattern_score"] == 25
+        assert sim_data["cci_score"] == 25
+        assert sim_data["ma20_distance_score"] == 25
 
     async def test_live20_agent_config_id_takes_precedence(
         self,
