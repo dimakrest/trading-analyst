@@ -64,9 +64,9 @@ class CreateSimulationRequest(StrictBaseModel):
     )
     min_buy_score: int = Field(
         default=60,
-        ge=20,
+        ge=5,
         le=100,
-        description="Minimum score (20-100) to generate BUY signal (default: 60 = 3/5 criteria aligned)",
+        description="Minimum score (5-100) to generate BUY signal (default: 60 = balanced selectivity)",
     )
     agent_config_id: int | None = Field(
         None,
@@ -75,6 +75,11 @@ class CreateSimulationRequest(StrictBaseModel):
     scoring_algorithm: Literal["cci", "rsi2"] = Field(
         default="cci",
         description="Scoring algorithm for momentum criterion: 'cci' (default) or 'rsi2'. Overridden by agent_config_id if provided.",
+    )
+    portfolio_config_id: int | None = Field(
+        None,
+        ge=1,
+        description="ID of saved portfolio configuration to use. Overrides portfolio_strategy/max_* when provided.",
     )
     portfolio_strategy: str = Field(
         default="none",
@@ -263,6 +268,8 @@ class SimulationResponse(StrictBaseModel):
     candle_pattern_score: int | None = None
     cci_score: int | None = None
     ma20_distance_score: int | None = None
+    portfolio_config_id: int | None = None
+    portfolio_config_name: str | None = None
     portfolio_strategy: str | None = None
     max_per_sector: int | None = None
     max_open_positions: int | None = None

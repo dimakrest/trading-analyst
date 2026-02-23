@@ -27,13 +27,15 @@ describe('MobileBottomTabs', () => {
       expect(nav).toBeInTheDocument();
     });
 
-    it('renders all 4 navigation items as links', () => {
+    it('renders all navigation items as links', () => {
       renderWithRouter();
 
       expect(screen.getByRole('link', { name: /analysis/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /live 20/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /lists/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /arena/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /lists/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /portfolios/i })).toBeInTheDocument();
     });
 
     it('uses 4-column grid layout', () => {
@@ -83,6 +85,14 @@ describe('MobileBottomTabs', () => {
       const arenaLink = screen.getByRole('link', { name: /arena/i });
       expect(arenaLink).toHaveAttribute('aria-current', 'page');
       expect(arenaLink).toHaveClass('text-accent-primary');
+    });
+
+    it('highlights Portfolios when on /portfolios path', () => {
+      renderWithRouter('/portfolios');
+
+      const portfoliosLink = screen.getByRole('link', { name: /portfolios/i });
+      expect(portfoliosLink).toHaveAttribute('aria-current', 'page');
+      expect(portfoliosLink).toHaveClass('text-accent-primary');
     });
 
     it('applies stroke-[2.5] to active icons', () => {

@@ -26,6 +26,7 @@ try:
         Recommendation,
         Live20Run,
         StockList,
+        PortfolioConfig,
         ArenaSimulation,
         ArenaPosition,
         ArenaSnapshot,

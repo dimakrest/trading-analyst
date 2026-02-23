@@ -126,9 +126,17 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
           />
         </div>
 
-        {/* Portfolio Strategy Row — only shown when a non-default strategy is configured */}
-        {simulation.portfolio_strategy && simulation.portfolio_strategy !== 'none' && (
+        {/* Portfolio strategy row shown for saved setups or non-default strategy */}
+        {(simulation.portfolio_config_name
+          || (simulation.portfolio_strategy && simulation.portfolio_strategy !== 'none')) && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 pt-3 border-t border-border-subtle">
+            {simulation.portfolio_config_name && (
+              <ConfigItem
+                icon={<LayoutGrid className="h-3.5 w-3.5" />}
+                label="Portfolio Setup"
+                value={<span className="text-text-primary">{simulation.portfolio_config_name}</span>}
+              />
+            )}
             <ConfigItem
               icon={<LayoutGrid className="h-3.5 w-3.5" />}
               label="Portfolio Strategy"

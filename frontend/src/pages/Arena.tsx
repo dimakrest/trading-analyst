@@ -81,16 +81,9 @@ export const Arena = () => {
       start_date: replaySimulation.start_date,
       end_date: replaySimulation.end_date,
       initial_capital: parseFloat(replaySimulation.initial_capital),
-      position_size: parseFloat(replaySimulation.position_size),
-      trailing_stop_pct: replaySimulation.trailing_stop_pct
-        ? parseFloat(replaySimulation.trailing_stop_pct)
-        : 5,
-      min_buy_score: replaySimulation.min_buy_score ?? 60,
       stock_list_id: replaySimulation.stock_list_id,
       stock_list_name: replaySimulation.stock_list_name,
-      portfolio_strategy: replaySimulation.portfolio_strategy ?? undefined,
-      max_per_sector: replaySimulation.max_per_sector,
-      max_open_positions: replaySimulation.max_open_positions,
+      portfolio_config_id: replaySimulation.portfolio_config_id ?? undefined,
     };
   }, [replaySimulation]);
 

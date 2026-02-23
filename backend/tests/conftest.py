@@ -120,7 +120,8 @@ async def test_engine(test_settings: Settings):
     async with engine.begin() as conn:
         await conn.execute(text(
             "TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, "
-            "live20_runs, stock_prices, ib_orders, recommendations, stock_lists "
+            "live20_runs, stock_prices, ib_orders, recommendations, stock_lists, "
+            "portfolio_configs "
             "RESTART IDENTITY CASCADE"
         ))
 

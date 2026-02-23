@@ -7,7 +7,7 @@ import { NAV_ITEMS, isNavItemActive } from './navigationConfig';
  *
  * Fixed bottom navigation for mobile devices (< 768px).
  * Features:
- * - All 4 navigation tabs with icons and labels
+ * - Global navigation tabs with icons and labels
  * - Active state highlighting with accent-primary color
  * - Touch feedback with scale animation
  * - Safe area insets for devices with notches

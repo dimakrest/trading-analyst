@@ -9,8 +9,8 @@ import {
 
 describe('navigationConfig', () => {
   describe('NAV_ITEMS', () => {
-    it('contains all 5 navigation items', () => {
-      expect(NAV_ITEMS).toHaveLength(5);
+    it('contains all 6 navigation items', () => {
+      expect(NAV_ITEMS).toHaveLength(6);
     });
 
     it('contains Analysis as first item', () => {
@@ -38,6 +38,11 @@ describe('navigationConfig', () => {
       expect(NAV_ITEMS[4].label).toBe('Lists');
     });
 
+    it('contains Portfolios as sixth item', () => {
+      expect(NAV_ITEMS[5].path).toBe('/portfolios');
+      expect(NAV_ITEMS[5].label).toBe('Portfolios');
+    });
+
     it('each item has an icon component', () => {
       NAV_ITEMS.forEach((item) => {
         expect(item.icon).toBeDefined();
@@ -60,8 +65,8 @@ describe('navigationConfig', () => {
   });
 
   describe('MORE_NAV_ITEMS', () => {
-    it('contains two additional navigation items (Agents, Lists)', () => {
-      expect(MORE_NAV_ITEMS).toHaveLength(2);
+    it('contains three additional navigation items (Agents, Lists, Portfolios)', () => {
+      expect(MORE_NAV_ITEMS).toHaveLength(3);
     });
 
     it('includes Agents as first item', () => {
@@ -72,6 +77,11 @@ describe('navigationConfig', () => {
     it('includes Lists as second item', () => {
       expect(MORE_NAV_ITEMS[1].label).toBe('Lists');
       expect(MORE_NAV_ITEMS[1].path).toBe('/lists');
+    });
+
+    it('includes Portfolios as third item', () => {
+      expect(MORE_NAV_ITEMS[2].label).toBe('Portfolios');
+      expect(MORE_NAV_ITEMS[2].path).toBe('/portfolios');
     });
   });
 
@@ -117,6 +127,10 @@ describe('navigationConfig', () => {
 
     it('returns true when on lists path', () => {
       expect(isMoreMenuActive('/lists')).toBe(true);
+    });
+
+    it('returns true when on portfolios path', () => {
+      expect(isMoreMenuActive('/portfolios')).toBe(true);
     });
   });
 });

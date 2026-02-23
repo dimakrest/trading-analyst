@@ -15,6 +15,7 @@ from app.models.live20_run import Live20Run
 from app.models.stock_list import StockList
 from app.models.stock_sector import StockSector
 from app.models.agent_config import AgentConfig
+from app.models.portfolio_config import PortfolioConfig
 from app.models.arena import (
     ArenaSimulation,
     ArenaPosition,
@@ -37,6 +38,7 @@ __all__ = [
     "StockList",
     "StockSector",
     "AgentConfig",
+    "PortfolioConfig",
     "ArenaSimulation",
     "ArenaPosition",
     "ArenaSnapshot",

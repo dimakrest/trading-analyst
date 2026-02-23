@@ -23,6 +23,36 @@ vi.mock('../services/arenaService', () => ({
   createSimulation: (...args: unknown[]) => mockCreateSimulation(...args),
 }));
 
+vi.mock('../hooks/useAgentConfigs', () => ({
+  useAgentConfigs: vi.fn(() => ({
+    configs: [],
+    selectedConfigId: undefined,
+    setSelectedConfigId: vi.fn(),
+    isLoading: false,
+    error: null,
+  })),
+}));
+
+vi.mock('../hooks/usePortfolioConfigs', () => ({
+  usePortfolioConfigs: vi.fn(() => ({
+    configs: [
+      {
+        id: 1,
+        name: 'Default Setup',
+        portfolio_strategy: 'score_sector_moderate_atr',
+        position_size: 1000,
+        min_buy_score: 60,
+        trailing_stop_pct: 5,
+        max_per_sector: 2,
+        max_open_positions: 8,
+      },
+    ],
+    setConfigs: vi.fn(),
+    isLoading: false,
+    error: null,
+  })),
+}));
+
 // Mock sonner toast
 vi.mock('sonner', () => ({
   toast: {

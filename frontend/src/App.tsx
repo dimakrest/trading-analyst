@@ -14,6 +14,7 @@ import { StockLists } from './pages/StockLists';
 import { Agents } from './pages/Agents';
 import { Arena } from './pages/Arena';
 import { ArenaSimulationDetail } from './pages/ArenaSimulationDetail';
+import { PortfolioSetups } from './pages/PortfolioSetups';
 import './index.css';
 
 function App() {
@@ -45,6 +46,7 @@ function App() {
                     <Route path="/live-20/runs/:id" element={<Live20RunDetail />} />
                     <Route path="/agents" element={<Agents />} />
                     <Route path="/lists" element={<StockLists />} />
+                    <Route path="/portfolios" element={<PortfolioSetups />} />
                     <Route path="/arena" element={<Arena />} />
                     <Route path="/arena/:id" element={<ArenaSimulationDetail />} />
                   </Routes>

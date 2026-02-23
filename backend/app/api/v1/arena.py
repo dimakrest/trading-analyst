@@ -17,6 +17,7 @@ from app.core.database import get_db_session
 from app.core.deps import get_data_service
 from app.models.arena import ArenaSimulation, SimulationStatus
 from app.repositories.agent_config_repository import AgentConfigRepository
+from app.repositories.portfolio_config_repository import PortfolioConfigRepository
 from app.schemas.arena import (
     AgentInfo,
     BenchmarkDataPoint,
@@ -54,6 +55,8 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     candle_pattern_score = agent_config.get("candle_pattern_score")
     cci_score = agent_config.get("cci_score")
     ma20_distance_score = agent_config.get("ma20_distance_score")
+    portfolio_config_id = agent_config.get("portfolio_config_id")
+    portfolio_config_name = agent_config.get("portfolio_config_name")
     portfolio_strategy = agent_config.get("portfolio_strategy")
     max_per_sector = agent_config.get("max_per_sector")
     max_open_positions = agent_config.get("max_open_positions")
@@ -76,6 +79,8 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         candle_pattern_score=candle_pattern_score,
         cci_score=cci_score,
         ma20_distance_score=ma20_distance_score,
+        portfolio_config_id=portfolio_config_id,
+        portfolio_config_name=portfolio_config_name,
         portfolio_strategy=portfolio_strategy,
         max_per_sector=max_per_sector,
         max_open_positions=max_open_positions,
@@ -194,21 +199,49 @@ async def create_simulation(
         cci_score = defaults["momentum"]
         ma20_distance_score = defaults["ma20_distance"]
 
+    # Look up portfolio config if provided
+    portfolio_config_name: str | None = None
+    if request.portfolio_config_id is not None:
+        portfolio_repo = PortfolioConfigRepository(session)
+        portfolio_config = await portfolio_repo.get_by_id(request.portfolio_config_id)
+        if not portfolio_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Portfolio config {request.portfolio_config_id} not found",
+            )
+        portfolio_strategy = portfolio_config.portfolio_strategy
+        max_per_sector = portfolio_config.max_per_sector
+        max_open_positions = portfolio_config.max_open_positions
+        position_size = Decimal(str(portfolio_config.position_size))
+        min_buy_score = portfolio_config.min_buy_score
+        trailing_stop_pct = portfolio_config.trailing_stop_pct
+        portfolio_config_name = portfolio_config.name
+    else:
+        portfolio_strategy = request.portfolio_strategy
+        max_per_sector = request.max_per_sector
+        max_open_positions = request.max_open_positions
+        position_size = request.position_size
+        min_buy_score = request.min_buy_score
+        trailing_stop_pct = request.trailing_stop_pct
+
     # Build agent_config dictionary from request parameters
     agent_config = {
-        "trailing_stop_pct": request.trailing_stop_pct,
-        "min_buy_score": request.min_buy_score,
+        "trailing_stop_pct": trailing_stop_pct,
+        "min_buy_score": min_buy_score,
         "scoring_algorithm": scoring_algorithm,
         "volume_score": volume_score,
         "candle_pattern_score": candle_pattern_score,
         "cci_score": cci_score,
         "ma20_distance_score": ma20_distance_score,
-        "portfolio_strategy": request.portfolio_strategy,
-        "max_per_sector": request.max_per_sector,
-        "max_open_positions": request.max_open_positions,
+        "portfolio_strategy": portfolio_strategy,
+        "max_per_sector": max_per_sector,
+        "max_open_positions": max_open_positions,
     }
     if request.agent_config_id is not None:
         agent_config["agent_config_id"] = request.agent_config_id
+    if request.portfolio_config_id is not None:
+        agent_config["portfolio_config_id"] = request.portfolio_config_id
+        agent_config["portfolio_config_name"] = portfolio_config_name
 
     # Create simulation record
     simulation = ArenaSimulation(
@@ -219,7 +252,7 @@ async def create_simulation(
         start_date=request.start_date,
         end_date=request.end_date,
         initial_capital=request.initial_capital,
-        position_size=request.position_size,
+        position_size=position_size,
         agent_type=request.agent_type,
         agent_config=agent_config,
         status=SimulationStatus.PENDING.value,

@@ -149,6 +149,49 @@ async def test_create_simulation_with_moderate_atr_strategy(async_client: AsyncC
 
 
 @pytest.mark.asyncio
+async def test_create_simulation_with_portfolio_config_id_uses_saved_config(
+    async_client: AsyncClient,
+) -> None:
+    """POST /simulations with portfolio_config_id uses saved setup values."""
+    config_response = await async_client.post(
+        "/api/v1/portfolio-configs",
+        json={
+            "name": "Saved Conservative Setup",
+            "portfolio_strategy": "score_sector_low_atr",
+            "position_size": 2200,
+            "min_buy_score": 75,
+            "trailing_stop_pct": 8.5,
+            "max_per_sector": 1,
+            "max_open_positions": 4,
+        },
+    )
+    assert config_response.status_code == 201
+    config_data = config_response.json()
+
+    payload = {
+        **VALID_SIMULATION_PAYLOAD,
+        "portfolio_config_id": config_data["id"],
+        # These should be ignored when config_id is provided
+        "portfolio_strategy": "score_sector_high_atr",
+        "max_per_sector": 99,
+        "max_open_positions": 99,
+    }
+    response = await async_client.post("/api/v1/arena/simulations", json=payload)
+
+    assert response.status_code == 202
+    data = response.json()
+
+    assert data["portfolio_config_id"] == config_data["id"]
+    assert data["portfolio_config_name"] == "Saved Conservative Setup"
+    assert data["position_size"] == "2200.00"
+    assert data["min_buy_score"] == 75
+    assert data["trailing_stop_pct"] == "8.5"
+    assert data["portfolio_strategy"] == "score_sector_low_atr"
+    assert data["max_per_sector"] == 1
+    assert data["max_open_positions"] == 4
+
+
+@pytest.mark.asyncio
 async def test_create_simulation_with_invalid_portfolio_strategy_returns_422(
     async_client: AsyncClient,
 ) -> None:
@@ -164,6 +207,21 @@ async def test_create_simulation_with_invalid_portfolio_strategy_returns_422(
     # Verify the error message mentions the unknown strategy
     error_str = str(error_data)
     assert "nonexistent_strategy" in error_str or "portfolio_strategy" in error_str
+
+
+@pytest.mark.asyncio
+async def test_create_simulation_with_invalid_portfolio_config_id_returns_404(
+    async_client: AsyncClient,
+) -> None:
+    """POST /simulations with unknown portfolio_config_id returns 404."""
+    payload = {
+        **VALID_SIMULATION_PAYLOAD,
+        "portfolio_config_id": 99999,
+    }
+    response = await async_client.post("/api/v1/arena/simulations", json=payload)
+
+    assert response.status_code == 404
+    assert "Portfolio config" in response.json()["detail"]
 
 
 @pytest.mark.asyncio

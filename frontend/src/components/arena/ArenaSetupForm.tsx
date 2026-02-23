@@ -2,7 +2,7 @@
  * Arena Setup Form
  *
  * Form for configuring and starting a new trading simulation.
- * Supports symbol input, date range, capital settings, and trailing stop.
+ * Supports symbol input, date range, capital settings, and portfolio setup selection.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -12,13 +12,12 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { Slider } from '../ui/slider';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
 import { useAgentConfigs } from '../../hooks/useAgentConfigs';
-import { PORTFOLIO_STRATEGIES } from '../../constants/portfolio';
+import { usePortfolioConfigs } from '../../hooks/usePortfolioConfigs';
 import type { CreateSimulationRequest } from '../../types/arena';
 
 // Arena configuration constants
@@ -35,29 +34,12 @@ interface ArenaSetupFormProps {
     start_date: string;
     end_date: string;
     initial_capital: number;
-    position_size: number;
-    trailing_stop_pct: number;
-    min_buy_score: number;
     stock_list_id?: number | null;
     stock_list_name?: string | null;
     agent_config_id?: number | null;
-    portfolio_strategy?: string;
-    max_per_sector?: number | null;
-    max_open_positions?: number | null;
+    portfolio_config_id?: number | null;
   };
 }
-
-/** Minimum buy score configuration constants
- *
- * CRITICAL: STEP=5 supports graduated scoring (RSI-2)
- * MIN=5 provides safety guard against meaningless "buy everything" simulations
- */
-const MIN_BUY_SCORE_CONFIG = {
-  MIN: 5,
-  MAX: 100,
-  STEP: 5,
-  DEFAULT: 60,
-} as const;
 
 /**
  * Parse symbols from text input
@@ -73,39 +55,13 @@ const parseSymbols = (text: string): string[] => {
 };
 
 /**
- * Validate minimum buy score is within acceptable range
- */
-const isValidMinBuyScore = (score: number): boolean => {
-  return score >= MIN_BUY_SCORE_CONFIG.MIN && score <= MIN_BUY_SCORE_CONFIG.MAX;
-};
-
-/**
- * Get dynamic help text based on minimum buy score.
- *
- * Trend is an eligibility filter (non-scoring). Buy threshold applies to the
- * weighted total from MA20 distance, candle pattern, volume, and momentum.
- */
-const getMinBuyScoreHelpText = (score: number): string => {
-  if (score >= 80) {
-    return 'Trend must be bearish. This threshold is very selective and requires strong weighted confirmation.';
-  }
-  if (score >= 60) {
-    return 'Trend must be bearish. This threshold balances selectivity and trade frequency.';
-  }
-  if (score >= 40) {
-    return 'Trend must be bearish. This threshold allows moderate setups based on weighted signals.';
-  }
-  return 'Trend must be bearish. This threshold is permissive and may increase trade frequency.';
-};
-
-/**
  * Arena Setup Form Component
  *
  * Features:
  * - Multi-line textarea for symbols (comma, space, or newline separated)
  * - Date range picker (start and end dates)
- * - Capital settings (initial capital and position size)
- * - Trailing stop percentage
+ * - Capital settings
+ * - Portfolio setup selection (strategy, position size, min score, and stop loss)
  * - Validation: 1-50 symbols, start < end
  * - Submit button with loading state
  */
@@ -118,13 +74,8 @@ export const ArenaSetupForm = ({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [capital, setCapital] = useState('10000');
-  const [positionSize, setPositionSize] = useState('1000');
-  const [trailingStopPct, setTrailingStopPct] = useState('5');
-  const [minBuyScore, setMinBuyScore] = useState(MIN_BUY_SCORE_CONFIG.DEFAULT.toString());
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
-  const [portfolioStrategy, setPortfolioStrategy] = useState('none');
-  const [maxPerSector, setMaxPerSector] = useState('2');
-  const [maxOpenPositions, setMaxOpenPositions] = useState('');
+  const [selectedPortfolioConfigId, setSelectedPortfolioConfigId] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch stock lists
@@ -140,12 +91,27 @@ export const ArenaSetupForm = ({
     error: agentConfigsError,
   } = useAgentConfigs();
 
+  // Fetch portfolio configs
+  const {
+    configs: portfolioConfigs,
+    isLoading: portfolioConfigsLoading,
+    error: portfolioConfigsError,
+  } = usePortfolioConfigs();
+  const selectedPortfolioConfig = portfolioConfigs.find((c) => c.id === selectedPortfolioConfigId);
+
   // Show toast if configs fail to load
   useEffect(() => {
     if (agentConfigsError) {
       toast.error(agentConfigsError);
     }
   }, [agentConfigsError]);
+
+  // Show toast if portfolio configs fail to load
+  useEffect(() => {
+    if (portfolioConfigsError) {
+      toast.error(portfolioConfigsError);
+    }
+  }, [portfolioConfigsError]);
 
   // Populate form when initialValues are provided (e.g., from replay)
   useEffect(() => {
@@ -154,29 +120,27 @@ export const ArenaSetupForm = ({
       setStartDate(initialValues.start_date);
       setEndDate(initialValues.end_date);
       setCapital(initialValues.initial_capital.toString());
-      setPositionSize(initialValues.position_size.toString());
-      setTrailingStopPct(initialValues.trailing_stop_pct.toString());
-      setMinBuyScore(initialValues.min_buy_score.toString());
       // Always set list ID (including null for custom symbols)
       setSelectedListId(initialValues.stock_list_id ?? null);
       // Set agent config ID from replay if available
       if (initialValues.agent_config_id) {
         setSelectedAgentConfigId(initialValues.agent_config_id);
       }
-      // Set portfolio strategy fields if available
-      if (initialValues.portfolio_strategy != null) {
-        setPortfolioStrategy(initialValues.portfolio_strategy);
-      }
-      if (initialValues.max_per_sector != null) {
-        setMaxPerSector(initialValues.max_per_sector.toString());
-      }
-      if (initialValues.max_open_positions != null) {
-        setMaxOpenPositions(initialValues.max_open_positions.toString());
+      // Set portfolio setup ID if available
+      if (initialValues.portfolio_config_id != null) {
+        setSelectedPortfolioConfigId(initialValues.portfolio_config_id);
       }
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   }, [initialValues]);
+
+  // Auto-select first setup to keep arena configuration fully portfolio-driven.
+  useEffect(() => {
+    if (selectedPortfolioConfigId !== null) return;
+    if (portfolioConfigs.length === 0) return;
+    setSelectedPortfolioConfigId(portfolioConfigs[0].id);
+  }, [portfolioConfigs, selectedPortfolioConfigId]);
 
   /**
    * Handle list selection.
@@ -195,43 +159,31 @@ export const ArenaSetupForm = ({
 
   const handleSubmit = useCallback(async () => {
     const symbolList = parseSymbols(symbols);
-    if (symbolList.length === 0) return;
-
-    // Only send portfolio constraints when strategy is not "none"
-    const hasStrategy = portfolioStrategy !== 'none';
+    if (symbolList.length === 0 || selectedPortfolioConfigId === null) return;
 
     await onSubmit({
       symbols: symbolList,
       start_date: startDate,
       end_date: endDate,
       initial_capital: parseFloat(capital),
-      position_size: parseFloat(positionSize),
-      trailing_stop_pct: parseFloat(trailingStopPct),
-      min_buy_score: parseFloat(minBuyScore),
       stock_list_id: selectedList?.id,
       stock_list_name: selectedList?.name,
       agent_config_id: selectedAgentConfigId,
-      portfolio_strategy: portfolioStrategy,
-      max_per_sector: hasStrategy && maxPerSector ? parseInt(maxPerSector, 10) : null,
-      max_open_positions: hasStrategy && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null,
+      portfolio_config_id: selectedPortfolioConfigId,
     });
-  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, portfolioStrategy, maxPerSector, maxOpenPositions, onSubmit]);
+  }, [symbols, startDate, endDate, capital, selectedList, selectedAgentConfigId, selectedPortfolioConfigId, onSubmit]);
 
   const symbolList = parseSymbols(symbols);
   const hasValidSymbols = symbolList.length > 0 && symbolList.length <= MAX_ARENA_SYMBOLS;
   const hasValidDates = startDate && endDate && new Date(startDate) < new Date(endDate);
   const hasValidCapital = parseFloat(capital) > 0;
-  const hasValidPositionSize = parseFloat(positionSize) > 0;
-  const hasValidTrailingStop = parseFloat(trailingStopPct) > 0 && parseFloat(trailingStopPct) <= 100;
-  const hasValidMinBuyScore = isValidMinBuyScore(parseFloat(minBuyScore));
+  const hasSelectedPortfolioSetup = selectedPortfolioConfigId !== null;
 
   const canSubmit =
     hasValidSymbols &&
     hasValidDates &&
     hasValidCapital &&
-    hasValidPositionSize &&
-    hasValidTrailingStop &&
-    hasValidMinBuyScore &&
+    hasSelectedPortfolioSetup &&
     !isLoading;
 
   return (
@@ -315,45 +267,17 @@ export const ArenaSetupForm = ({
         </div>
 
         {/* Capital Settings */}
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <Label htmlFor="arena-capital">Capital ($)</Label>
-            <Input
-              id="arena-capital"
-              type="number"
-              min="1"
-              value={capital}
-              onChange={(e) => setCapital(e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
-          <div>
-            <Label htmlFor="arena-position-size">Position Size ($)</Label>
-            <Input
-              id="arena-position-size"
-              type="number"
-              min="1"
-              value={positionSize}
-              onChange={(e) => setPositionSize(e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
-          <div>
-            <Label htmlFor="arena-trailing-stop">Trailing Stop (%)</Label>
-            <Input
-              id="arena-trailing-stop"
-              type="number"
-              min="0.1"
-              max="100"
-              step="0.5"
-              value={trailingStopPct}
-              onChange={(e) => setTrailingStopPct(e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
+        <div>
+          <Label htmlFor="arena-capital">Capital ($)</Label>
+          <Input
+            id="arena-capital"
+            type="number"
+            min="1"
+            value={capital}
+            onChange={(e) => setCapital(e.target.value)}
+            className="mt-1 max-w-xs"
+            disabled={isLoading}
+          />
         </div>
 
         {/* Agent Configuration */}
@@ -391,111 +315,52 @@ export const ArenaSetupForm = ({
               Scoring algorithm used for momentum criterion evaluation
             </p>
           </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="arena-min-buy-score-input">Minimum Buy Score</Label>
-              <span className="text-sm font-medium text-muted-foreground">
-                {minBuyScore}
-              </span>
-            </div>
-
-            <Slider
-              min={MIN_BUY_SCORE_CONFIG.MIN}
-              max={MIN_BUY_SCORE_CONFIG.MAX}
-              step={MIN_BUY_SCORE_CONFIG.STEP}
-              value={[parseFloat(minBuyScore)]}
-              onValueChange={(value) => setMinBuyScore(value[0].toString())}
-              disabled={isLoading}
-              className="py-4"
-              aria-label="Minimum buy score slider"
-            />
-
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>More Trades</span>
-              <span>Fewer Trades</span>
-            </div>
-
-            <Input
-              id="arena-min-buy-score-input"
-              type="number"
-              min={MIN_BUY_SCORE_CONFIG.MIN}
-              max={MIN_BUY_SCORE_CONFIG.MAX}
-              step={MIN_BUY_SCORE_CONFIG.STEP}
-              value={minBuyScore}
-              onChange={(e) => setMinBuyScore(e.target.value)}
-              disabled={isLoading}
-              className="mt-2"
-            />
-
-            <p className="text-xs text-muted-foreground mt-2">
-              {getMinBuyScoreHelpText(parseFloat(minBuyScore))}
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Stop loss, position sizing, score threshold, and portfolio strategy are controlled by
+            the selected portfolio setup.
+          </p>
         </div>
 
-        {/* Portfolio Selection Strategy */}
+        {/* Portfolio Setup Selection */}
         <div className="space-y-3">
-          <h3 className="text-sm font-medium">Portfolio Selection</h3>
+          <h3 className="text-sm font-medium">Portfolio Setup</h3>
 
           <div className="space-y-2">
-            <Label htmlFor="arena-portfolio-strategy">Strategy</Label>
+            <Label htmlFor="arena-portfolio-setup">Saved Setup</Label>
             <Select
-              value={portfolioStrategy}
-              onValueChange={setPortfolioStrategy}
-              disabled={isLoading}
+              value={selectedPortfolioConfigId?.toString() ?? '__none__'}
+              onValueChange={(value) => {
+                if (value === '__none__') return;
+                setSelectedPortfolioConfigId(Number(value));
+              }}
+              disabled={portfolioConfigsLoading || isLoading}
             >
-              <SelectTrigger id="arena-portfolio-strategy">
-                <SelectValue placeholder="Select strategy..." />
+              <SelectTrigger id="arena-portfolio-setup">
+                <SelectValue placeholder="Select portfolio setup..." />
               </SelectTrigger>
               <SelectContent>
-                {PORTFOLIO_STRATEGIES.map((strategy) => (
-                  <SelectItem key={strategy.name} value={strategy.name}>
-                    {strategy.label}
+                <SelectItem value="__none__" disabled>
+                  Select portfolio setup...
+                </SelectItem>
+                {portfolioConfigs.length > 0 ? (
+                  portfolioConfigs.map((config) => (
+                    <SelectItem key={config.id} value={config.id.toString()}>
+                      {config.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="no-setups" disabled>
+                    No portfolio setups available
                   </SelectItem>
-                ))}
+                )}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {PORTFOLIO_STRATEGIES.find((s) => s.name === portfolioStrategy)?.description}
+              {selectedPortfolioConfig
+                ? `Using "${selectedPortfolioConfig.name}" — Strategy: ${selectedPortfolioConfig.portfolio_strategy}, Size: $${selectedPortfolioConfig.position_size}, Min score: ${selectedPortfolioConfig.min_buy_score}, Stop: ${selectedPortfolioConfig.trailing_stop_pct}%`
+                : 'Create setups in the Portfolios page to run Arena simulations'}
             </p>
           </div>
-
-          {portfolioStrategy !== 'none' && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="arena-max-per-sector">Max Per Sector</Label>
-                <Input
-                  id="arena-max-per-sector"
-                  type="number"
-                  min="1"
-                  value={maxPerSector}
-                  onChange={(e) => setMaxPerSector(e.target.value)}
-                  className="mt-1"
-                  disabled={isLoading}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Max concurrent positions per sector
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="arena-max-open-positions">Max Open Positions</Label>
-                <Input
-                  id="arena-max-open-positions"
-                  type="number"
-                  min="1"
-                  value={maxOpenPositions}
-                  placeholder="Unlimited"
-                  onChange={(e) => setMaxOpenPositions(e.target.value)}
-                  className="mt-1"
-                  disabled={isLoading}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Overall position cap (optional)
-                </p>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Submit Button */}

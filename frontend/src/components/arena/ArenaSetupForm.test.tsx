@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ArenaSetupForm } from './ArenaSetupForm';
+import { usePortfolioConfigs } from '../../hooks/usePortfolioConfigs';
 
 // Mock useStockLists hook
 const mockLists = [
@@ -31,11 +32,40 @@ vi.mock('../../hooks/useAgentConfigs', () => ({
   })),
 }));
 
+vi.mock('../../hooks/usePortfolioConfigs', () => ({
+  usePortfolioConfigs: vi.fn(() => ({
+    configs: [],
+    setConfigs: vi.fn(),
+    isLoading: false,
+    error: null,
+  })),
+}));
+
+const defaultPortfolioConfigs = [
+  {
+    id: 1,
+    name: 'Default Setup',
+    portfolio_strategy: 'score_sector_moderate_atr',
+    position_size: 1000,
+    min_buy_score: 60,
+    trailing_stop_pct: 5,
+    max_per_sector: 2,
+    max_open_positions: 8,
+  },
+];
+
 describe('ArenaSetupForm', () => {
   const mockOnSubmit = vi.fn();
+  const mockUsePortfolioConfigs = vi.mocked(usePortfolioConfigs);
 
   beforeEach(() => {
     mockOnSubmit.mockClear();
+    mockUsePortfolioConfigs.mockReturnValue({
+      configs: defaultPortfolioConfigs,
+      setConfigs: vi.fn(),
+      isLoading: false,
+      error: null,
+    });
   });
 
   it('should render with empty state', () => {
@@ -122,6 +152,28 @@ describe('ArenaSetupForm', () => {
     expect(screen.getByRole('button', { name: /start simulation/i })).toBeEnabled();
   });
 
+  it('should keep submit disabled when no portfolio setups exist', () => {
+    mockUsePortfolioConfigs.mockReturnValue({
+      configs: [],
+      setConfigs: vi.fn(),
+      isLoading: false,
+      error: null,
+    });
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+      target: { value: 'AAPL' },
+    });
+    fireEvent.change(screen.getByLabelText(/start date/i), {
+      target: { value: '2024-01-01' },
+    });
+    fireEvent.change(screen.getByLabelText(/end date/i), {
+      target: { value: '2024-01-15' },
+    });
+
+    expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
+  });
+
   it('should call onSubmit with parsed data when form is submitted', async () => {
     render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
 
@@ -148,12 +200,51 @@ describe('ArenaSetupForm', () => {
         start_date: '2024-01-01',
         end_date: '2024-01-15',
         initial_capital: 50000,
-        position_size: 1000,
-        trailing_stop_pct: 5,
-        min_buy_score: 60,
-        portfolio_strategy: 'none',
-        max_per_sector: null,
-        max_open_positions: null,
+        portfolio_config_id: 1,
+      })
+    );
+  });
+
+  it('should submit portfolio_config_id when a saved setup is selected', async () => {
+    const user = userEvent.setup();
+    mockUsePortfolioConfigs.mockReturnValue({
+      configs: [
+        {
+          id: 7,
+          name: 'Conservative',
+          portfolio_strategy: 'score_sector_low_atr',
+          position_size: 2200,
+          min_buy_score: 75,
+          trailing_stop_pct: 8.5,
+          max_per_sector: 1,
+          max_open_positions: 4,
+        },
+      ],
+      setConfigs: vi.fn(),
+      isLoading: false,
+      error: null,
+    });
+
+    render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
+
+    await user.click(screen.getByRole('combobox', { name: /saved setup/i }));
+    await user.click(screen.getByRole('option', { name: 'Conservative' }));
+
+    fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+      target: { value: 'AAPL' },
+    });
+    fireEvent.change(screen.getByLabelText(/start date/i), {
+      target: { value: '2024-01-01' },
+    });
+    fireEvent.change(screen.getByLabelText(/end date/i), {
+      target: { value: '2024-01-15' },
+    });
+
+    await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        portfolio_config_id: 7,
       })
     );
   });
@@ -178,127 +269,16 @@ describe('ArenaSetupForm', () => {
     render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
 
     const capitalInput = screen.getByLabelText(/capital \(\$\)/i) as HTMLInputElement;
-    const positionSizeInput = screen.getByLabelText(/position size/i) as HTMLInputElement;
-    const trailingStopInput = screen.getByLabelText(/trailing stop/i) as HTMLInputElement;
-
     expect(capitalInput.value).toBe('10000');
-    expect(positionSizeInput.value).toBe('1000');
-    expect(trailingStopInput.value).toBe('5');
   });
 
-  describe('Minimum Buy Score', () => {
-    it('should have default value of 60', () => {
+  describe('Portfolio-managed settings', () => {
+    it('should show setup summary from selected portfolio config', () => {
       render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
 
-      const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
-      expect(minBuyScoreInput).toHaveAttribute('id', 'arena-min-buy-score-input');
-      expect(minBuyScoreInput.value).toBe('60');
-    });
-
-    it('should update when changed', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
-
-      const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
-      fireEvent.change(minBuyScoreInput, { target: { value: '80' } });
-
-      expect(minBuyScoreInput.value).toBe('80');
-    });
-
-    it('should include min_buy_score in submission', async () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
-
-      // Fill in form
-      const textarea = screen.getByRole('textbox', { name: /symbols/i });
-      fireEvent.change(textarea, { target: { value: 'AAPL' } });
-
-      const startDateInput = screen.getByLabelText(/start date/i);
-      const endDateInput = screen.getByLabelText(/end date/i);
-      fireEvent.change(startDateInput, { target: { value: '2024-01-01' } });
-      fireEvent.change(endDateInput, { target: { value: '2024-01-15' } });
-
-      // Change min buy score
-      const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
-      fireEvent.change(minBuyScoreInput, { target: { value: '80' } });
-
-      // Submit
-      const submitButton = screen.getByRole('button', { name: /start simulation/i });
-      fireEvent.click(submitButton);
-
-      expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          symbols: ['AAPL'],
-          start_date: '2024-01-01',
-          end_date: '2024-01-15',
-          initial_capital: 10000,
-          position_size: 1000,
-          trailing_stop_pct: 5,
-          min_buy_score: 80,
-          portfolio_strategy: 'none',
-          max_per_sector: null,
-          max_open_positions: null,
-        })
-      );
-    });
-
-    it('should disable submit when value is below minimum (5)', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
-
-      // Fill valid data
-      const textarea = screen.getByRole('textbox', { name: /symbols/i });
-      fireEvent.change(textarea, { target: { value: 'AAPL' } });
-
-      const startDateInput = screen.getByLabelText(/start date/i);
-      const endDateInput = screen.getByLabelText(/end date/i);
-      fireEvent.change(startDateInput, { target: { value: '2024-01-01' } });
-      fireEvent.change(endDateInput, { target: { value: '2024-01-15' } });
-
-      // Set invalid min buy score (below MIN of 5)
-      const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
-      fireEvent.change(minBuyScoreInput, { target: { value: '3' } });
-
-      expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
-    });
-
-    it('should disable submit when value is above 100', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
-
-      // Fill valid data
-      const textarea = screen.getByRole('textbox', { name: /symbols/i });
-      fireEvent.change(textarea, { target: { value: 'AAPL' } });
-
-      const startDateInput = screen.getByLabelText(/start date/i);
-      const endDateInput = screen.getByLabelText(/end date/i);
-      fireEvent.change(startDateInput, { target: { value: '2024-01-01' } });
-      fireEvent.change(endDateInput, { target: { value: '2024-01-15' } });
-
-      // Set invalid min buy score
-      const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
-      fireEvent.change(minBuyScoreInput, { target: { value: '120' } });
-
-      expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
-    });
-
-    it('should show dynamic help text based on value', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} isLoading={false} />);
-
-      const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
-
-      // Test score >= 80
-      fireEvent.change(minBuyScoreInput, { target: { value: '80' } });
-      expect(screen.getByText(/trend must be bearish/i)).toBeInTheDocument();
-      expect(screen.getByText(/very selective/i)).toBeInTheDocument();
-
-      // Test score >= 60
-      fireEvent.change(minBuyScoreInput, { target: { value: '60' } });
-      expect(screen.getByText(/balances selectivity and trade frequency/i)).toBeInTheDocument();
-
-      // Test score >= 40
-      fireEvent.change(minBuyScoreInput, { target: { value: '40' } });
-      expect(screen.getByText(/allows moderate setups/i)).toBeInTheDocument();
-
-      // Test score < 40
-      fireEvent.change(minBuyScoreInput, { target: { value: '20' } });
-      expect(screen.getByText(/is permissive/i)).toBeInTheDocument();
+      expect(screen.getByText(/using "default setup"/i)).toBeInTheDocument();
+      expect(screen.getByText(/min score: 60/i)).toBeInTheDocument();
+      expect(screen.getByText(/stop: 5%/i)).toBeInTheDocument();
     });
   });
 
@@ -368,7 +348,7 @@ describe('ArenaSetupForm', () => {
           stock_list_id: 1,
           stock_list_name: 'Tech Stocks',
           symbols: ['AAPL', 'MSFT', 'GOOGL'],
-          min_buy_score: 60,
+          portfolio_config_id: 1,
         })
       );
     });
@@ -452,17 +432,6 @@ describe('ArenaSetupForm', () => {
       // Verify capital fields
       const capitalInput = screen.getByLabelText(/capital \(\$\)/i) as HTMLInputElement;
       expect(capitalInput.value).toBe('50000');
-
-      const positionSizeInput = screen.getByLabelText(/position size/i) as HTMLInputElement;
-      expect(positionSizeInput.value).toBe('2500');
-
-      // Verify trailing stop
-      const trailingStopInput = screen.getByLabelText(/trailing stop/i) as HTMLInputElement;
-      expect(trailingStopInput.value).toBe('8');
-
-      // Verify min buy score
-      const minBuyScoreInput = screen.getByDisplayValue('80') as HTMLInputElement;
-      expect(minBuyScoreInput).toHaveAttribute('id', 'arena-min-buy-score-input');
     });
 
     it('should handle null stock_list_id gracefully', () => {
@@ -530,9 +499,7 @@ describe('ArenaSetupForm', () => {
           start_date: '2025-01-01',
           end_date: '2025-12-31', // Modified value
           initial_capital: 10000,
-          position_size: 1000,
-          trailing_stop_pct: 5,
-          min_buy_score: 60,
+          portfolio_config_id: 1,
         })
       );
     });

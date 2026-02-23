@@ -45,6 +45,8 @@ export interface Simulation {
   candle_pattern_score?: number | null;
   cci_score?: number | null;
   ma20_distance_score?: number | null;
+  portfolio_config_id?: number | null;
+  portfolio_config_name?: string | null;
   portfolio_strategy: string | null;
   max_per_sector: number | null;
   max_open_positions: number | null;
@@ -153,6 +155,8 @@ export interface CreateSimulationRequest {
   scoring_algorithm?: ScoringAlgorithm;
   /** Portfolio selection strategy */
   portfolio_strategy?: string;
+  /** Saved portfolio configuration ID to apply */
+  portfolio_config_id?: number;
   /** Max concurrent positions per sector (null = unlimited) */
   max_per_sector?: number | null;
   /** Max total open positions (null = unlimited) */
