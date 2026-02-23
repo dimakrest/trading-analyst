@@ -152,6 +152,9 @@ export const ArenaSimulationDetail = () => {
   const isCancelled = simulation.status === 'cancelled';
   const isFailed = simulation.status === 'failed';
 
+  const showMonthly = isComplete && snapshots.length >= 20;
+  const showFrequency = isComplete && positions.length >= 1;
+
   // Filter positions to show those open at EOD on the selected snapshot date
   const openPositions = getPositionsForSnapshot(positions, currentSnapshot);
 
@@ -296,7 +299,6 @@ export const ArenaSimulationDetail = () => {
       {positions.length > 0 && (
         <ArenaSectorBreakdown
           positions={positions}
-          snapshot={latestSnapshot}
         />
       )}
 
@@ -311,19 +313,12 @@ export const ArenaSimulationDetail = () => {
       )}
 
       {/* Monthly P&L Heatmap + Trade Frequency */}
-      {(() => {
-        const showMonthly = isComplete && snapshots.length >= 20;
-        const showFrequency = isComplete && positions.length >= 1;
-
-        if (!showMonthly && !showFrequency) return null;
-
-        return (
-          <div className={showMonthly && showFrequency ? 'grid grid-cols-2 gap-4' : ''}>
-            {showMonthly && <ArenaMonthlyPnl snapshots={snapshots} />}
-            {showFrequency && <ArenaTradeFrequency positions={positions} />}
-          </div>
-        );
-      })()}
+      {(showMonthly || showFrequency) && (
+        <div className={showMonthly && showFrequency ? 'grid grid-cols-2 gap-4' : ''}>
+          {showMonthly && <ArenaMonthlyPnl snapshots={snapshots} />}
+          {showFrequency && <ArenaTradeFrequency positions={positions} />}
+        </div>
+      )}
 
       {/* Cancel Confirmation Dialog */}
       <CancelAnalysisDialog

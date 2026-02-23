@@ -7,6 +7,7 @@
 import { apiClient } from '../lib/apiClient';
 import type {
   AgentInfo,
+  BenchmarkDataPoint,
   CreateSimulationRequest,
   Simulation,
   SimulationDetail,
@@ -96,16 +97,6 @@ export const cancelSimulation = async (id: number): Promise<void> => {
 export const deleteSimulation = async (id: number): Promise<void> => {
   await apiClient.delete(`${API_BASE}/simulations/${id}`);
 };
-
-/**
- * Single data point for benchmark (SPY / QQQ) price series.
- * The backend normalizes cumulative_return_pct so that the first bar = 0%.
- */
-export interface BenchmarkDataPoint {
-  date: string;
-  close: string;
-  cumulative_return_pct: string;
-}
 
 /**
  * Fetch benchmark price data for a simulation's date range.

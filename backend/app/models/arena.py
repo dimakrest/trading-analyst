@@ -194,6 +194,7 @@ class ArenaSimulation(Base):
         back_populates="simulation",
         cascade="all, delete-orphan",
         lazy="selectin",
+        order_by="ArenaSnapshot.day_number",
         doc="Daily snapshots for this simulation",
     )
 
