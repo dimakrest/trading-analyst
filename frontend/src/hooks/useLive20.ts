@@ -77,9 +77,13 @@ export function useLive20(): UseLive20Return {
     // Update results progressively (not just on completion)
     if (run.results && run.results.length > 0) {
       setResults(run.results);
+      // Compute counts from results directly — run.long_count/no_setup_count are
+      // only written to the DB at the very end of the run, so they'd show 0 during analysis.
+      const longCount = run.results.filter((r) => r.direction === 'LONG').length;
+      const noSetupCount = run.results.filter((r) => r.direction === 'NO_SETUP').length;
       setCounts({
-        long: run.long_count,
-        no_setup: run.no_setup_count,
+        long: longCount,
+        no_setup: noSetupCount,
         total: run.results.length,
       });
     }
