@@ -10,10 +10,13 @@ export interface Live20Result {
   created_at: string;
   recommendation: Live20Direction;
   confidence_score: number;
+  close_price: number | null;
   atr: number | null;
   pivot: number | null;
   support_1: number | null;
   resistance_1: number | null;
+  support_1_touches: number | null;
+  resistance_1_touches: number | null;
 
   // Criteria details
   trend_direction: string | null;

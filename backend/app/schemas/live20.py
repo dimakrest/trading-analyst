@@ -58,10 +58,15 @@ class Live20ResultResponse(StrictBaseModel):
     direction: str | None = None  # LONG, NO_SETUP
     sector_etf: str | None = None  # SPDR sector ETF symbol
 
-    # Support/Resistance levels (Standard Pivot Points)
+    # Price context
+    close_price: Decimal | None = None
+
+    # Support/Resistance levels (cluster-based)
     pivot: Decimal | None = None
     support_1: Decimal | None = None
     resistance_1: Decimal | None = None
+    support_1_touches: int | None = None
+    resistance_1_touches: int | None = None
 
     model_config = {
         "from_attributes": True,
@@ -127,14 +132,17 @@ class Live20ResultResponse(StrictBaseModel):
             criteria_aligned=rec.live20_criteria_aligned,
             direction=rec.live20_direction,
             sector_etf=rec.live20_sector_etf,
+            close_price=rec.live20_close_price,
             pivot=rec.live20_pivot,
             support_1=rec.live20_support_1,
             resistance_1=rec.live20_resistance_1,
+            support_1_touches=rec.live20_support_1_touches,
+            resistance_1_touches=rec.live20_resistance_1_touches,
         )
 
     @field_serializer(
         "ma20_distance_pct", "atr", "rvol", "cci_value", "rsi2_value",
-        "pivot", "support_1", "resistance_1",
+        "close_price", "pivot", "support_1", "resistance_1",
         when_used="json",
     )
     def serialize_decimal_as_float(self, value: Decimal | None) -> float | None:

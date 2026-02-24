@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ExpandedRowContent } from './ExpandedRowContent';
+import { ExpandedRowContent, buildPriceLines } from './ExpandedRowContent';
 import type { Live20Result } from '../../types/live20';
 import type { SectorTrend } from '../../services/live20Service';
 import * as live20Service from '../../services/live20Service';
@@ -30,6 +30,7 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   created_at: '2025-12-01T10:00:00Z',
   recommendation: 'LONG',
   confidence_score: 85,
+  close_price: 175.50,
   atr: 2.5,
   trend_direction: 'up',
   trend_aligned: true,
@@ -51,6 +52,8 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   pivot: null,
   support_1: null,
   resistance_1: null,
+  support_1_touches: null,
+  resistance_1_touches: null,
   scoring_algorithm: null,
   rsi2_value: null,
   rsi2_score: null,
@@ -893,6 +896,182 @@ describe('ExpandedRowContent', () => {
 
       // Verify fallback message
       expect(screen.getByText(/no chart data available/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('buildPriceLines', () => {
+    /** Minimal factory to create a Live20Result for buildPriceLines tests */
+    function makeResult(overrides: Partial<Live20Result> = {}): Live20Result {
+      return {
+        id: 1,
+        stock: 'AAPL',
+        created_at: '2025-01-01T00:00:00',
+        recommendation: 'NO_SETUP',
+        confidence_score: 0,
+        close_price: 130.0,
+        atr: null,
+        pivot: null,
+        support_1: null,
+        resistance_1: null,
+        support_1_touches: null,
+        resistance_1_touches: null,
+        trend_direction: null,
+        trend_aligned: null,
+        ma20_distance_pct: null,
+        ma20_aligned: null,
+        candle_pattern: null,
+        candle_bullish: null,
+        candle_aligned: null,
+        candle_explanation: null,
+        volume_aligned: null,
+        volume_approach: null,
+        rvol: null,
+        cci_direction: null,
+        cci_value: null,
+        cci_zone: null,
+        cci_aligned: null,
+        criteria_aligned: null,
+        direction: null,
+        sector_etf: null,
+        scoring_algorithm: null,
+        rsi2_value: null,
+        rsi2_score: null,
+        ...overrides,
+      };
+    }
+
+    it('returns empty array when both support_1 and resistance_1 are null', () => {
+      const result = makeResult({ support_1: null, resistance_1: null });
+      expect(buildPriceLines(result)).toEqual([]);
+    });
+
+    it('includes support line with label "S" when touches is null', () => {
+      const result = makeResult({ support_1: 120.0, support_1_touches: null });
+      const lines = buildPriceLines(result);
+      const supportLine = lines.find((l) => l.color === '#22c55e');
+      expect(supportLine).toBeDefined();
+      expect(supportLine!.label).toBe('S');
+    });
+
+    it('includes support line with label "S" when touches is 0', () => {
+      const result = makeResult({ support_1: 120.0, support_1_touches: 0 });
+      const lines = buildPriceLines(result);
+      const supportLine = lines.find((l) => l.color === '#22c55e');
+      expect(supportLine).toBeDefined();
+      expect(supportLine!.label).toBe('S');
+    });
+
+    it('includes support line with touch count in label when touches > 0', () => {
+      const result = makeResult({ support_1: 120.0, support_1_touches: 3 });
+      const lines = buildPriceLines(result);
+      const supportLine = lines.find((l) => l.color === '#22c55e');
+      expect(supportLine).toBeDefined();
+      expect(supportLine!.label).toBe('S \u00d73');
+    });
+
+    it('includes resistance line with label "R" when touches is null', () => {
+      const result = makeResult({ resistance_1: 140.0, resistance_1_touches: null });
+      const lines = buildPriceLines(result);
+      const resistanceLine = lines.find((l) => l.color === '#ef4444');
+      expect(resistanceLine).toBeDefined();
+      expect(resistanceLine!.label).toBe('R');
+    });
+
+    it('includes resistance line with label "R" when touches is 0', () => {
+      const result = makeResult({ resistance_1: 140.0, resistance_1_touches: 0 });
+      const lines = buildPriceLines(result);
+      const resistanceLine = lines.find((l) => l.color === '#ef4444');
+      expect(resistanceLine).toBeDefined();
+      expect(resistanceLine!.label).toBe('R');
+    });
+
+    it('includes resistance line with touch count in label when touches > 0', () => {
+      const result = makeResult({ resistance_1: 140.0, resistance_1_touches: 5 });
+      const lines = buildPriceLines(result);
+      const resistanceLine = lines.find((l) => l.color === '#ef4444');
+      expect(resistanceLine).toBeDefined();
+      expect(resistanceLine!.label).toBe('R \u00d75');
+    });
+
+    it('does NOT include a pivot line (no line with label "PP")', () => {
+      const result = makeResult({
+        support_1: 120.0,
+        resistance_1: 140.0,
+        support_1_touches: 2,
+        resistance_1_touches: 3,
+      });
+      const lines = buildPriceLines(result);
+      const pivotLine = lines.find((l) => l.label === 'PP');
+      expect(pivotLine).toBeUndefined();
+    });
+
+    it('uses lineWidth 2 for support with 4+ touches', () => {
+      const result = makeResult({ support_1: 120.0, support_1_touches: 4 });
+      const lines = buildPriceLines(result);
+      const supportLine = lines.find((l) => l.color === '#22c55e');
+      expect(supportLine!.lineWidth).toBe(2);
+    });
+
+    it('uses lineWidth 1 for support with fewer than 4 touches', () => {
+      const result = makeResult({ support_1: 120.0, support_1_touches: 3 });
+      const lines = buildPriceLines(result);
+      const supportLine = lines.find((l) => l.color === '#22c55e');
+      expect(supportLine!.lineWidth).toBe(1);
+    });
+
+    it('uses lineWidth 1 for support with null touches', () => {
+      const result = makeResult({ support_1: 120.0, support_1_touches: null });
+      const lines = buildPriceLines(result);
+      const supportLine = lines.find((l) => l.color === '#22c55e');
+      expect(supportLine!.lineWidth).toBe(1);
+    });
+
+    it('uses lineWidth 2 for resistance with 4+ touches', () => {
+      const result = makeResult({ resistance_1: 140.0, resistance_1_touches: 6 });
+      const lines = buildPriceLines(result);
+      const resistanceLine = lines.find((l) => l.color === '#ef4444');
+      expect(resistanceLine!.lineWidth).toBe(2);
+    });
+
+    it('uses lineWidth 1 for resistance with fewer than 4 touches', () => {
+      const result = makeResult({ resistance_1: 140.0, resistance_1_touches: 2 });
+      const lines = buildPriceLines(result);
+      const resistanceLine = lines.find((l) => l.color === '#ef4444');
+      expect(resistanceLine!.lineWidth).toBe(1);
+    });
+
+    it('uses lineWidth 1 for resistance with null touches', () => {
+      const result = makeResult({ resistance_1: 140.0, resistance_1_touches: null });
+      const lines = buildPriceLines(result);
+      const resistanceLine = lines.find((l) => l.color === '#ef4444');
+      expect(resistanceLine!.lineWidth).toBe(1);
+    });
+
+    it('includes both support and resistance lines when both are present', () => {
+      const result = makeResult({
+        support_1: 120.0,
+        resistance_1: 140.0,
+        support_1_touches: 2,
+        resistance_1_touches: 5,
+      });
+      const lines = buildPriceLines(result);
+      expect(lines).toHaveLength(2);
+      expect(lines.find((l) => l.color === '#22c55e')).toBeDefined();
+      expect(lines.find((l) => l.color === '#ef4444')).toBeDefined();
+    });
+
+    it('includes only support line when resistance_1 is null', () => {
+      const result = makeResult({ support_1: 120.0, resistance_1: null });
+      const lines = buildPriceLines(result);
+      expect(lines).toHaveLength(1);
+      expect(lines[0].color).toBe('#22c55e');
+    });
+
+    it('includes only resistance line when support_1 is null', () => {
+      const result = makeResult({ support_1: null, resistance_1: 140.0 });
+      const lines = buildPriceLines(result);
+      expect(lines).toHaveLength(1);
+      expect(lines[0].color).toBe('#ef4444');
     });
   });
 

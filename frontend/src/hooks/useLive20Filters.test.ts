@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLive20Filters } from './useLive20Filters';
 import type { Live20Result } from '../types/live20';
@@ -11,6 +11,7 @@ function makeResult(overrides: Partial<Live20Result> = {}): Live20Result {
     recommendation: 'LONG',
     confidence_score: 75,
     atr: null,
+    close_price: null,
     direction: 'LONG',
     rvol: null,
     trend_direction: null,
@@ -35,6 +36,8 @@ function makeResult(overrides: Partial<Live20Result> = {}): Live20Result {
     pivot: null,
     support_1: null,
     resistance_1: null,
+    support_1_touches: null,
+    resistance_1_touches: null,
     ...overrides,
   } as Live20Result;
 }

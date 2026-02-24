@@ -1190,35 +1190,22 @@ class PatternThresholds:
     Levels beyond this distance are less actionable.
     """
 
-    # Level Strength Calculation Weights
-    SUPPORT_RESISTANCE_TOUCH_WEIGHT = 0.30
-    """Number of touches contributes 30% to level strength."""
+    # Level Strength Calculation Weights (cluster-based algorithm, 4 factors)
+    SUPPORT_RESISTANCE_TOUCH_WEIGHT = 0.35
+    """Number of touches contributes 35% to level strength."""
 
-    SUPPORT_RESISTANCE_TIME_WEIGHT = 0.20
-    """Time span of level contributes 20% to level strength."""
+    SUPPORT_RESISTANCE_RECENCY_WEIGHT = 0.30
+    """Recency of last touch contributes 30% to level strength."""
 
-    SUPPORT_RESISTANCE_PIVOT_WEIGHT = 0.25
-    """Pivot significance contributes 25% to level strength."""
+    SUPPORT_RESISTANCE_VOLUME_WEIGHT = 0.20
+    """Volume at touch points contributes 20% to level strength."""
 
-    SUPPORT_RESISTANCE_RESPECT_WEIGHT = 0.15
-    """Level respect (price bounces) contributes 15% to level strength."""
+    SUPPORT_RESISTANCE_PROXIMITY_WEIGHT = 0.15
+    """Proximity to current price contributes 15% to level strength."""
 
-    SUPPORT_RESISTANCE_VOLATILITY_WEIGHT = 0.10
-    """Volatility significance contributes 10% to level strength."""
-
-    # Neutral Scores (when data insufficient)
-    SUPPORT_RESISTANCE_NEUTRAL_SCORE = 0.5
-    """
-    Neutral score (50%) used when calculation cannot be performed.
-    Applied for volatility, respect, and time strength when data is missing.
-    """
-
-    # Volatility-Based Filtering
-    SUPPORT_RESISTANCE_VOLATILITY_RATIO = 0.5
-    """
-    Levels must be stronger than 50% of price volatility.
-    Prevents reporting levels that are within normal price noise.
-    """
+    # Recency Decay
+    SUPPORT_RESISTANCE_DECAY_RATE = 0.005
+    """Exponential decay rate per bar for recency scoring (e^(-rate * bars_ago))."""
 
     # =========================================================================
     # General Pattern Detection Constants

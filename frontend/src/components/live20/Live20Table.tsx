@@ -259,33 +259,42 @@ export function Live20Table({ results }: Live20TableProps) {
         id: 'support_resistance',
         header: 'S/R',
         cell: ({ row }) => {
-          const { support_1, resistance_1, close_price } = row.original;
+          const { support_1, resistance_1, close_price, support_1_touches, resistance_1_touches } = row.original;
           if (support_1 === null && resistance_1 === null) {
             return <span className="text-muted-foreground">-</span>;
           }
 
-          const pct = (level: number) =>
+          const pctFromClose = (level: number): number | null =>
             close_price != null ? ((level - close_price) / close_price) * 100 : null;
+
+          const resistancePct = resistance_1 !== null ? pctFromClose(resistance_1) : null;
+          const supportPct = support_1 !== null ? pctFromClose(support_1) : null;
 
           return (
             <div className="flex flex-col text-xs font-mono">
               {resistance_1 !== null && (
                 <span className="text-accent-bearish">
                   R {resistance_1.toFixed(2)}
-                  {pct(resistance_1) != null && (
+                  {resistancePct != null && (
                     <span className="text-muted-foreground ml-1">
-                      ({pct(resistance_1)! >= 0 ? '+' : ''}{pct(resistance_1)!.toFixed(2)}%)
+                      ({resistancePct >= 0 ? '+' : ''}{resistancePct.toFixed(2)}%)
                     </span>
+                  )}
+                  {resistance_1_touches != null && resistance_1_touches > 0 && (
+                    <span className="text-muted-foreground ml-1">&times;{resistance_1_touches}</span>
                   )}
                 </span>
               )}
               {support_1 !== null && (
                 <span className="text-accent-bullish">
                   S {support_1.toFixed(2)}
-                  {pct(support_1) != null && (
+                  {supportPct != null && (
                     <span className="text-muted-foreground ml-1">
-                      ({pct(support_1)! >= 0 ? '+' : ''}{pct(support_1)!.toFixed(2)}%)
+                      ({supportPct >= 0 ? '+' : ''}{supportPct.toFixed(2)}%)
                     </span>
+                  )}
+                  {support_1_touches != null && support_1_touches > 0 && (
+                    <span className="text-muted-foreground ml-1">&times;{support_1_touches}</span>
                   )}
                 </span>
               )}

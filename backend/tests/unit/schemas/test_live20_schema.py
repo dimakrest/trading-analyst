@@ -10,8 +10,6 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-import pytest
-
 from app.schemas.live20 import Live20ResultResponse
 
 
@@ -44,10 +42,13 @@ def _make_mock_recommendation(**overrides):
     rec.live20_rsi2_score = None
     rec.live20_criteria_aligned = 4
     rec.live20_sector_etf = "XLK"
-    # Support/Resistance defaults
-    rec.live20_pivot = Decimal("128.6667")
+    rec.live20_close_price = Decimal("130.0000")
+    # Support/Resistance defaults (cluster-based; pivot is None)
+    rec.live20_pivot = None
     rec.live20_support_1 = Decimal("127.3334")
     rec.live20_resistance_1 = Decimal("130.3333")
+    rec.live20_support_1_touches = 3
+    rec.live20_resistance_1_touches = 4
     # Apply overrides
     for key, value in overrides.items():
         setattr(rec, key, value)
@@ -63,9 +64,12 @@ class TestLive20ResultResponseFromRecommendation:
 
         response = Live20ResultResponse.from_recommendation(rec)
 
-        assert response.pivot == Decimal("128.6667")
+        # Pivot is None in cluster-based S/R
+        assert response.pivot is None
         assert response.support_1 == Decimal("127.3334")
         assert response.resistance_1 == Decimal("130.3333")
+        assert response.support_1_touches == 3
+        assert response.resistance_1_touches == 4
 
     def test_null_support_resistance_when_not_present(self):
         """from_recommendation() maps None S/R fields to None (old rows without data)."""
@@ -73,6 +77,8 @@ class TestLive20ResultResponseFromRecommendation:
             live20_pivot=None,
             live20_support_1=None,
             live20_resistance_1=None,
+            live20_support_1_touches=None,
+            live20_resistance_1_touches=None,
         )
 
         response = Live20ResultResponse.from_recommendation(rec)
@@ -80,21 +86,28 @@ class TestLive20ResultResponseFromRecommendation:
         assert response.pivot is None
         assert response.support_1 is None
         assert response.resistance_1 is None
+        assert response.support_1_touches is None
+        assert response.resistance_1_touches is None
 
     def test_support_resistance_serialized_as_float_in_json(self):
-        """Decimal S/R fields serialize to float values in JSON output."""
+        """Decimal S/R fields serialize to float values; pivot serializes as null."""
         rec = _make_mock_recommendation()
 
         response = Live20ResultResponse.from_recommendation(rec)
         json_data = response.model_dump(mode="json")
 
-        assert isinstance(json_data["pivot"], float)
+        # Pivot is None in cluster-based S/R — serializes as null
+        assert json_data["pivot"] is None
+
         assert isinstance(json_data["support_1"], float)
         assert isinstance(json_data["resistance_1"], float)
 
-        assert abs(json_data["pivot"] - 128.6667) < 1e-3
         assert abs(json_data["support_1"] - 127.3334) < 1e-3
         assert abs(json_data["resistance_1"] - 130.3333) < 1e-3
+
+        # Touch counts are int | None — serialize directly as integers
+        assert json_data["support_1_touches"] == 3
+        assert json_data["resistance_1_touches"] == 4
 
     def test_null_support_resistance_serialized_as_null_in_json(self):
         """None S/R fields serialize to null in JSON output."""
@@ -102,6 +115,8 @@ class TestLive20ResultResponseFromRecommendation:
             live20_pivot=None,
             live20_support_1=None,
             live20_resistance_1=None,
+            live20_support_1_touches=None,
+            live20_resistance_1_touches=None,
         )
 
         response = Live20ResultResponse.from_recommendation(rec)
@@ -110,3 +125,5 @@ class TestLive20ResultResponseFromRecommendation:
         assert json_data["pivot"] is None
         assert json_data["support_1"] is None
         assert json_data["resistance_1"] is None
+        assert json_data["support_1_touches"] is None
+        assert json_data["resistance_1_touches"] is None

@@ -160,15 +160,26 @@ class Recommendation(Base):
         String(10), nullable=True, doc="Sector SPDR ETF symbol (e.g., 'XLK', 'XLE')"
     )
 
-    # Support/Resistance levels (Standard Pivot Points based on most recent candle)
+    # Latest close price (for quick reference in table)
+    live20_close_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True, doc="Latest close price at time of analysis"
+    )
+
+    # Support/Resistance levels (cluster-based: historical swing point detection)
     live20_pivot: Mapped[Decimal | None] = mapped_column(
-        Numeric(12, 4), nullable=True, doc="Pivot point: (High + Low + Close) / 3"
+        Numeric(12, 4), nullable=True, doc="Deprecated: set to None for cluster-based S/R"
     )
     live20_support_1: Mapped[Decimal | None] = mapped_column(
-        Numeric(12, 4), nullable=True, doc="Support level 1: (2 * PP) - High"
+        Numeric(12, 4), nullable=True, doc="Strongest support level below current price (cluster-based)"
     )
     live20_resistance_1: Mapped[Decimal | None] = mapped_column(
-        Numeric(12, 4), nullable=True, doc="Resistance level 1: (2 * PP) - Low"
+        Numeric(12, 4), nullable=True, doc="Strongest resistance level above current price (cluster-based)"
+    )
+    live20_support_1_touches: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, doc="Number of historical touches at support_1 level"
+    )
+    live20_resistance_1_touches: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, doc="Number of historical touches at resistance_1 level"
     )
 
     live20_run_id: Mapped[int | None] = mapped_column(

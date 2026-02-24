@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.indicators.cci_analysis import CCIAnalysis
 from app.indicators.rsi2_analysis import RSI2Analysis
-from app.indicators.technical import support_resistance_levels
+from app.core.constants import PatternThresholds
+from app.indicators.technical import cluster_support_resistance
 from app.models.recommendation import Recommendation, RecommendationSource, ScoringAlgorithm
 from app.services.data_service import DataService
 from app.services.live20_evaluator import (
@@ -80,9 +81,9 @@ class Live20Service:
             # Create DataService with session_factory
             data_service = DataService(session_factory=self.session_factory)
 
-            # Fetch price data (60 days for MA20 + buffer)
+            # Fetch price data (1 year for cluster-based S/R)
             end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=60)
+            start_date = end_date - timedelta(days=365)
 
             price_records = await data_service.get_price_data(
                 symbol=symbol,
@@ -98,23 +99,49 @@ class Live20Service:
                     error_message=f"Insufficient data ({len(price_records) if price_records else 0} records)",
                 )
 
-            # Extract arrays
-            opens = [float(r.open_price) for r in price_records]
-            highs = [float(r.high_price) for r in price_records]
-            lows = [float(r.low_price) for r in price_records]
-            closes = [float(r.close_price) for r in price_records]
-            volumes = [float(r.volume) for r in price_records]
+            # Full history arrays — used ONLY for S/R calculation
+            all_highs = [float(r.high_price) for r in price_records]
+            all_lows = [float(r.low_price) for r in price_records]
+            all_closes = [float(r.close_price) for r in price_records]
+            all_volumes = [float(r.volume) for r in price_records]
+
+            # Recent arrays — preserve existing indicator behavior (ATR, CCI are path-dependent)
+            recent_records = price_records[-60:]
+            opens = [float(r.open_price) for r in recent_records]
+            highs = [float(r.high_price) for r in recent_records]
+            lows = [float(r.low_price) for r in recent_records]
+            closes = [float(r.close_price) for r in recent_records]
+            volumes = [float(r.volume) for r in recent_records]
 
             # Calculate ATR independently (for ALL stocks, regardless of direction)
             atr_percentage = calculate_atr_percentage(highs, lows, closes)
 
-            # Calculate support/resistance levels (Standard Pivot Points)
-            sr_support, sr_resistance, sr_pivot = support_resistance_levels(
-                highs, lows, closes, num_levels=1
+            # Calculate support/resistance levels (cluster-based: historical swing point detection)
+            sr_levels = cluster_support_resistance(
+                all_highs, all_lows, all_closes, all_volumes,
+                window=PatternThresholds.SUPPORT_RESISTANCE_PIVOT_WINDOW,
+                merge_threshold_pct=PatternThresholds.SUPPORT_RESISTANCE_TOUCH_PROXIMITY,
+                min_touches=PatternThresholds.SUPPORT_RESISTANCE_MIN_TOUCHES,
+                min_strength=PatternThresholds.SUPPORT_RESISTANCE_MIN_STRENGTH,
+                max_distance_pct=PatternThresholds.SUPPORT_RESISTANCE_MAX_DISTANCE,
             )
-            pivot_decimal = Decimal(str(round(sr_pivot, 4))) if sr_pivot is not None else None
-            support_1_decimal = Decimal(str(round(sr_support[0], 4))) if sr_support[0] is not None else None
-            resistance_1_decimal = Decimal(str(round(sr_resistance[0], 4))) if sr_resistance[0] is not None else None
+
+            # Pick strongest support (below price) and resistance (above price)
+            current_price = closes[-1]
+            strongest_support = None
+            strongest_resistance = None
+            for level in sr_levels:  # already sorted by strength desc
+                if level.price < current_price and strongest_support is None:
+                    strongest_support = level
+                elif level.price >= current_price and strongest_resistance is None:
+                    strongest_resistance = level
+                if strongest_support and strongest_resistance:
+                    break
+
+            support_1_decimal = Decimal(str(round(strongest_support.price, 4))) if strongest_support else None
+            resistance_1_decimal = Decimal(str(round(strongest_resistance.price, 4))) if strongest_resistance else None
+            support_1_touches = strongest_support.touches if strongest_support else None
+            resistance_1_touches = strongest_resistance.touches if strongest_resistance else None
 
             # Evaluate all criteria
             (
@@ -164,9 +191,12 @@ class Live20Service:
                 live20_criteria_aligned=sum(1 for c in criteria if c.aligned_for_long),
                 live20_direction=direction,
                 live20_sector_etf=sector_etf,
-                live20_pivot=pivot_decimal,
+                live20_close_price=Decimal(str(round(closes[-1], 4))),
+                live20_pivot=None,  # No pivot concept in cluster-based S/R
                 live20_support_1=support_1_decimal,
                 live20_resistance_1=resistance_1_decimal,
+                live20_support_1_touches=support_1_touches,
+                live20_resistance_1_touches=resistance_1_touches,
             )
 
             # Algorithm-specific fields (mutually exclusive — never cross-populate)

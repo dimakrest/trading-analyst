@@ -17,10 +17,7 @@ import pytest
 
 from app.models.recommendation import RecommendationSource
 from app.providers.base import PriceDataPoint
-from app.services.live20_service import (
-    Live20Result,
-    Live20Service,
-)
+from app.services.live20_service import Live20Service
 
 
 # Common fixtures for all test classes
@@ -137,24 +134,36 @@ class TestLive20Service:
 
     @pytest.mark.asyncio
     async def test_analyze_symbol_persists_support_resistance(self, service, mock_session_factory, sample_price_data):
-        """Test that S/R levels (pivot, support_1, resistance_1) are persisted."""
+        """Test that cluster-based S/R levels (support_1, resistance_1) and touch counts are persisted."""
+        from app.indicators.technical import SRLevel
+
+        mock_support = SRLevel(price=125.0, touches=3, strength=0.75, last_touch_idx=20)
+        mock_resistance = SRLevel(price=135.0, touches=4, strength=0.85, last_touch_idx=25)
+
         with patch(
             "app.services.live20_service.DataService.get_price_data",
             new_callable=AsyncMock,
-        ) as mock_get_data:
+        ) as mock_get_data, patch(
+            "app.services.live20_service.cluster_support_resistance",
+        ) as mock_cluster_sr:
             mock_get_data.return_value = sample_price_data
+            # Return support below price (125.0) and resistance above price (135.0)
+            # The service iterates levels sorted by strength desc; put resistance first
+            # so both branches are exercised. The service picks by price vs current_price.
+            mock_cluster_sr.return_value = [mock_resistance, mock_support]
 
             result = await service._analyze_symbol("AAPL")
 
             assert result.status == "success"
             rec = result.recommendation
 
-            # Last candle (i=29): high=131.0, low=128.0, close=130.0
-            # PP = (131 + 128 + 130) / 3 = 129.6667
-            assert rec.live20_pivot == Decimal("129.6667")
+            # Pivot is None in cluster-based S/R
+            assert rec.live20_pivot is None
 
-            # S1 = (2 * PP) - High = 2 * 129.6667 - 131 = 128.3334
-            assert rec.live20_support_1 == Decimal("128.3333")
+            # Support below current price
+            assert rec.live20_support_1 == Decimal("125.0")
+            assert rec.live20_support_1_touches == 3
 
-            # R1 = (2 * PP) - Low = 2 * 129.6667 - 128 = 131.3334
-            assert rec.live20_resistance_1 == Decimal("131.3333")
+            # Resistance above current price
+            assert rec.live20_resistance_1 == Decimal("135.0")
+            assert rec.live20_resistance_1_touches == 4

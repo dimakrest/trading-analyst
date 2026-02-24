@@ -17,6 +17,7 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   created_at: '2025-12-22T00:00:00Z',
   recommendation: 'LONG',
   confidence_score: 80,
+  close_price: 128.67,
   atr: 2.35,
   sector_etf: 'XLK',
   trend_direction: 'bearish',
@@ -39,6 +40,8 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   pivot: null,
   support_1: null,
   resistance_1: null,
+  support_1_touches: null,
+  resistance_1_touches: null,
   scoring_algorithm: null,
   rsi2_value: null,
   rsi2_score: null,
@@ -319,7 +322,7 @@ describe('Live20Table', () => {
       const result = createMockResult({ direction: 'NO_SETUP', recommendation: 'NO_SETUP' });
       render(<Live20Table results={[result]} />);
 
-      const badge = screen.getByText('NO SETUP');
+      const badge = screen.getByText('\u2014');
       expect(badge).toHaveClass('text-text-secondary');
       expect(badge).toHaveClass('bg-[rgba(100,116,139,0.15)]');
     });
@@ -461,6 +464,136 @@ describe('Live20Table', () => {
         expect(symbols[1]).toHaveTextContent('LOW');
         expect(symbols[2]).toHaveTextContent('HIGH');
       });
+    });
+  });
+
+  describe('S/R column', () => {
+    it('shows dash when both support_1 and resistance_1 are null', () => {
+      const result = createMockResult({ support_1: null, resistance_1: null });
+      render(<Live20Table results={[result]} />);
+
+      // The dash spans rendered by other columns (sector, ATR) also use muted-foreground,
+      // so we look for the dash specifically in the S/R column context.
+      // The S/R column renders a plain span with "-" only when both are null.
+      const row = screen.getByText('TEST').closest('tr');
+      expect(row).toBeInTheDocument();
+      // S/R is the 9th column (Expand, Symbol, Sector, Direction, Score, ATR, Price, S/R, ...)
+      // Use text content check: find the cell that shows only "-"
+      const cells = row!.querySelectorAll('td');
+      const srCell = Array.from(cells).find(
+        (cell) => cell.textContent?.trim() === '-' && cell.querySelector('.text-muted-foreground')
+      );
+      expect(srCell).toBeDefined();
+    });
+
+    it('shows resistance price with percentage when resistance_1 is set', () => {
+      const result = createMockResult({
+        close_price: 130.0,
+        resistance_1: 135.50,
+        resistance_1_touches: null,
+        support_1: null,
+      });
+      render(<Live20Table results={[result]} />);
+
+      // Should display "R 135.50" text
+      expect(screen.getByText(/R 135\.50/)).toBeInTheDocument();
+    });
+
+    it('shows resistance with touch count when resistance_1_touches > 0', () => {
+      const result = createMockResult({
+        close_price: 130.0,
+        resistance_1: 135.50,
+        resistance_1_touches: 4,
+        support_1: null,
+      });
+      render(<Live20Table results={[result]} />);
+
+      // The ×4 should appear in the resistance row
+      const resistanceSpan = screen.getByText(/R 135\.50/).closest('span');
+      expect(resistanceSpan).toBeInTheDocument();
+      expect(resistanceSpan!.textContent).toContain('×4');
+    });
+
+    it('shows support price with percentage when support_1 is set', () => {
+      const result = createMockResult({
+        close_price: 130.0,
+        support_1: 125.0,
+        support_1_touches: null,
+        resistance_1: null,
+      });
+      render(<Live20Table results={[result]} />);
+
+      expect(screen.getByText(/S 125\.00/)).toBeInTheDocument();
+    });
+
+    it('shows support with touch count when support_1_touches > 0', () => {
+      const result = createMockResult({
+        close_price: 130.0,
+        support_1: 125.0,
+        support_1_touches: 3,
+        resistance_1: null,
+      });
+      render(<Live20Table results={[result]} />);
+
+      const supportSpan = screen.getByText(/S 125\.00/).closest('span');
+      expect(supportSpan).toBeInTheDocument();
+      expect(supportSpan!.textContent).toContain('×3');
+    });
+
+    it('omits touch count when resistance_1_touches is null', () => {
+      const result = createMockResult({
+        close_price: 130.0,
+        resistance_1: 135.50,
+        resistance_1_touches: null,
+        support_1: null,
+      });
+      render(<Live20Table results={[result]} />);
+
+      const resistanceSpan = screen.getByText(/R 135\.50/).closest('span');
+      expect(resistanceSpan).toBeInTheDocument();
+      expect(resistanceSpan!.textContent).not.toMatch(/×\d/);
+    });
+
+    it('omits touch count when resistance_1_touches is 0', () => {
+      const result = createMockResult({
+        close_price: 130.0,
+        resistance_1: 135.50,
+        resistance_1_touches: 0,
+        support_1: null,
+      });
+      render(<Live20Table results={[result]} />);
+
+      const resistanceSpan = screen.getByText(/R 135\.50/).closest('span');
+      expect(resistanceSpan).toBeInTheDocument();
+      expect(resistanceSpan!.textContent).not.toMatch(/×\d/);
+    });
+
+    it('omits touch count when support_1_touches is null', () => {
+      const result = createMockResult({
+        close_price: 130.0,
+        support_1: 125.0,
+        support_1_touches: null,
+        resistance_1: null,
+      });
+      render(<Live20Table results={[result]} />);
+
+      const supportSpan = screen.getByText(/S 125\.00/).closest('span');
+      expect(supportSpan).toBeInTheDocument();
+      expect(supportSpan!.textContent).not.toMatch(/×\d/);
+    });
+
+    it('omits touch count when support_1_touches is 0', () => {
+      const result = createMockResult({
+        close_price: 130.0,
+        support_1: 125.0,
+        support_1_touches: 0,
+        resistance_1: null,
+      });
+      render(<Live20Table results={[result]} />);
+
+      const supportSpan = screen.getByText(/S 125\.00/).closest('span');
+      expect(supportSpan).toBeInTheDocument();
+      expect(supportSpan!.textContent).not.toMatch(/×\d/);
     });
   });
 

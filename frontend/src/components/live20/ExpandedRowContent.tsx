@@ -30,40 +30,35 @@ function getMaBadgeVariant(position: 'above' | 'below'): 'default' | 'secondary'
 }
 
 /**
- * Build price lines array for support, resistance, and pivot levels
+ * Build price lines array for support and resistance levels.
+ *
+ * Line width scales with touch count: 2px for 4+ touches, 1px otherwise.
+ * Label includes touch count when touches > 0 (e.g. "S ×3", "R ×5").
+ * Pivot line is intentionally omitted — backend now sets pivot to null.
  */
-function buildPriceLines(result: Live20Result): ChartPriceLine[] {
+export function buildPriceLines(result: Live20Result): ChartPriceLine[] {
   const lines: ChartPriceLine[] = [];
 
   if (result.support_1 !== null) {
+    const touches = result.support_1_touches ?? 0;
     lines.push({
       price: result.support_1,
       color: '#22c55e',
-      lineWidth: 1,
+      lineWidth: touches >= 4 ? 2 : 1,
       lineStyle: 'dashed',
-      label: 'S1',
+      label: touches > 0 ? `S \u00d7${touches}` : 'S',
       labelVisible: true,
     });
   }
 
   if (result.resistance_1 !== null) {
+    const touches = result.resistance_1_touches ?? 0;
     lines.push({
       price: result.resistance_1,
       color: '#ef4444',
-      lineWidth: 1,
+      lineWidth: touches >= 4 ? 2 : 1,
       lineStyle: 'dashed',
-      label: 'R1',
-      labelVisible: true,
-    });
-  }
-
-  if (result.pivot !== null) {
-    lines.push({
-      price: result.pivot,
-      color: '#eab308',
-      lineWidth: 1,
-      lineStyle: 'dotted',
-      label: 'PP',
+      label: touches > 0 ? `R \u00d7${touches}` : 'R',
       labelVisible: true,
     });
   }

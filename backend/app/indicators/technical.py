@@ -7,7 +7,9 @@ All functions are designed to handle edge cases gracefully and return NaN values
 for insufficient data points where appropriate.
 """
 
+import math
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
@@ -781,3 +783,303 @@ def support_resistance_levels(
     resistance_levels: list[float | None] = [r1, r2, r3][:num_levels]
 
     return support_levels, resistance_levels, pp
+
+
+@dataclass
+class SRLevel:
+    """A detected support/resistance level."""
+
+    price: float
+    touches: int
+    strength: float  # 0.0 to 1.0 composite score
+    last_touch_idx: int  # index in the input array of most recent touch
+
+
+def _detect_swing_points(
+    highs: NDArray[np.float64],
+    lows: NDArray[np.float64],
+    window: int = 5,
+) -> list[tuple[int, float]]:
+    """Detect local extrema (swing highs and swing lows).
+
+    A swing high at index i: high[i] >= all highs in [i-window, i+window].
+    A swing low at index i: low[i] <= all lows in [i-window, i+window].
+
+    Returns list of (index, price) tuples for all detected swing points.
+    Both swing highs (high[i]) and swing lows (low[i]) are returned — they
+    all represent price levels where reversals occurred.
+
+    Args:
+        highs: High price array.
+        lows: Low price array.
+        window: Number of bars on each side to confirm a local extremum.
+
+    Returns:
+        List of (index, price) tuples. Empty list if insufficient data.
+    """
+    n = len(highs)
+    min_bars = 2 * window + 1
+    if n < min_bars:
+        return []
+
+    points: list[tuple[int, float]] = []
+
+    for i in range(window, n - window):
+        neighborhood_highs = highs[i - window : i + window + 1]
+        neighborhood_lows = lows[i - window : i + window + 1]
+
+        # Swing high: current high is the maximum (or tied for maximum) in window
+        if highs[i] >= np.max(neighborhood_highs):
+            points.append((i, float(highs[i])))
+
+        # Swing low: current low is the minimum (or tied for minimum) in window
+        if lows[i] <= np.min(neighborhood_lows):
+            points.append((i, float(lows[i])))
+
+    return points
+
+
+def _cluster_price_levels(
+    points: list[tuple[int, float]],
+    merge_threshold_pct: float = 0.02,
+) -> list[list[tuple[int, float]]]:
+    """Cluster nearby price points using fixed-center sort-and-merge.
+
+    Sort all points by price. Walk through the sorted list.
+    The first point in each cluster sets the cluster's CENTER.
+    Subsequent points merge into the cluster if within
+    merge_threshold_pct of that FIXED center price.
+
+    Using a fixed center (not a running mean) prevents chaining
+    drift where a dense sequence of gradually increasing prices
+    absorbs nearby distinct levels.
+
+    Returns list of clusters, where each cluster is a list of
+    (index, price) tuples.
+
+    Args:
+        points: List of (index, price) tuples.
+        merge_threshold_pct: Maximum fractional distance from cluster center
+            for a point to be absorbed into that cluster.
+
+    Returns:
+        List of clusters. Each cluster is a non-empty list of (index, price)
+        tuples. Returns empty list for empty input.
+    """
+    if not points:
+        return []
+
+    sorted_points = sorted(points, key=lambda p: p[1])
+
+    clusters: list[list[tuple[int, float]]] = []
+    current_cluster: list[tuple[int, float]] = [sorted_points[0]]
+    cluster_center = sorted_points[0][1]
+
+    for point in sorted_points[1:]:
+        _, price = point
+        if cluster_center == 0.0:
+            # Avoid division by zero for zero-priced instruments
+            distance_pct = 0.0
+        else:
+            distance_pct = abs(price - cluster_center) / abs(cluster_center)
+
+        if distance_pct <= merge_threshold_pct:
+            current_cluster.append(point)
+        else:
+            clusters.append(current_cluster)
+            current_cluster = [point]
+            cluster_center = price
+
+    clusters.append(current_cluster)
+    return clusters
+
+
+def _score_levels(
+    clusters: list[list[tuple[int, float]]],
+    volumes: NDArray[np.float64],
+    total_bars: int,
+    current_price: float,
+    max_distance_pct: float = 0.10,
+    touch_weight: float = 0.35,
+    recency_weight: float = 0.30,
+    volume_weight: float = 0.20,
+    proximity_weight: float = 0.15,
+    decay_rate: float = 0.005,
+) -> list[SRLevel]:
+    """Score each cluster by touch count, recency, volume, and proximity.
+
+    Scoring factors:
+    - touch_score: min(cluster_size / 5, 1.0)
+    - recency_score: exp(-decay_rate * bars_since_last_touch)
+    - volume_score: min(avg_volume_at_touches / max(overall_avg_volume, 1e-10), 2.0) / 2.0
+    - proximity_score: 1.0 - (abs(level_price - current_price) /
+          (current_price * max_distance_pct))
+      Closer levels score higher. Levels at max_distance get 0,
+      levels at current price get 1.
+
+    strength = (touch_weight * touch_score + recency_weight * recency_score
+                + volume_weight * volume_score + proximity_weight * proximity_score)
+
+    Args:
+        clusters: Output of _cluster_price_levels().
+        volumes: Volume array aligned to the same indices as the price arrays.
+        total_bars: Total number of bars in the original price series.
+        current_price: Most recent close price.
+        max_distance_pct: Levels beyond this fractional distance are excluded.
+        touch_weight: Weight of touch-count component.
+        recency_weight: Weight of recency component.
+        volume_weight: Weight of volume component.
+        proximity_weight: Weight of proximity component.
+        decay_rate: Exponential decay rate for recency scoring (per bar).
+
+    Returns:
+        List of SRLevel objects with computed strength scores.
+    """
+    if len(volumes) == 0:
+        return []
+
+    overall_avg_volume = float(np.mean(volumes))
+
+    levels: list[SRLevel] = []
+
+    for cluster in clusters:
+        cluster_size = len(cluster)
+        indices = [idx for idx, _ in cluster]
+        prices = [price for _, price in cluster]
+
+        # Representative level price: mean of cluster member prices
+        level_price = float(np.mean(prices))
+
+        # Exclude levels too far from current price
+        if current_price > 0:
+            distance_pct = abs(level_price - current_price) / current_price
+        else:
+            distance_pct = 0.0
+
+        if distance_pct > max_distance_pct:
+            continue
+
+        # --- Touch score ---
+        touch_score = min(cluster_size / 5.0, 1.0)
+
+        # --- Recency score ---
+        last_touch_idx = max(indices)
+        bars_since_last_touch = (total_bars - 1) - last_touch_idx
+        recency_score = math.exp(-decay_rate * bars_since_last_touch)
+
+        # --- Volume score ---
+        touch_volumes = [
+            float(volumes[idx]) for idx in indices if 0 <= idx < len(volumes)
+        ]
+        if touch_volumes:
+            avg_touch_volume = sum(touch_volumes) / len(touch_volumes)
+        else:
+            avg_touch_volume = 0.0
+        volume_score = min(
+            avg_touch_volume / max(overall_avg_volume, 1e-10), 2.0
+        ) / 2.0
+
+        # --- Proximity score ---
+        if current_price > 0:
+            proximity_score = 1.0 - (
+                abs(level_price - current_price)
+                / (current_price * max_distance_pct)
+            )
+            proximity_score = max(proximity_score, 0.0)
+        else:
+            proximity_score = 0.0
+
+        strength = (
+            touch_weight * touch_score
+            + recency_weight * recency_score
+            + volume_weight * volume_score
+            + proximity_weight * proximity_score
+        )
+
+        levels.append(
+            SRLevel(
+                price=level_price,
+                touches=cluster_size,
+                strength=strength,
+                last_touch_idx=last_touch_idx,
+            )
+        )
+
+    return levels
+
+
+def cluster_support_resistance(
+    highs: list[float] | NDArray[np.float64],
+    lows: list[float] | NDArray[np.float64],
+    closes: list[float] | NDArray[np.float64],
+    volumes: list[float] | NDArray[np.float64],
+    window: int = 5,
+    merge_threshold_pct: float = 0.02,
+    min_touches: int = 2,
+    min_strength: float = 0.3,
+    max_distance_pct: float = 0.10,
+) -> list[SRLevel]:
+    """Detect support/resistance levels using historical swing point clustering.
+
+    Algorithm:
+    1. Detect swing highs and lows (local extrema within window)
+    2. Cluster nearby price points (within merge_threshold_pct)
+    3. Score each cluster (touch count, recency, volume, proximity)
+    4. Filter by minimum touches, minimum strength, max distance from current price
+    5. Return levels sorted by strength (descending)
+
+    Args:
+        highs: High price array (daily, >= 2*window+1 bars).
+        lows: Low price array.
+        closes: Close price array.
+        volumes: Volume array.
+        window: Bars on each side for swing point detection.
+        merge_threshold_pct: Max price distance (%) to merge into same cluster.
+        min_touches: Minimum cluster size to qualify as a level.
+        min_strength: Minimum composite score (0-1) to include.
+        max_distance_pct: Max distance from current close to include.
+
+    Returns:
+        List of SRLevel objects sorted by strength (descending).
+        Empty list if insufficient data or no levels found.
+    """
+    highs_arr = np.array(highs, dtype=float)
+    lows_arr = np.array(lows, dtype=float)
+    closes_arr = np.array(closes, dtype=float)
+    volumes_arr = np.array(volumes, dtype=float)
+
+    min_bars = 2 * window + 1
+    if len(highs_arr) < min_bars:
+        return []
+
+    current_price = float(closes_arr[-1])
+    total_bars = len(highs_arr)
+
+    # Step 1: Detect swing points
+    swing_points = _detect_swing_points(highs_arr, lows_arr, window=window)
+    if not swing_points:
+        return []
+
+    # Step 2: Cluster nearby price levels
+    clusters = _cluster_price_levels(swing_points, merge_threshold_pct=merge_threshold_pct)
+
+    # Step 3: Score clusters
+    levels = _score_levels(
+        clusters,
+        volumes_arr,
+        total_bars=total_bars,
+        current_price=current_price,
+        max_distance_pct=max_distance_pct,
+    )
+
+    # Step 4: Filter by min_touches, min_strength
+    filtered = [
+        lvl
+        for lvl in levels
+        if lvl.touches >= min_touches and lvl.strength >= min_strength
+    ]
+
+    # Step 5: Sort by strength descending
+    filtered.sort(key=lambda lvl: lvl.strength, reverse=True)
+
+    return filtered
