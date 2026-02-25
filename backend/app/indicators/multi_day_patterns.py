@@ -53,7 +53,7 @@ class MultiDayPatternResult:
 THREE_CANDLE_ALIGNMENT = {
     ThreeCandlePattern.MORNING_STAR: (True, "Morning Star (3-day) - classic bullish reversal"),
     ThreeCandlePattern.EVENING_STAR: (False, "Evening Star (3-day) - classic bearish reversal"),
-    ThreeCandlePattern.THREE_WHITE_SOLDIERS: (True, "Three White Soldiers (3-day) - strong bullish momentum"),
+    ThreeCandlePattern.THREE_WHITE_SOLDIERS: (False, "Three White Soldiers (3-day) - reversal already in progress, late entry for mean reversion"),
     ThreeCandlePattern.THREE_BLACK_CROWS: (False, "Three Black Crows (3-day) - strong bearish momentum"),
     ThreeCandlePattern.THREE_INSIDE_UP: (True, "Three Inside Up (3-day) - bullish breakout from consolidation"),
     ThreeCandlePattern.THREE_INSIDE_DOWN: (False, "Three Inside Down (3-day) - bearish breakout from consolidation"),
