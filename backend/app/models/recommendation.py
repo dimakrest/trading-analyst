@@ -159,6 +159,14 @@ class Recommendation(Base):
     live20_sector_etf: Mapped[str | None] = mapped_column(
         String(10), nullable=True, doc="Sector SPDR ETF symbol (e.g., 'XLK', 'XLE')"
     )
+    live20_bounce_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(3, 2), nullable=True,
+        doc="Historical bounce rate (0.00-1.00): fraction of MA20 pullback events that recovered >=2.5% within 15 days"
+    )
+    live20_bounce_events: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+        doc="Number of MA20 pullback events used to compute bounce rate"
+    )
 
     live20_run_id: Mapped[int | None] = mapped_column(
         Integer,
@@ -184,6 +192,10 @@ class Recommendation(Base):
             # Live20 directions; legacy values (Buy, Watchlist, Not Buy) kept for existing data
             "recommendation IN ('Buy', 'Watchlist', 'Not Buy', 'LONG', 'NO_SETUP')",
             name="ck_recommendations_valid_decision",
+        ),
+        CheckConstraint(
+            "live20_bounce_rate >= 0 AND live20_bounce_rate <= 1",
+            name="ck_bounce_rate_range",
         ),
         Index("ix_recommendations_stock_created", "stock", desc("created_at")),
     )

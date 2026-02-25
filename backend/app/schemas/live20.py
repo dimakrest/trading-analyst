@@ -57,6 +57,16 @@ class Live20ResultResponse(StrictBaseModel):
     criteria_aligned: int | None = None
     direction: str | None = None  # LONG, NO_SETUP
     sector_etf: str | None = None  # SPDR sector ETF symbol
+    bounce_rate: Decimal | None = Field(
+        None,
+        description="Historical bounce rate (0.00-1.00): fraction of MA20 pullbacks that recovered >=2.5%",
+        ge=0,
+        le=1,
+    )
+    bounce_events: int | None = Field(
+        None,
+        description="Number of MA20 pullback events used to compute bounce rate",
+    )
 
     model_config = {
         "from_attributes": True,
@@ -122,10 +132,12 @@ class Live20ResultResponse(StrictBaseModel):
             criteria_aligned=rec.live20_criteria_aligned,
             direction=rec.live20_direction,
             sector_etf=rec.live20_sector_etf,
+            bounce_rate=rec.live20_bounce_rate,
+            bounce_events=rec.live20_bounce_events,
         )
 
     @field_serializer(
-        "ma20_distance_pct", "atr", "rvol", "cci_value", "rsi2_value", when_used="json"
+        "ma20_distance_pct", "atr", "rvol", "cci_value", "rsi2_value", "bounce_rate", when_used="json"
     )
     def serialize_decimal_as_float(self, value: Decimal | None) -> float | None:
         """Serialize decimal fields as float for JSON."""

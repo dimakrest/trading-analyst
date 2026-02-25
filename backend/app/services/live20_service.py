@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.indicators import calculate_bounce_rate
 from app.indicators.cci_analysis import CCIAnalysis
 from app.indicators.rsi2_analysis import RSI2Analysis
 from app.models.recommendation import Recommendation, RecommendationSource, ScoringAlgorithm
@@ -79,9 +80,9 @@ class Live20Service:
             # Create DataService with session_factory
             data_service = DataService(session_factory=self.session_factory)
 
-            # Fetch price data (60 days for MA20 + buffer)
+            # Fetch 1 year of price data: full history for bounce rate, last ~60 days for core analysis
             end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=60)
+            start_date = end_date - timedelta(days=365)
 
             price_records = await data_service.get_price_data(
                 symbol=symbol,
@@ -97,12 +98,15 @@ class Live20Service:
                     error_message=f"Insufficient data ({len(price_records) if price_records else 0} records)",
                 )
 
-            # Extract arrays
-            opens = [float(r.open_price) for r in price_records]
-            highs = [float(r.high_price) for r in price_records]
-            lows = [float(r.low_price) for r in price_records]
-            closes = [float(r.close_price) for r in price_records]
-            volumes = [float(r.volume) for r in price_records]
+            # Slice last ~60 days for core analysis (MA20 + indicators)
+            core_records = price_records[-60:] if len(price_records) > 60 else price_records
+
+            # Extract arrays from core slice
+            opens = [float(r.open_price) for r in core_records]
+            highs = [float(r.high_price) for r in core_records]
+            lows = [float(r.low_price) for r in core_records]
+            closes = [float(r.close_price) for r in core_records]
+            volumes = [float(r.volume) for r in core_records]
 
             # Calculate ATR independently (for ALL stocks, regardless of direction)
             atr_percentage = calculate_atr_percentage(highs, lows, closes)
@@ -121,6 +125,19 @@ class Live20Service:
 
             # Determine direction based on aligned criteria
             direction, score = self._evaluator.determine_direction_and_score(criteria)
+
+            # Calculate bounce rate from full 1-year history (non-critical)
+            bounce_analysis = None
+            try:
+                if price_records and len(price_records) >= 60:
+                    bounce_closes = [float(r.close_price) for r in price_records]
+                    bounce_lows = [float(r.low_price) for r in price_records]
+                    bounce_analysis = calculate_bounce_rate(
+                        closes=bounce_closes,
+                        lows=bounce_lows,
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to compute bounce rate for {symbol}: {e}")
 
             # Lookup sector ETF (cheap DB cache hit, non-blocking)
             sector_etf = None
@@ -155,6 +172,10 @@ class Live20Service:
                 live20_criteria_aligned=sum(1 for c in criteria if c.aligned_for_long),
                 live20_direction=direction,
                 live20_sector_etf=sector_etf,
+                live20_bounce_rate=Decimal(str(round(bounce_analysis.bounce_rate, 2)))
+                    if bounce_analysis and bounce_analysis.bounce_rate is not None else None,
+                live20_bounce_events=bounce_analysis.total_events
+                    if bounce_analysis else None,
             )
 
             # Algorithm-specific fields (mutually exclusive — never cross-populate)

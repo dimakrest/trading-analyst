@@ -80,6 +80,10 @@ from .multi_day_patterns import (
     MultiDayPatternResult,
     analyze_multi_day_patterns,
 )
+from .bounce_rate import (
+    BounceRateAnalysis,
+    calculate_bounce_rate,
+)
 
 __all__ = [
     "simple_moving_average",
@@ -126,4 +130,6 @@ __all__ = [
     "PatternDuration",
     "MultiDayPatternResult",
     "analyze_multi_day_patterns",
+    "BounceRateAnalysis",
+    "calculate_bounce_rate",
 ]

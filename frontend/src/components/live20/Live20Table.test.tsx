@@ -36,6 +36,11 @@ const createMockResult = (overrides: Partial<Live20Result> = {}): Live20Result =
   cci_aligned: true,
   criteria_aligned: 5,
   direction: 'LONG',
+  scoring_algorithm: 'cci',
+  rsi2_value: null,
+  rsi2_score: null,
+  bounce_rate: null,
+  bounce_events: null,
   ...overrides,
 });
 
@@ -539,6 +544,199 @@ describe('Live20Table', () => {
 
         const atrCell = screen.getByText('6.00%');
         expect(atrCell).toHaveClass('text-accent-bearish');
+      });
+    });
+  });
+
+  describe('Bounce column', () => {
+    it('renders bounce rate as percentage', () => {
+      const result = createMockResult({ bounce_rate: 0.65, bounce_events: 7 });
+      render(<Live20Table results={[result]} />);
+
+      expect(screen.getByText('65%')).toBeInTheDocument();
+    });
+
+    it('displays dash for null bounce_rate', () => {
+      const result = createMockResult({ bounce_rate: null, bounce_events: null });
+      render(<Live20Table results={[result]} />);
+
+      // Find the bounce cell (7th column: Expand, Symbol, Sector, Direction, Score, ATR, Bounce)
+      const row = screen.getByText('TEST').closest('tr');
+      expect(row).toBeInTheDocument();
+      const bounceCell = row?.querySelector('td:nth-child(7) span');
+      expect(bounceCell).toBeInTheDocument();
+      expect(bounceCell).toHaveTextContent('-');
+    });
+
+    describe('color coding', () => {
+      it('displays bullish color for rate >= 0.5', () => {
+        const result = createMockResult({ bounce_rate: 0.5, bounce_events: 5 });
+        render(<Live20Table results={[result]} />);
+
+        const bounceCell = screen.getByText('50%');
+        expect(bounceCell).toHaveClass('text-accent-bullish');
+      });
+
+      it('displays bullish color for rate > 0.5', () => {
+        const result = createMockResult({ bounce_rate: 0.75, bounce_events: 8 });
+        render(<Live20Table results={[result]} />);
+
+        const bounceCell = screen.getByText('75%');
+        expect(bounceCell).toHaveClass('text-accent-bullish');
+      });
+
+      it('displays medium color for rate in range 0.3-0.49', () => {
+        const result = createMockResult({ bounce_rate: 0.4, bounce_events: 5 });
+        render(<Live20Table results={[result]} />);
+
+        const bounceCell = screen.getByText('40%');
+        expect(bounceCell).toHaveClass('text-score-medium');
+      });
+
+      it('displays medium color at lower bound of medium range (0.3)', () => {
+        const result = createMockResult({ bounce_rate: 0.3, bounce_events: 4 });
+        render(<Live20Table results={[result]} />);
+
+        const bounceCell = screen.getByText('30%');
+        expect(bounceCell).toHaveClass('text-score-medium');
+      });
+
+      it('displays bearish color for rate < 0.3', () => {
+        const result = createMockResult({ bounce_rate: 0.2, bounce_events: 4 });
+        render(<Live20Table results={[result]} />);
+
+        const bounceCell = screen.getByText('20%');
+        expect(bounceCell).toHaveClass('text-accent-bearish');
+      });
+    });
+
+    it('tooltip shows pullback events count', async () => {
+      const user = userEvent.setup();
+      const result = createMockResult({ bounce_rate: 0.65, bounce_events: 7 });
+      render(<Live20Table results={[result]} />);
+
+      const bounceSpan = screen.getByText('65%');
+      await user.hover(bounceSpan);
+
+      await waitFor(() => {
+        const tooltipElements = screen.getAllByText('7 pullback events observed');
+        expect(tooltipElements.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('applies font-mono and font-semibold styling to bounce rate', () => {
+      const result = createMockResult({ bounce_rate: 0.65, bounce_events: 7 });
+      render(<Live20Table results={[result]} />);
+
+      const bounceCell = screen.getByText('65%');
+      expect(bounceCell).toHaveClass('font-mono');
+      expect(bounceCell).toHaveClass('font-semibold');
+    });
+
+    describe('edge cases', () => {
+      it('handles bounce_rate of 0', () => {
+        const result = createMockResult({ bounce_rate: 0, bounce_events: 4 });
+        render(<Live20Table results={[result]} />);
+
+        const bounceCell = screen.getByText('0%');
+        expect(bounceCell).toBeInTheDocument();
+        expect(bounceCell).toHaveClass('text-accent-bearish');
+      });
+
+      it('handles bounce_rate of 1.0 (100%)', () => {
+        const result = createMockResult({ bounce_rate: 1.0, bounce_events: 5 });
+        render(<Live20Table results={[result]} />);
+
+        const bounceCell = screen.getByText('100%');
+        expect(bounceCell).toBeInTheDocument();
+        expect(bounceCell).toHaveClass('text-accent-bullish');
+      });
+    });
+
+    describe('sorting', () => {
+      it('sorts by bounce_rate in ascending order', async () => {
+        const user = userEvent.setup();
+        const results = [
+          createMockResult({ stock: 'LOW', bounce_rate: 0.2, bounce_events: 4 }),
+          createMockResult({ stock: 'HIGH', bounce_rate: 0.8, bounce_events: 6 }),
+          createMockResult({ stock: 'MID', bounce_rate: 0.5, bounce_events: 5 }),
+        ];
+        render(<Live20Table results={results} />);
+
+        const bounceHeader = screen.getByRole('button', { name: /bounce/i });
+        await user.click(bounceHeader);
+
+        await waitFor(() => {
+          const symbols = screen.getAllByText(/^(LOW|MID|HIGH)$/);
+          expect(symbols[0]).toHaveTextContent('LOW');
+          expect(symbols[1]).toHaveTextContent('MID');
+          expect(symbols[2]).toHaveTextContent('HIGH');
+        });
+      });
+
+      it('sorts by bounce_rate in descending order', async () => {
+        const user = userEvent.setup();
+        const results = [
+          createMockResult({ stock: 'LOW', bounce_rate: 0.2, bounce_events: 4 }),
+          createMockResult({ stock: 'HIGH', bounce_rate: 0.8, bounce_events: 6 }),
+          createMockResult({ stock: 'MID', bounce_rate: 0.5, bounce_events: 5 }),
+        ];
+        render(<Live20Table results={results} />);
+
+        const bounceHeader = screen.getByRole('button', { name: /bounce/i });
+        await user.click(bounceHeader);
+        await user.click(bounceHeader);
+
+        await waitFor(() => {
+          const symbols = screen.getAllByText(/^(LOW|MID|HIGH)$/);
+          expect(symbols[0]).toHaveTextContent('HIGH');
+          expect(symbols[1]).toHaveTextContent('MID');
+          expect(symbols[2]).toHaveTextContent('LOW');
+        });
+      });
+
+      it('null bounce_rate sorts to top in ascending order (treated as -1)', async () => {
+        const user = userEvent.setup();
+        const results = [
+          createMockResult({ stock: 'NULL', bounce_rate: null, bounce_events: null }),
+          createMockResult({ stock: 'HIGH', bounce_rate: 0.8, bounce_events: 6 }),
+          createMockResult({ stock: 'LOW', bounce_rate: 0.2, bounce_events: 4 }),
+        ];
+        render(<Live20Table results={results} />);
+
+        const bounceHeader = screen.getByRole('button', { name: /bounce/i });
+        await user.click(bounceHeader);
+
+        await waitFor(() => {
+          const symbols = screen.getAllByText(/^(NULL|LOW|HIGH)$/);
+          // NULL (-1) sorts before LOW (0.2) in ascending — it is at bottom of DESC, top of ASC
+          // With ?? -1, null becomes -1 which is smallest, so ascending: NULL, LOW, HIGH
+          expect(symbols[0]).toHaveTextContent('NULL');
+          expect(symbols[1]).toHaveTextContent('LOW');
+          expect(symbols[2]).toHaveTextContent('HIGH');
+        });
+      });
+
+      it('null bounce_rate sorts to bottom in descending order', async () => {
+        const user = userEvent.setup();
+        const results = [
+          createMockResult({ stock: 'NULL', bounce_rate: null, bounce_events: null }),
+          createMockResult({ stock: 'HIGH', bounce_rate: 0.8, bounce_events: 6 }),
+          createMockResult({ stock: 'LOW', bounce_rate: 0.2, bounce_events: 4 }),
+        ];
+        render(<Live20Table results={results} />);
+
+        const bounceHeader = screen.getByRole('button', { name: /bounce/i });
+        await user.click(bounceHeader);
+        await user.click(bounceHeader);
+
+        await waitFor(() => {
+          const symbols = screen.getAllByText(/^(NULL|LOW|HIGH)$/);
+          // Descending: HIGH (0.8), LOW (0.2), NULL (-1)
+          expect(symbols[0]).toHaveTextContent('HIGH');
+          expect(symbols[1]).toHaveTextContent('LOW');
+          expect(symbols[2]).toHaveTextContent('NULL');
+        });
       });
     });
   });

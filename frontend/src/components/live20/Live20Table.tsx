@@ -236,6 +236,47 @@ export function Live20Table({ results }: Live20TableProps) {
         },
       },
       {
+        accessorKey: 'bounce_rate',
+        header: ({ column }) => (
+          <button
+            className="flex items-center gap-1 hover:text-foreground"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            Bounce
+            <ArrowUpDown className="h-4 w-4" />
+          </button>
+        ),
+        sortingFn: (rowA, rowB) =>
+          (rowA.original.bounce_rate ?? -1) - (rowB.original.bounce_rate ?? -1),
+        cell: ({ row }) => {
+          const rate = row.original.bounce_rate;
+          const events = row.original.bounce_events;
+
+          if (rate == null) {
+            return <span className="text-muted-foreground">-</span>;
+          }
+
+          const pct = Math.round(rate * 100);
+          const colorClass =
+            rate >= 0.5 ? 'text-accent-bullish' :
+            rate >= 0.3 ? 'text-score-medium' :
+            'text-accent-bearish';
+
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className={cn('font-mono font-semibold cursor-help', colorClass)}>
+                  {pct}%
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {events} pullback events observed
+              </TooltipContent>
+            </Tooltip>
+          );
+        },
+      },
+      {
         accessorKey: 'trend_aligned',
         header: 'Trend',
         cell: ({ row }) => (

@@ -31,6 +31,8 @@ export interface Live20Result {
   criteria_aligned: number | null;
   direction: Live20Direction | null;
   sector_etf: string | null;
+  bounce_rate: number | null;
+  bounce_events: number | null;
 
   // Scoring algorithm fields
   scoring_algorithm: ScoringAlgorithm | null;
