@@ -1,7 +1,7 @@
 """add_arena_group_id
 
 Revision ID: c3d4e5f6a7b8
-Revises: b2c3d4e5f6a1
+Revises: c3d4e5f6a1b2
 Create Date: 2026-02-22 10:00:00.000000
 
 Trading Analyst Database Migration
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'c3d4e5f6a7b8'
-down_revision: Union[str, Sequence[str], None] = 'b2c3d4e5f6a1'
+down_revision: Union[str, Sequence[str], None] = 'c3d4e5f6a1b2'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

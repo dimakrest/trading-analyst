@@ -15,6 +15,7 @@ import { Agents } from './pages/Agents';
 import { Arena } from './pages/Arena';
 import { ArenaComparison } from './pages/ArenaComparison';
 import { ArenaSimulationDetail } from './pages/ArenaSimulationDetail';
+import { SetupSimulation } from './pages/SetupSimulation';
 import './index.css';
 
 function App() {
@@ -49,6 +50,7 @@ function App() {
                     <Route path="/arena" element={<Arena />} />
                     <Route path="/arena/compare/:groupId" element={<ArenaComparison />} />
                     <Route path="/arena/:id" element={<ArenaSimulationDetail />} />
+                    <Route path="/setup-sim" element={<SetupSimulation />} />
                   </Routes>
                 </main>
               </div>

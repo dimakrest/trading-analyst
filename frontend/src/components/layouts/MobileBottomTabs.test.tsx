@@ -27,20 +27,22 @@ describe('MobileBottomTabs', () => {
       expect(nav).toBeInTheDocument();
     });
 
-    it('renders all 4 navigation items as links', () => {
+    it('renders all 6 navigation items as links', () => {
       renderWithRouter();
 
       expect(screen.getByRole('link', { name: /analysis/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /live 20/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /lists/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /arena/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /setups/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /lists/i })).toBeInTheDocument();
     });
 
-    it('uses 4-column grid layout', () => {
+    it('uses 6-column grid layout', () => {
       renderWithRouter();
 
       const nav = screen.getByRole('navigation', { name: /mobile navigation/i });
-      const grid = nav.querySelector('.grid-cols-4');
+      const grid = nav.querySelector('.grid-cols-6');
       expect(grid).toBeInTheDocument();
     });
   });
@@ -83,6 +85,14 @@ describe('MobileBottomTabs', () => {
       const arenaLink = screen.getByRole('link', { name: /arena/i });
       expect(arenaLink).toHaveAttribute('aria-current', 'page');
       expect(arenaLink).toHaveClass('text-accent-primary');
+    });
+
+    it('highlights Setups when on /setup-sim path', () => {
+      renderWithRouter('/setup-sim');
+
+      const setupsLink = screen.getByRole('link', { name: /setups/i });
+      expect(setupsLink).toHaveAttribute('aria-current', 'page');
+      expect(setupsLink).toHaveClass('text-accent-primary');
     });
 
     it('applies stroke-[2.5] to active icons', () => {

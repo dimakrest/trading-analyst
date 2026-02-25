@@ -21,6 +21,7 @@ from app.api.v1 import arena
 from app.api.v1 import health
 from app.api.v1 import indicators
 from app.api.v1 import live20
+from app.api.v1 import setup_sim
 from app.api.v1 import stock_lists
 from app.api.v1 import stocks
 from app.core.config import get_settings
@@ -321,6 +322,12 @@ def create_app() -> FastAPI:
         arena.router,
         prefix=f"{settings.api_v1_prefix}/arena",
         tags=["arena"],
+    )
+
+    app.include_router(
+        setup_sim.router,
+        prefix=f"{settings.api_v1_prefix}/setup-sim",
+        tags=["setup-sim"],
     )
 
     # Set custom OpenAPI schema with enhanced documentation
