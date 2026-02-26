@@ -27,17 +27,20 @@ describe('MobileBottomTabs', () => {
       expect(nav).toBeInTheDocument();
     });
 
-    it('renders Analysis navigation item as a link', () => {
+    it('renders all 4 navigation items as links', () => {
       renderWithRouter();
 
       expect(screen.getByRole('link', { name: /analysis/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /live 20/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /lists/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /arena/i })).toBeInTheDocument();
     });
 
-    it('uses 1-column grid layout', () => {
+    it('uses 4-column grid layout', () => {
       renderWithRouter();
 
       const nav = screen.getByRole('navigation', { name: /mobile navigation/i });
-      const grid = nav.querySelector('.grid-cols-1');
+      const grid = nav.querySelector('.grid-cols-4');
       expect(grid).toBeInTheDocument();
     });
   });
@@ -56,6 +59,30 @@ describe('MobileBottomTabs', () => {
 
       const analysisLink = screen.getByRole('link', { name: /analysis/i });
       expect(analysisLink).toHaveAttribute('aria-current', 'page');
+    });
+
+    it('highlights Live 20 when on /live-20 path', () => {
+      renderWithRouter('/live-20');
+
+      const live20Link = screen.getByRole('link', { name: /live 20/i });
+      expect(live20Link).toHaveAttribute('aria-current', 'page');
+      expect(live20Link).toHaveClass('text-accent-primary');
+    });
+
+    it('highlights Lists when on /lists path', () => {
+      renderWithRouter('/lists');
+
+      const listsLink = screen.getByRole('link', { name: /lists/i });
+      expect(listsLink).toHaveAttribute('aria-current', 'page');
+      expect(listsLink).toHaveClass('text-accent-primary');
+    });
+
+    it('highlights Arena when on /arena path', () => {
+      renderWithRouter('/arena');
+
+      const arenaLink = screen.getByRole('link', { name: /arena/i });
+      expect(arenaLink).toHaveAttribute('aria-current', 'page');
+      expect(arenaLink).toHaveClass('text-accent-primary');
     });
 
     it('applies stroke-[2.5] to active icons', () => {

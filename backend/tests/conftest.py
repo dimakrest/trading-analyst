@@ -25,13 +25,16 @@ os.environ["LOG_LEVEL"] = "WARNING"
 import asyncio
 from collections.abc import AsyncGenerator
 from collections.abc import Generator
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
 from app.core.config import Settings
 from app.core.config import get_settings
 from app.core.database import Base
@@ -81,6 +84,7 @@ def configure_logging(test_settings: Settings):
     Args:
         test_settings: Test configuration
     """
+    # Configure structlog for test environment
     configure_structured_logging(log_level=test_settings.log_level)
 
 
@@ -99,7 +103,7 @@ async def test_engine(test_settings: Settings):
         echo=test_settings.database_echo,
         pool_size=5,
         max_overflow=10,
-        pool_timeout=10,
+        pool_timeout=10,  # Prevent indefinite wait for pool connections
         connect_args={
             "server_settings": {
                 "application_name": f"{test_settings.app_name}_test",
@@ -112,8 +116,35 @@ async def test_engine(test_settings: Settings):
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
+    # One-time cleanup at session start (safe - no concurrent tests yet)
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "TRUNCATE TABLE arena_positions, arena_snapshots, arena_simulations, "
+            "live20_runs, stock_prices, ib_orders, recommendations, stock_lists "
+            "RESTART IDENTITY CASCADE"
+        ))
+
     yield engine
     await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def test_session_factory(test_engine):
+    """Create test session factory.
+
+    Args:
+        test_engine: Test database engine
+
+    Returns:
+        async_sessionmaker: Test session factory
+    """
+    return async_sessionmaker(
+        test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False,
+    )
 
 
 @pytest_asyncio.fixture
@@ -121,6 +152,9 @@ async def db_connection(test_engine):
     """Per-test connection with outer transaction for rollback isolation.
 
     The outer transaction is rolled back after each test, undoing all changes.
+    Pulled in automatically by db_session and override_get_session_factory.
+    Tests using test_session_factory directly (with their own TRUNCATE fixtures)
+    should NOT request this fixture to avoid AccessExclusiveLock conflicts.
     """
     async with test_engine.connect() as connection:
         transaction = await connection.begin()
@@ -149,6 +183,24 @@ async def db_session(db_connection) -> AsyncGenerator[AsyncSession, None]:
         yield session
     finally:
         await session.close()
+
+
+@pytest.fixture
+def rollback_session_factory(db_connection):
+    """Session factory creating sessions on the rollback connection.
+
+    Replacement for test_session_factory in tests that don't need separate DB
+    connections. Sessions use join_transaction_mode="create_savepoint", so
+    commits become savepoint releases (rolled back with the outer transaction).
+    """
+    def factory():
+        return AsyncSession(
+            bind=db_connection,
+            expire_on_commit=False,
+            autoflush=False,
+            join_transaction_mode="create_savepoint",
+        )
+    return factory
 
 
 @pytest.fixture
@@ -254,6 +306,46 @@ async def async_client(app) -> AsyncGenerator[AsyncClient, None]:
         yield client
 
 
+# Common test data fixtures
+@pytest.fixture
+def sample_stock_data():
+    """Sample stock data for testing.
+
+    Returns:
+        dict: Sample stock data
+    """
+    return {
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "price": 150.0,
+        "volume": 1000000,
+        "market_cap": 2500000000000,
+    }
+
+
+# Mock fixtures for external services
+@pytest.fixture
+def mock_yahoo_finance():
+    """Mock Yahoo Finance service for testing.
+
+    Returns:
+        AsyncMock: Mocked Yahoo Finance service
+    """
+    mock = AsyncMock()
+    mock.get_stock_data.return_value = {
+        "symbol": "AAPL",
+        "price": 150.0,
+        "volume": 1000000,
+        "timestamp": "2024-01-01T10:00:00Z",
+    }
+    return mock
+
+
+# Note: Test isolation uses transaction rollback (not TRUNCATE).
+# Each test runs inside an outer transaction that is rolled back after the test,
+# avoiding AccessExclusiveLock deadlocks from TRUNCATE operations.
+
+
 # Pytest configuration
 def pytest_configure(config):
     """Configure pytest with custom markers and settings.
@@ -295,7 +387,19 @@ def pytest_configure(config):
 class TestUtils:
     """Utility functions for tests."""
 
-    pass
+    @staticmethod
+    async def create_test_stock(session: AsyncSession, **kwargs) -> dict:
+        """Create a test stock record.
+
+        Args:
+            session: Database session
+            **kwargs: Stock attributes
+
+        Returns:
+            dict: Created stock data
+        """
+        # This will be implemented when stock models are available
+        pass
 
 
 @pytest.fixture

@@ -1,0 +1,91 @@
+# Pre-commit hooks for code quality enforcement
+# See https://pre-commit.com for more information
+
+repos:
+  # General file cleanup
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+      - id: end-of-file-fixer
+        name: Fix end of files
+      - id: check-yaml
+        name: Check YAML syntax
+      - id: check-added-large-files
+        name: Check for large files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+      - id: check-json
+        name: Check JSON syntax
+      - id: check-toml
+        name: Check TOML syntax
+      - id: mixed-line-ending
+        name: Check line endings
+        args: ['--fix=lf']
+
+  # Python code formatting with Black
+  - repo: https://github.com/psf/black
+    rev: 23.11.0
+    hooks:
+      - id: black
+        name: Format with Black
+        language_version: python3.11
+        args: ['--line-length=100']
+
+  # Import sorting with isort
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: Sort imports with isort
+        args: ['--profile=black', '--line-length=100']
+
+  # Python linting with Ruff (faster alternative to flake8)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.9
+    hooks:
+      - id: ruff
+        name: Lint with Ruff
+        args:
+          - --fix
+          - --exit-non-zero-on-fix
+          # Ignore cosmetic docstring rules
+          - --ignore=D200,D415,D102,D106
+          # Ignore FastAPI Depends() false positive
+          - --ignore=B008
+
+  # Type checking with MyPy (optional - can be slow)
+  # Uncomment when type hints are complete
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: v1.8.0
+  #   hooks:
+  #     - id: mypy
+  #       name: Type check with MyPy
+  #       args: [--strict, --ignore-missing-imports]
+  #       additional_dependencies:
+  #         - types-requests
+  #         - sqlalchemy[mypy]
+  #         - pydantic
+
+# Configuration
+default_language_version:
+  python: python3.11
+
+# Performance optimization
+default_stages: [commit]
+
+# Files to exclude
+exclude: |
+  (?x)^(
+      migrations/.*|
+      \.git/.*|
+      \.mypy_cache/.*|
+      \.ruff_cache/.*|
+      \.pytest_cache/.*|
+      __pycache__/.*|
+      build/.*|
+      dist/.*|
+      .*\.egg-info/.*
+  )$

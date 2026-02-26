@@ -16,9 +16,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.core.config import get_settings
 from app.models.base import Base
 
-# Import all models here to ensure they are registered with Base metadata.
-# This is required for autogenerate to detect all tables.
-# When you add new models, import them here so Alembic can see them.
+# Import all models here to ensure they are registered with Base metadata
+# This is required for autogenerate to detect all tables
+try:
+    # Import all model classes to register them with Base metadata
+    from app.models import (
+        StockPrice,
+        IBOrder,
+        Recommendation,
+        Live20Run,
+        StockList,
+        ArenaSimulation,
+        ArenaPosition,
+        ArenaSnapshot,
+    )
+except ImportError:
+    # Models may not exist yet during initial setup
+    pass
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

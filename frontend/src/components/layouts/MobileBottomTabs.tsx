@@ -7,7 +7,7 @@ import { NAV_ITEMS, isNavItemActive } from './navigationConfig';
  *
  * Fixed bottom navigation for mobile devices (< 768px).
  * Features:
- * - Navigation tabs with icons and labels
+ * - All 4 navigation tabs with icons and labels
  * - Active state highlighting with accent-primary color
  * - Touch feedback with scale animation
  * - Safe area insets for devices with notches
@@ -23,7 +23,7 @@ export const MobileBottomTabs = () => {
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       aria-label="Mobile navigation"
     >
-      <div className="grid grid-cols-1 py-2 px-2 gap-1">
+      <div className="grid grid-cols-4 py-2 px-2 gap-1">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = isNavItemActive(item.path, location.pathname);
