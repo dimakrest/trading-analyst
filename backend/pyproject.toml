@@ -41,8 +41,6 @@ dependencies = [
     "numpy>=1.22.4,<1.29.0",
     "scipy>=1.10.0,<2.0.0",
     "exchange_calendars>=4.5.0",
-    # Broker integrations
-    "ib_async==2.0.1",
     # Validation and reporting
     "jinja2==3.1.2",
     # Logging

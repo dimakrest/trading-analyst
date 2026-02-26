@@ -1,1 +1,0 @@
-export { IntervalSelector } from './IntervalSelector';

@@ -43,18 +43,12 @@ export default defineConfig(({ mode }) => {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     exclude: ['**/node_modules/**', '**/e2e/**', '**/*.spec.ts'],
-    server: {
-      deps: {
-        inline: ['lightweight-charts'],
-      },
-    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/',
         'src/test/',
-        'src/types/',
         'e2e/',
         '**/*.test.{ts,tsx}',
         '**/*.spec.{ts,tsx}',

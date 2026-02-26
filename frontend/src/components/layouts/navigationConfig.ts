@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { LayoutDashboard, Search, List, Swords, Bot } from 'lucide-react';
+import { BarChart2 } from 'lucide-react';
 
 /**
  * Navigation Item Interface
@@ -18,41 +18,9 @@ export const NAV_ITEMS: NavItem[] = [
   {
     path: '/',
     label: 'Analysis',
-    icon: LayoutDashboard,
-  },
-  {
-    path: '/live-20',
-    label: 'Live 20',
-    icon: Search,
-  },
-  {
-    path: '/arena',
-    label: 'Arena',
-    icon: Swords,
-  },
-  {
-    path: '/agents',
-    label: 'Agents',
-    icon: Bot,
-  },
-  {
-    path: '/lists',
-    label: 'Lists',
-    icon: List,
+    icon: BarChart2,
   },
 ];
-
-/**
- * Mobile navigation items (first 3 items for bottom tabs)
- * The 4th tab will be "More" which opens a sheet with remaining items
- */
-export const MOBILE_NAV_ITEMS = NAV_ITEMS.slice(0, 3);
-
-/**
- * Items shown in the "More" menu sheet on mobile
- * These are the items that don't fit in the bottom tabs
- */
-export const MORE_NAV_ITEMS = NAV_ITEMS.slice(3);
 
 /**
  * Determines if a navigation item is active based on current pathname
@@ -68,14 +36,4 @@ export const isNavItemActive = (path: string, currentPathname: string): boolean 
   }
   // For other paths, match if current path starts with the nav path
   return currentPathname.startsWith(path);
-};
-
-/**
- * Determines if any item in the "More" menu is currently active
- *
- * @param currentPathname - The current location pathname
- * @returns True if any "More" menu item should be highlighted
- */
-export const isMoreMenuActive = (currentPathname: string): boolean => {
-  return MORE_NAV_ITEMS.some((item) => isNavItemActive(item.path, currentPathname));
 };
