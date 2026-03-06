@@ -16,7 +16,7 @@ class StockListCreate(StrictBaseModel):
     )
     symbols: list[str] = Field(
         default_factory=list,
-        max_length=150,
+        max_length=200,
         description="Initial list of stock symbols"
     )
 
@@ -32,7 +32,7 @@ class StockListUpdate(StrictBaseModel):
     )
     symbols: list[str] | None = Field(
         None,
-        max_length=150,
+        max_length=200,
         description="New list of stock symbols"
     )
 

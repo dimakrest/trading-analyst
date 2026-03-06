@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import {
@@ -7,6 +7,7 @@ import {
   CreateListDialog,
   EditListDialog,
   DeleteListDialog,
+  ImportListDialog,
 } from '../../components/stockLists';
 import { useStockLists } from '../../hooks/useStockLists';
 import type { StockList } from '../../services/stockListService';
@@ -39,10 +40,11 @@ const extractErrorMessage = (err: unknown): string => {
  * - Loading state while fetching
  */
 export const StockLists = () => {
-  const { lists, isLoading, error, createList, updateList, deleteList } = useStockLists();
+  const { lists, isLoading, error, createList, updateList, deleteList, refetch } = useStockLists();
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [editingList, setEditingList] = useState<StockList | null>(null);
   const [deletingList, setDeletingList] = useState<StockList | null>(null);
 
@@ -114,13 +116,23 @@ export const StockLists = () => {
             Organize your symbols into watchlists for quick access
           </p>
         </div>
-        <Button
-          onClick={() => setCreateDialogOpen(true)}
-          className="flex items-center gap-2"
-        >
-          <Plus className="w-[18px] h-[18px]" />
-          Create List
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setImportDialogOpen(true)}
+            className="flex items-center gap-2 border-default hover:bg-bg-tertiary"
+          >
+            <Upload className="w-[18px] h-[18px]" />
+            Import from TradingView
+          </Button>
+          <Button
+            onClick={() => setCreateDialogOpen(true)}
+            className="flex items-center gap-2"
+          >
+            <Plus className="w-[18px] h-[18px]" />
+            Create List
+          </Button>
+        </div>
       </div>
 
       {/* Lists Table */}
@@ -148,6 +160,16 @@ export const StockLists = () => {
         onOpenChange={(open) => !open && setEditingList(null)}
         onSubmit={handleUpdateList}
         isSubmitting={isUpdating}
+      />
+
+      {/* Import Dialog */}
+      <ImportListDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onSuccess={(name) => {
+          refetch();
+          toast.success(`List "${name}" imported`);
+        }}
       />
 
       {/* Delete Dialog */}
