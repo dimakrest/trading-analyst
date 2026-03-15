@@ -28,6 +28,12 @@ interface CandlestickChartProps {
   priceLines?: ChartPriceLine[];
   markers?: ChartMarker[];
   showMA20?: boolean;
+  /** Additional MA/indicator lines rendered as LineSeries overlays in the main pane */
+  extraLineSeries?: {
+    label: string;
+    color: string;
+    data: { time: UTCTimestamp; value: number }[];
+  }[];
 }
 
 /**
@@ -53,6 +59,7 @@ export const CandlestickChart = ({
   priceLines,
   markers,
   showMA20: showMA20Prop,
+  extraLineSeries,
 }: CandlestickChartProps) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -64,6 +71,7 @@ export const CandlestickChart = ({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const priceLineRefs = useRef<IPriceLine[]>([]);
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const extraSeriesRefs = useRef<ISeriesApi<'Line'>[]>([]);
 
   const chartTheme = useChartTheme();
   const candlestickStyle = useCandlestickStyle();
@@ -237,6 +245,13 @@ export const CandlestickChart = ({
       volumeSeriesRef.current = null;
       ma20SeriesRef.current = null;
       seriesRef.current = null;
+
+      // Remove extra line series
+      extraSeriesRefs.current.forEach((series) => {
+        try { chart.removeSeries(series); } catch { /* series already removed */ }
+      });
+      extraSeriesRefs.current = [];
+
       chart.remove();
     };
   }, [chartTheme, candlestickStyle, height, symbol, saveZoomState, data.length]);
@@ -432,6 +447,39 @@ export const CandlestickChart = ({
       }
     };
   }, [markers]);
+
+  // Extra line series — e.g. MA lines injected by alert detail view
+  // Managed in a separate effect so changes to extraLineSeries don't re-init the chart
+  useEffect(() => {
+    if (!chartRef.current || !extraLineSeries) return;
+
+    // Remove any previously added extra series
+    extraSeriesRefs.current.forEach((series) => {
+      try { chartRef.current?.removeSeries(series); } catch { /* already removed */ }
+    });
+    extraSeriesRefs.current = [];
+
+    // Add each configured series to pane 0 (main price pane)
+    for (const config of extraLineSeries) {
+      const series = chartRef.current.addSeries(LineSeries, {
+        color: config.color,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        title: config.label,
+      });
+      series.setData(config.data);
+      extraSeriesRefs.current.push(series);
+    }
+
+    return () => {
+      extraSeriesRefs.current.forEach((series) => {
+        try { chartRef.current?.removeSeries(series); } catch { /* already removed */ }
+      });
+      extraSeriesRefs.current = [];
+    };
+  }, [extraLineSeries]);
 
   // Empty state
   if (!data || data.length === 0) {

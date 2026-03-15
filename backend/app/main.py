@@ -17,6 +17,7 @@ from slowapi.util import get_remote_address
 
 from app.api.v1 import account
 from app.api.v1 import agent_configs
+from app.api.v1 import alerts
 from app.api.v1 import arena
 from app.api.v1 import health
 from app.api.v1 import indicators
@@ -182,6 +183,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         live20_worker_task = asyncio.create_task(live20_worker.start())
         arena_worker_task = asyncio.create_task(arena_worker.start())
 
+        # Create and start alert monitor
+        from app.core.deps import get_market_data_provider
+        from app.services.alert_monitor import AlertMonitorService
+
+        alert_provider = await get_market_data_provider()
+        alert_monitor = AlertMonitorService(session_factory, alert_provider)
+        alert_monitor_task = asyncio.create_task(alert_monitor.start())
+
         logger.info("Application initialized successfully, workers started")
 
         yield
@@ -190,6 +199,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Stopping job queue workers...")
         await live20_worker.stop()
         await arena_worker.stop()
+
+        await alert_monitor.stop()
+        alert_monitor_task.cancel()
+        try:
+            await alert_monitor_task
+        except asyncio.CancelledError:
+            pass
 
         # Cancel worker tasks
         live20_worker_task.cancel()
@@ -242,7 +258,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -321,6 +337,12 @@ def create_app() -> FastAPI:
         arena.router,
         prefix=f"{settings.api_v1_prefix}/arena",
         tags=["arena"],
+    )
+
+    app.include_router(
+        alerts.router,
+        prefix=f"{settings.api_v1_prefix}/alerts",
+        tags=["alerts"],
     )
 
     # Set custom OpenAPI schema with enhanced documentation

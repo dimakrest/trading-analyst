@@ -150,6 +150,16 @@ class Settings(BaseSettings):
         description="Interval for sweeper to check for stale jobs in seconds"
     )
 
+    # Alert Monitor Configuration
+    alert_monitor_interval: int = Field(
+        default=300,
+        description="Interval for alert monitor to check all alerts in seconds (default 5 minutes)"
+    )
+    alert_monitor_batch_size: int = Field(
+        default=50,
+        description="Max symbols to process per monitor cycle to avoid data provider rate limits"
+    )
+
     @property
     def is_development(self) -> bool:
         """Check if running in development environment."""

@@ -94,3 +94,29 @@ export const INDICATOR_COLORS = {
    */
   trend: (value: number): string => (value >= 0 ? 'text-up-indicator' : 'text-down-indicator'),
 } as const;
+
+/**
+ * Alert status color mappings for stock price alerts
+ *
+ * Maps each alert status to Tailwind background/text/border classes.
+ * Actionable statuses (at_level, at_ma) include animate-pulse for visibility.
+ *
+ * @example
+ * ```tsx
+ * <Badge className={ALERT_STATUS_COLORS[status]}>Active</Badge>
+ * ```
+ */
+export const ALERT_STATUS_COLORS: Record<string, string> = {
+  rallying: 'bg-accent-bullish/15 text-accent-bullish border border-accent-bullish/30',
+  pullback_started: 'bg-yellow-500/15 text-yellow-500 border border-yellow-500/30',
+  retracing: 'bg-orange-500/15 text-orange-500 border border-orange-500/30',
+  at_level: 'bg-accent-bearish/15 text-accent-bearish border border-accent-bearish/30 animate-pulse',
+  bouncing: 'bg-blue-500/15 text-blue-500 border border-blue-500/30',
+  invalidated: 'bg-text-muted/15 text-text-muted border border-text-muted/30',
+  no_structure: 'bg-text-muted/10 text-text-muted/60 border border-text-muted/20',
+  above_ma: 'bg-accent-bullish/15 text-accent-bullish border border-accent-bullish/30',
+  approaching: 'bg-yellow-500/15 text-yellow-500 border border-yellow-500/30',
+  at_ma: 'bg-accent-bearish/15 text-accent-bearish border border-accent-bearish/30 animate-pulse',
+  below_ma: 'bg-orange-500/15 text-orange-500 border border-orange-500/30',
+  insufficient_data: 'bg-text-muted/10 text-text-muted/60 border border-text-muted/20',
+};

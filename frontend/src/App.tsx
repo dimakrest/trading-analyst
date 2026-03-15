@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -16,6 +17,13 @@ import { Arena } from './pages/Arena';
 import { ArenaComparison } from './pages/ArenaComparison';
 import { ArenaSimulationDetail } from './pages/ArenaSimulationDetail';
 import './index.css';
+
+const AlertsDashboard = lazy(() =>
+  import('./pages/Alerts/AlertsDashboard').then((m) => ({ default: m.AlertsDashboard }))
+);
+const AlertDetail = lazy(() =>
+  import('./pages/Alerts/AlertDetail').then((m) => ({ default: m.AlertDetail }))
+);
 
 function App() {
   return (
@@ -49,6 +57,22 @@ function App() {
                     <Route path="/arena" element={<Arena />} />
                     <Route path="/arena/compare/:groupId" element={<ArenaComparison />} />
                     <Route path="/arena/:id" element={<ArenaSimulationDetail />} />
+                    <Route
+                      path="/alerts"
+                      element={
+                        <Suspense fallback={null}>
+                          <AlertsDashboard />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/alerts/:alertId"
+                      element={
+                        <Suspense fallback={null}>
+                          <AlertDetail />
+                        </Suspense>
+                      }
+                    />
                   </Routes>
                 </main>
               </div>
