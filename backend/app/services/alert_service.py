@@ -518,8 +518,8 @@ def _deserialize_fibonacci_state(
 
         if swing_high_price is not None and swing_low_price is not None:
             # Index is unknown from stored state — use 1 and 0 as placeholders.
-            # The _is_same_structure check uses price + direction, not index,
-            # so placeholder indices do not cause incorrect re-anchor detection.
+            # _is_same_structure compares by index, so deserialized state will
+            # always appear as a new structure (triggering level reset on restart).
             swing_structure = SwingStructure(
                 high=SwingPoint(index=1, price=float(swing_high_price), date=swing_high_date),
                 low=SwingPoint(index=0, price=float(swing_low_price), date=swing_low_date),

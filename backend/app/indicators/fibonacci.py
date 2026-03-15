@@ -506,7 +506,7 @@ def _is_same_structure(
 ) -> bool:
     """Determine whether the swing structure matches the previous state's structure.
 
-    Compares swing high and low prices and directions. If the structure has
+    Compares swing high and low indices and direction. If the structure has
     changed (re-anchored), triggered level history should be reset.
 
     Args:
