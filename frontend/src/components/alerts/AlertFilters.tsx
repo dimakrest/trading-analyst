@@ -58,7 +58,7 @@ export function AlertFilters({ alertType, status, onAlertTypeChange, onStatusCha
       <div className="flex items-center gap-2">
         <Label className="text-xs text-text-muted whitespace-nowrap">Type</Label>
         <Select value={alertType} onValueChange={handleAlertTypeChange}>
-          <SelectTrigger className="h-8 w-[160px] text-xs bg-bg-secondary border-default">
+          <SelectTrigger className="h-8 w-[160px] text-xs bg-bg-secondary border-default" aria-label="Filter by type">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -72,7 +72,7 @@ export function AlertFilters({ alertType, status, onAlertTypeChange, onStatusCha
       <div className="flex items-center gap-2">
         <Label className="text-xs text-text-muted whitespace-nowrap">Status</Label>
         <Select value={status} onValueChange={onStatusChange}>
-          <SelectTrigger className="h-8 w-[160px] text-xs bg-bg-secondary border-default">
+          <SelectTrigger className="h-8 w-[160px] text-xs bg-bg-secondary border-default" aria-label="Filter by status">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

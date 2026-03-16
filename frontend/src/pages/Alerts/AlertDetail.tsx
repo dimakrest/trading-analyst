@@ -30,7 +30,7 @@ import type { ChartPriceLine, ChartMarker } from '../../types/chart';
 /** Map raw API price records to the StockPrice shape CandlestickChart expects */
 function toPriceData(raw: Record<string, unknown>[]): StockPrice[] {
   return raw.map((item) => ({
-    date: item.date as string,
+    date: (item.date ?? (item.timestamp as string)?.split('T')[0] ?? '') as string,
     open: Number(item.open),
     high: Number(item.high),
     low: Number(item.low),

@@ -24,16 +24,17 @@ test.describe('Responsive Navigation', () => {
       const bottomTabs = page.locator('nav[aria-label="Mobile navigation"]');
       await expect(bottomTabs).toBeVisible();
 
-      // Should have 5 navigation links (all items visible on mobile)
+      // Should have 6 navigation links (all items visible on mobile)
       const navLinks = bottomTabs.locator('a');
-      await expect(navLinks).toHaveCount(5);
+      await expect(navLinks).toHaveCount(6);
 
-      // Verify labels (all 5 items in order - using actual label text, CSS uppercase applied visually)
+      // Verify labels (all 6 items in order - using actual label text, CSS uppercase applied visually)
       await expect(navLinks.nth(0)).toContainText('Analysis');
       await expect(navLinks.nth(1)).toContainText('Live 20');
       await expect(navLinks.nth(2)).toContainText('Arena');
       await expect(navLinks.nth(3)).toContainText('Agents');
       await expect(navLinks.nth(4)).toContainText('Lists');
+      await expect(navLinks.nth(5)).toContainText('Alerts');
     });
 
     test('should hide desktop sidebar on mobile', async ({ page }) => {
@@ -123,9 +124,9 @@ test.describe('Responsive Navigation', () => {
       const sidebar = page.locator('aside[aria-label="Desktop navigation"]');
       await expect(sidebar).toBeVisible();
 
-      // Should have 5 navigation links
+      // Should have 6 navigation links
       const navLinks = sidebar.locator('nav[aria-label="Main navigation"] a');
-      await expect(navLinks).toHaveCount(5);
+      await expect(navLinks).toHaveCount(6);
 
       // Verify labels (capitalized on desktop) - in order
       await expect(navLinks.nth(0)).toContainText('Analysis');
@@ -133,6 +134,7 @@ test.describe('Responsive Navigation', () => {
       await expect(navLinks.nth(2)).toContainText('Arena');
       await expect(navLinks.nth(3)).toContainText('Agents');
       await expect(navLinks.nth(4)).toContainText('Lists');
+      await expect(navLinks.nth(5)).toContainText('Alerts');
     });
 
     test('should hide mobile bottom tabs on desktop', async ({ page }) => {
