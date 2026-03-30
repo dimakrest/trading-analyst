@@ -1,13 +1,18 @@
 """Unit tests for the TrailingStop module.
 
-Tests FixedPercentTrailingStop and TrailingStopUpdate for position management.
+Tests FixedPercentTrailingStop, AtrTrailingStop, and TrailingStopUpdate for
+position management.
 """
 
 from decimal import Decimal
 
 import pytest
 
-from app.services.arena.trailing_stop import FixedPercentTrailingStop, TrailingStopUpdate
+from app.services.arena.trailing_stop import (
+    AtrTrailingStop,
+    FixedPercentTrailingStop,
+    TrailingStopUpdate,
+)
 
 
 class TestTrailingStopUpdate:
@@ -522,3 +527,386 @@ class TestTrailingStopEdgeCases:
         # Final state after all new highs
         assert highest == Decimal("125")
         assert stop_price == Decimal("118.7500")
+
+
+# =============================================================================
+# AtrTrailingStop tests
+# =============================================================================
+
+
+class TestAtrTrailingStopInit:
+    """Tests for AtrTrailingStop initialization."""
+
+    @pytest.mark.unit
+    def test_default_parameters(self) -> None:
+        """Test default constructor values."""
+        stop = AtrTrailingStop()
+
+        assert stop.atr_multiplier == 2.0
+        assert stop.min_pct == 2.0
+        assert stop.max_pct == 10.0
+
+    @pytest.mark.unit
+    def test_custom_parameters(self) -> None:
+        """Test custom constructor values."""
+        stop = AtrTrailingStop(atr_multiplier=3.0, min_pct=1.5, max_pct=8.0)
+
+        assert stop.atr_multiplier == 3.0
+        assert stop.min_pct == 1.5
+        assert stop.max_pct == 8.0
+
+    @pytest.mark.unit
+    def test_zero_atr_multiplier_raises(self) -> None:
+        """Test that atr_multiplier=0 raises ValueError."""
+        with pytest.raises(ValueError, match="atr_multiplier must be positive"):
+            AtrTrailingStop(atr_multiplier=0.0)
+
+    @pytest.mark.unit
+    def test_negative_atr_multiplier_raises(self) -> None:
+        """Test that negative atr_multiplier raises ValueError."""
+        with pytest.raises(ValueError, match="atr_multiplier must be positive"):
+            AtrTrailingStop(atr_multiplier=-1.0)
+
+    @pytest.mark.unit
+    def test_zero_min_pct_raises(self) -> None:
+        """Test that min_pct=0 raises ValueError."""
+        with pytest.raises(ValueError, match="min_pct must be positive"):
+            AtrTrailingStop(min_pct=0.0)
+
+    @pytest.mark.unit
+    def test_max_pct_100_raises(self) -> None:
+        """Test that max_pct=100 raises ValueError."""
+        with pytest.raises(ValueError, match="max_pct must be less than 100"):
+            AtrTrailingStop(max_pct=100.0)
+
+    @pytest.mark.unit
+    def test_min_pct_exceeds_max_pct_raises(self) -> None:
+        """Test that min_pct > max_pct raises ValueError."""
+        with pytest.raises(ValueError, match="min_pct .* must not exceed max_pct"):
+            AtrTrailingStop(min_pct=8.0, max_pct=5.0)
+
+    @pytest.mark.unit
+    def test_min_pct_equals_max_pct_is_valid(self) -> None:
+        """Test that min_pct == max_pct is allowed (degenerate but valid)."""
+        stop = AtrTrailingStop(min_pct=5.0, max_pct=5.0)
+        assert stop.min_pct == stop.max_pct == 5.0
+
+
+class TestAtrTrailingStopCalculateInitial:
+    """Tests for AtrTrailingStop.calculate_initial_stop()."""
+
+    @pytest.fixture
+    def atr_stop(self) -> AtrTrailingStop:
+        """Standard ATR stop with 2x multiplier, 2-10% clamp."""
+        return AtrTrailingStop(atr_multiplier=2.0, min_pct=2.0, max_pct=10.0)
+
+    @pytest.mark.unit
+    def test_normal_atr_computes_correctly(self, atr_stop: AtrTrailingStop) -> None:
+        """Test trail_pct = 2.0 * 3.5 = 7.0, within [2, 10] clamp."""
+        highest, stop, trail_pct = atr_stop.calculate_initial_stop(
+            entry_price=Decimal("100.00"), atr_pct=3.5
+        )
+
+        assert highest == Decimal("100.00")
+        assert trail_pct == Decimal("7.0")
+        # stop = 100 * (1 - 0.07) = 93.00
+        assert stop == Decimal("93.0000")
+
+    @pytest.mark.unit
+    def test_clamp_to_min_pct(self, atr_stop: AtrTrailingStop) -> None:
+        """Test trail_pct clamped to min when 2 * atr_pct < min_pct."""
+        # 2.0 * 0.5 = 1.0 < min_pct=2.0 → clamps to 2.0
+        highest, stop, trail_pct = atr_stop.calculate_initial_stop(
+            entry_price=Decimal("100.00"), atr_pct=0.5
+        )
+
+        assert trail_pct == Decimal("2.0")
+        # stop = 100 * 0.98 = 98.00
+        assert stop == Decimal("98.0000")
+
+    @pytest.mark.unit
+    def test_clamp_to_max_pct(self, atr_stop: AtrTrailingStop) -> None:
+        """Test trail_pct clamped to max when 2 * atr_pct > max_pct."""
+        # 2.0 * 8.0 = 16.0 > max_pct=10.0 → clamps to 10.0
+        highest, stop, trail_pct = atr_stop.calculate_initial_stop(
+            entry_price=Decimal("100.00"), atr_pct=8.0
+        )
+
+        assert trail_pct == Decimal("10.0")
+        # stop = 100 * 0.90 = 90.00
+        assert stop == Decimal("90.0000")
+
+    @pytest.mark.unit
+    def test_zero_atr_pct_raises(self, atr_stop: AtrTrailingStop) -> None:
+        """Test that atr_pct=0 raises ValueError."""
+        with pytest.raises(ValueError, match="atr_pct must be positive"):
+            atr_stop.calculate_initial_stop(Decimal("100.00"), 0.0)
+
+    @pytest.mark.unit
+    def test_negative_atr_pct_raises(self, atr_stop: AtrTrailingStop) -> None:
+        """Test that negative atr_pct raises ValueError."""
+        with pytest.raises(ValueError, match="atr_pct must be positive"):
+            atr_stop.calculate_initial_stop(Decimal("100.00"), -1.0)
+
+    @pytest.mark.unit
+    def test_returns_three_tuple(self, atr_stop: AtrTrailingStop) -> None:
+        """Test that calculate_initial_stop returns a 3-tuple."""
+        result = atr_stop.calculate_initial_stop(Decimal("50.00"), 3.0)
+        assert len(result) == 3
+
+    @pytest.mark.unit
+    def test_stop_precision_quantized_to_4_places(
+        self, atr_stop: AtrTrailingStop
+    ) -> None:
+        """Test that stop price is quantized to 4 decimal places."""
+        _, stop, _ = atr_stop.calculate_initial_stop(
+            entry_price=Decimal("123.45"), atr_pct=3.5
+        )
+        # Verify 4 decimal places
+        assert stop == stop.quantize(Decimal("0.0001"))
+
+    @pytest.mark.unit
+    def test_highest_equals_entry_price(self, atr_stop: AtrTrailingStop) -> None:
+        """Test that highest price equals entry price at initiation."""
+        entry = Decimal("250.75")
+        highest, _, _ = atr_stop.calculate_initial_stop(entry, 4.0)
+
+        assert highest == entry
+
+    @pytest.mark.unit
+    def test_exact_boundary_not_clamped(self) -> None:
+        """Test that atr_pct exactly at boundary is not clamped."""
+        stop = AtrTrailingStop(atr_multiplier=2.0, min_pct=2.0, max_pct=10.0)
+        # 2.0 * 5.0 = 10.0, exactly at max_pct — no clamp needed
+        _, _, trail_pct = stop.calculate_initial_stop(Decimal("100.00"), 5.0)
+
+        assert trail_pct == Decimal("10.0")
+
+
+class TestAtrTrailingStopUpdate:
+    """Tests for AtrTrailingStop.update()."""
+
+    @pytest.fixture
+    def atr_stop(self) -> AtrTrailingStop:
+        """ATR stop with 7% trail stored at entry."""
+        return AtrTrailingStop(atr_multiplier=2.0, min_pct=2.0, max_pct=10.0)
+
+    @pytest.mark.unit
+    def test_no_new_high_stop_unchanged(self, atr_stop: AtrTrailingStop) -> None:
+        """Test that stop stays unchanged when no new high is made."""
+        update = atr_stop.update(
+            current_high=Decimal("108.00"),
+            current_low=Decimal("106.00"),
+            previous_highest=Decimal("110.00"),
+            previous_stop=Decimal("102.30"),
+            trail_pct=Decimal("7.0"),
+        )
+
+        assert update.stop_triggered is False
+        assert update.highest_price == Decimal("110.00")
+        assert update.stop_price == Decimal("102.30")
+
+    @pytest.mark.unit
+    def test_new_high_raises_stop(self, atr_stop: AtrTrailingStop) -> None:
+        """Test that new high moves the stop up."""
+        # Previous: highest=100, stop=93 (7% trail)
+        # New high: 110 → new stop = 110 * 0.93 = 102.30
+        update = atr_stop.update(
+            current_high=Decimal("110.00"),
+            current_low=Decimal("105.00"),
+            previous_highest=Decimal("100.00"),
+            previous_stop=Decimal("93.0000"),
+            trail_pct=Decimal("7.0"),
+        )
+
+        assert update.stop_triggered is False
+        assert update.highest_price == Decimal("110.00")
+        assert update.stop_price == Decimal("102.3000")  # 110 * 0.93
+
+    @pytest.mark.unit
+    def test_stop_triggered_at_stop_price(self, atr_stop: AtrTrailingStop) -> None:
+        """Test stop triggers when low == stop price."""
+        update = atr_stop.update(
+            current_high=Decimal("110.00"),
+            current_low=Decimal("102.30"),  # exactly at stop
+            previous_highest=Decimal("110.00"),
+            previous_stop=Decimal("102.30"),
+            trail_pct=Decimal("7.0"),
+        )
+
+        assert update.stop_triggered is True
+        assert update.trigger_price == Decimal("102.30")
+
+    @pytest.mark.unit
+    def test_stop_triggered_below_stop_price(self, atr_stop: AtrTrailingStop) -> None:
+        """Test stop triggers when low goes below stop price."""
+        update = atr_stop.update(
+            current_high=Decimal("110.00"),
+            current_low=Decimal("99.00"),  # below stop at 102.30
+            previous_highest=Decimal("110.00"),
+            previous_stop=Decimal("102.30"),
+            trail_pct=Decimal("7.0"),
+        )
+
+        assert update.stop_triggered is True
+        assert update.trigger_price == Decimal("102.30")
+
+    @pytest.mark.unit
+    def test_stop_only_moves_up(self, atr_stop: AtrTrailingStop) -> None:
+        """Test that stop never moves down."""
+        # previous_highest=110 means stop should be 102.30 (at 7%).
+        # current_high=105 would compute 105 * 0.93 = 97.65 — below previous_stop.
+        # The stop must stay at previous_stop.
+        update = atr_stop.update(
+            current_high=Decimal("105.00"),
+            current_low=Decimal("103.00"),
+            previous_highest=Decimal("110.00"),
+            previous_stop=Decimal("102.30"),
+            trail_pct=Decimal("7.0"),
+        )
+
+        assert update.stop_triggered is False
+        assert update.stop_price == Decimal("102.30")  # unchanged
+        assert update.highest_price == Decimal("110.00")  # unchanged
+
+    @pytest.mark.unit
+    def test_gap_down_triggers_at_stop_not_open(self, atr_stop: AtrTrailingStop) -> None:
+        """Test gap-down scenario where entire bar is below stop.
+
+        The update() return value reports trigger_price=previous_stop.
+        The caller (simulation engine) then uses min(trigger_price, open)
+        to handle gap-down fills correctly.
+        """
+        update = atr_stop.update(
+            current_high=Decimal("91.00"),
+            current_low=Decimal("89.00"),
+            previous_highest=Decimal("100.00"),
+            previous_stop=Decimal("93.00"),
+            trail_pct=Decimal("7.0"),
+        )
+
+        assert update.stop_triggered is True
+        assert update.trigger_price == Decimal("93.00")
+
+    @pytest.mark.unit
+    def test_different_positions_use_different_trail_pct(
+        self, atr_stop: AtrTrailingStop
+    ) -> None:
+        """Test that per-position trail_pct is respected independently.
+
+        Simulates two positions with different ATR-computed trail percentages
+        sharing a single AtrTrailingStop instance.
+        """
+        # Position A: 5% trail (calm stock)
+        update_a = atr_stop.update(
+            current_high=Decimal("110.00"),
+            current_low=Decimal("105.00"),
+            previous_highest=Decimal("100.00"),
+            previous_stop=Decimal("95.00"),
+            trail_pct=Decimal("5.0"),
+        )
+        # Position B: 7% trail (volatile stock)
+        update_b = atr_stop.update(
+            current_high=Decimal("110.00"),
+            current_low=Decimal("105.00"),
+            previous_highest=Decimal("100.00"),
+            previous_stop=Decimal("93.00"),
+            trail_pct=Decimal("7.0"),
+        )
+
+        assert update_a.stop_triggered is False
+        assert update_b.stop_triggered is False
+        # A: 110 * 0.95 = 104.50
+        assert update_a.stop_price == Decimal("104.5000")
+        # B: 110 * 0.93 = 102.30
+        assert update_b.stop_price == Decimal("102.3000")
+
+
+class TestAtrTrailingStopLifecycle:
+    """Integration-style tests for realistic ATR trailing stop lifecycle."""
+
+    @pytest.mark.unit
+    def test_full_lifecycle_profit(self) -> None:
+        """Test a profitable trade: entry → rise → pullback → stop exit.
+
+        atr_pct=3.5, multiplier=2.0 → trail_pct=7.0%
+        - Entry $100: stop $93.00
+        - Day 2: High $108 → stop $100.44
+        - Day 3: High $115 → stop $106.95
+        - Day 4: Consolidate, low $107 → no trigger (107 > 106.95)
+        - Day 5: Drop to $106 → stop triggers at $106.95
+        """
+        atr_stop = AtrTrailingStop(atr_multiplier=2.0, min_pct=2.0, max_pct=10.0)
+
+        # Entry at $100, ATR 3.5%
+        highest, stop, trail_pct = atr_stop.calculate_initial_stop(
+            Decimal("100.00"), 3.5
+        )
+        assert trail_pct == Decimal("7.0")
+        assert stop == Decimal("93.0000")
+
+        # Day 2: high $108
+        update = atr_stop.update(
+            Decimal("108.00"), Decimal("103.00"), highest, stop, trail_pct
+        )
+        assert not update.stop_triggered
+        assert update.highest_price == Decimal("108.00")
+        assert update.stop_price == Decimal("100.4400")  # 108 * 0.93
+        highest, stop = update.highest_price, update.stop_price
+
+        # Day 3: high $115
+        update = atr_stop.update(
+            Decimal("115.00"), Decimal("110.00"), highest, stop, trail_pct
+        )
+        assert not update.stop_triggered
+        assert update.highest_price == Decimal("115.00")
+        assert update.stop_price == Decimal("106.9500")  # 115 * 0.93
+        highest, stop = update.highest_price, update.stop_price
+
+        # Day 4: consolidation (no new high)
+        update = atr_stop.update(
+            Decimal("113.00"), Decimal("108.00"), highest, stop, trail_pct
+        )
+        assert not update.stop_triggered
+        assert update.highest_price == Decimal("115.00")
+        assert update.stop_price == Decimal("106.9500")
+        highest, stop = update.highest_price, update.stop_price
+
+        # Day 5: drop triggers stop
+        update = atr_stop.update(
+            Decimal("110.00"), Decimal("106.00"), highest, stop, trail_pct
+        )
+        assert update.stop_triggered
+        assert update.trigger_price == Decimal("106.9500")
+
+    @pytest.mark.unit
+    def test_volatile_stock_gets_wider_stop(self) -> None:
+        """Volatile stock (high ATR) gets wider stop than calm stock."""
+        atr_stop = AtrTrailingStop(atr_multiplier=2.0, min_pct=2.0, max_pct=10.0)
+        entry = Decimal("100.00")
+
+        # Volatile: ATR 4%, trail = 8%
+        _, stop_volatile, trail_volatile = atr_stop.calculate_initial_stop(entry, 4.0)
+        # Calm: ATR 1.5%, trail = 3%
+        _, stop_calm, trail_calm = atr_stop.calculate_initial_stop(entry, 1.5)
+
+        assert trail_volatile > trail_calm
+        assert stop_volatile < stop_calm  # wider stop = lower stop price
+
+    @pytest.mark.unit
+    def test_min_clamp_protects_overly_tight_stop(self) -> None:
+        """Very low ATR stock gets the minimum stop, not a dangerously tight one."""
+        atr_stop = AtrTrailingStop(atr_multiplier=2.0, min_pct=2.0, max_pct=10.0)
+        # atr_pct=0.3 → raw=0.6 → clamped to 2.0
+        _, _, trail_pct = atr_stop.calculate_initial_stop(Decimal("100.00"), 0.3)
+
+        assert trail_pct == Decimal("2.0")
+
+    @pytest.mark.unit
+    def test_max_clamp_caps_very_wide_stop(self) -> None:
+        """Very volatile stock gets the maximum stop, not an excessively wide one."""
+        atr_stop = AtrTrailingStop(atr_multiplier=2.0, min_pct=2.0, max_pct=10.0)
+        # atr_pct=9.0 → raw=18.0 → clamped to 10.0
+        _, _, trail_pct = atr_stop.calculate_initial_stop(Decimal("100.00"), 9.0)
+
+        assert trail_pct == Decimal("10.0")

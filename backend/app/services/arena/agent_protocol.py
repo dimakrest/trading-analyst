@@ -15,12 +15,23 @@ class AgentDecision:
     """Decision made by an agent for a symbol on a given day.
 
     Represents the output of an agent's evaluation of a trading opportunity.
+
+    Attributes:
+        symbol: Stock ticker symbol.
+        action: Trading action — "BUY", "HOLD", or "NO_SIGNAL".
+        score: Numeric score from signal evaluation (0-100), or None.
+        reasoning: Human-readable explanation of the decision.
+        metadata: Optional enriched signal data captured at evaluation time.
+            Used by EnrichedScoreSelector for multi-factor tiebreaking.
+            Keys: cci_value, cci_direction, ma_distance_pct, rvol,
+                  candle_duration, candle_pattern.
     """
 
     symbol: str
     action: str  # "BUY", "HOLD", or "NO_SIGNAL"
     score: int | None = None
     reasoning: str | None = None
+    metadata: dict | None = None
 
     def __post_init__(self) -> None:
         """Validate action field after initialization."""

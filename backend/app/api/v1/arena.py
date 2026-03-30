@@ -246,6 +246,29 @@ async def create_simulation(
         "portfolio_strategy": request.portfolio_strategy,
         "max_per_sector": request.max_per_sector,
         "max_open_positions": request.max_open_positions,
+        # Layer 4: ATR trailing stop
+        "stop_type": request.stop_type,
+        "atr_stop_multiplier": request.atr_stop_multiplier,
+        "atr_stop_min_pct": request.atr_stop_min_pct,
+        "atr_stop_max_pct": request.atr_stop_max_pct,
+        # Layer 5: Take profit
+        "take_profit_pct": request.take_profit_pct,
+        "take_profit_atr_mult": request.take_profit_atr_mult,
+        # Layer 6: Max holding period
+        "max_hold_days": request.max_hold_days,
+        "max_hold_days_profit": request.max_hold_days_profit,
+        # Layer 3: Percentage-based position sizing
+        "position_size_pct": request.position_size_pct,
+        # Layer 8: Breakeven & profit ratcheting
+        "breakeven_trigger_pct": request.breakeven_trigger_pct,
+        "ratchet_trigger_pct": request.ratchet_trigger_pct,
+        "ratchet_trail_pct": request.ratchet_trail_pct,
+        # Layer 7: Market regime filter
+        "regime_filter": request.regime_filter,
+        "regime_symbol": request.regime_symbol,
+        "regime_sma_period": request.regime_sma_period,
+        "regime_bull_max_positions": request.regime_bull_max_positions,
+        "regime_bear_max_positions": request.regime_bear_max_positions,
     }
     if request.agent_config_id is not None:
         agent_config["agent_config_id"] = request.agent_config_id
