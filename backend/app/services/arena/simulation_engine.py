@@ -33,7 +33,7 @@ from app.services.arena.agent_protocol import AgentDecision, PriceBar
 from app.services.arena.agent_registry import get_agent
 from app.services.arena.trailing_stop import AtrTrailingStop, FixedPercentTrailingStop
 from app.services.data_service import DataService
-from app.services.portfolio_selector import QualifyingSignal, get_selector
+from app.services.portfolio_selector import EnrichedScoreSelector, QualifyingSignal, get_selector
 from app.utils.technical_indicators import calculate_atr_percentage
 
 logger = logging.getLogger(__name__)
@@ -328,6 +328,27 @@ class SimulationEngine:
             p.symbol: p for p in pending_result.scalars().all()
         }
 
+        # Compute current equity once before processing symbols (for percentage sizing).
+        # Doing this outside the loop avoids O(n²) and ensures the same equity
+        # baseline is used for all pending positions opened on the same day.
+        effective_position_size = simulation.position_size  # default: fixed
+        if position_size_pct is not None:
+            pos_value = Decimal("0")
+            for pos in positions_by_symbol.values():
+                if pos.status == PositionStatus.OPEN.value:
+                    pos_bar = self._get_cached_bar_for_date(
+                        simulation_id, pos.symbol, current_date
+                    )
+                    if pos_bar:
+                        pos_value += pos.shares * pos_bar.close
+            current_equity = cash + pos_value
+            effective_position_size = current_equity * (
+                Decimal(str(position_size_pct)) / Decimal("100")
+            )
+
+        # Build O(1) trading-day index lookup (used for max-hold-days checks).
+        trading_days_idx: dict[date, int] = {d: i for i, d in enumerate(trading_days)}
+
         # Process each symbol
         decisions: dict[str, dict] = {}
         # Collect BUY signals for portfolio selection (processed after symbol loop)
@@ -358,23 +379,7 @@ class SimulationEngine:
             # Check for pending position to open
             pending = pending_by_symbol.get(symbol)
             if pending:
-                # Calculate position size (percentage of equity or fixed)
-                if position_size_pct is not None:
-                    # Compute current equity for percentage-based sizing
-                    pos_value = Decimal("0")
-                    for pos in positions_by_symbol.values():
-                        if pos.status == PositionStatus.OPEN.value:
-                            pos_bar = self._get_cached_bar_for_date(
-                                simulation_id, pos.symbol, current_date
-                            )
-                            if pos_bar:
-                                pos_value += pos.shares * pos_bar.close
-                    current_equity = cash + pos_value
-                    effective_position_size = current_equity * Decimal(
-                        str(position_size_pct / 100)
-                    )
-                else:
-                    effective_position_size = simulation.position_size
+                # effective_position_size was computed before the loop (O(1) per symbol)
 
                 # Calculate shares
                 calculated_shares = int(effective_position_size / today_bar.open)
@@ -482,8 +487,8 @@ class SimulationEngine:
                     # Once the position has gained enough, pin the stop at entry
                     # so a winner can never turn into a loser.
                     if breakeven_trigger_pct is not None and position.entry_price:
-                        breakeven_threshold = position.entry_price * Decimal(
-                            str(1 + breakeven_trigger_pct / 100)
+                        breakeven_threshold = position.entry_price * (
+                            Decimal("1") + Decimal(str(breakeven_trigger_pct)) / Decimal("100")
                         )
                         if position.highest_price >= breakeven_threshold:
                             position.current_stop = max(
@@ -496,12 +501,12 @@ class SimulationEngine:
                         and ratchet_trail_pct is not None
                         and position.entry_price
                     ):
-                        ratchet_threshold = position.entry_price * Decimal(
-                            str(1 + ratchet_trigger_pct / 100)
+                        ratchet_threshold = position.entry_price * (
+                            Decimal("1") + Decimal(str(ratchet_trigger_pct)) / Decimal("100")
                         )
                         if position.highest_price >= ratchet_threshold:
                             ratchet_stop = position.highest_price * (
-                                Decimal("1") - Decimal(str(ratchet_trail_pct / 100))
+                                Decimal("1") - Decimal(str(ratchet_trail_pct)) / Decimal("100")
                             )
                             position.current_stop = max(
                                 position.current_stop, ratchet_stop
@@ -574,13 +579,12 @@ class SimulationEngine:
                         and symbol in positions_by_symbol
                         and position.entry_date is not None
                     ):
-                        trading_days = self._trading_days_cache.get(simulation_id, [])
-                        try:
-                            entry_idx = trading_days.index(position.entry_date)
-                            current_idx = trading_days.index(current_date)
-                            hold_days = current_idx - entry_idx
-                        except ValueError:
+                        entry_idx = trading_days_idx.get(position.entry_date)
+                        current_idx = trading_days_idx.get(current_date)
+                        if entry_idx is None or current_idx is None:
                             hold_days = 0
+                        else:
+                            hold_days = current_idx - entry_idx
 
                         # Use extended hold for profitable positions
                         effective_hold_limit = max_hold_days
@@ -648,12 +652,21 @@ class SimulationEngine:
             if regime == "bear":
                 bear_max: int = simulation.agent_config.get("regime_bear_max_positions", 1)
                 max_open_positions = bear_max
-            else:
+            elif regime == "bull":
                 bull_max: int | None = simulation.agent_config.get("regime_bull_max_positions")
                 if bull_max is not None:
                     max_open_positions = bull_max
+            # neutral: leave max_open_positions unchanged
 
         selector = get_selector(strategy_name)
+
+        # Override ma_sweet_spot_center if configured for enriched selectors
+        ma_sweet_spot_center = simulation.agent_config.get("ma_sweet_spot_center")
+        if ma_sweet_spot_center is not None and isinstance(selector, EnrichedScoreSelector):
+            selector = EnrichedScoreSelector(
+                atr_preference=selector._atr_preference,
+                ma_sweet_spot_center=ma_sweet_spot_center,
+            )
 
         # Build qualifying signals with sector and ATR data from caches
         qualifying: list[QualifyingSignal] = []
@@ -662,7 +675,7 @@ class SimulationEngine:
             qualifying.append(
                 QualifyingSignal(
                     symbol=symbol,
-                    score=decision.score,
+                    score=decision.score or 0,
                     sector=sim_sector_map.get(symbol),
                     atr_pct=self._calculate_symbol_atr_pct(simulation_id, symbol, current_date),
                     metadata=decision.metadata,
@@ -935,48 +948,6 @@ class SimulationEngine:
         cache: dict[str, list[PriceBar]] = {symbol: bars for symbol, bars in results}
         self._price_cache[simulation_id] = cache
 
-    @staticmethod
-    def _symbols_for_cache(symbols: list[str], agent_config: dict) -> list[str]:
-        """Return the full symbol list to load into the price cache.
-
-        Adds the regime symbol when the regime filter is enabled, so it is
-        fetched alongside simulation symbols in a single parallel batch.
-        Deduplicates to avoid a redundant fetch when the regime symbol is
-        already in the simulation symbol list.
-
-        Args:
-            symbols: Simulation symbol list.
-            agent_config: Simulation agent configuration dict.
-
-        Returns:
-            Deduplicated list of symbols to load into the price cache.
-        """
-        if not agent_config.get("regime_filter"):
-            return symbols
-        regime_symbol: str = agent_config.get("regime_symbol", "SPY")
-        if regime_symbol in symbols:
-            return symbols
-        return [*symbols, regime_symbol]
-
-    def _get_regime(
-        self,
-        simulation_id: int,
-        regime_symbol: str,
-        current_date: date,
-        sma_period: int,
-    ) -> str:
-        """Thin wrapper around _detect_market_regime for use inside step_day.
-
-        Args:
-            simulation_id: Simulation ID for cache lookup.
-            regime_symbol: Ticker to use as regime indicator.
-            current_date: Current simulation date (inclusive upper bound).
-            sma_period: SMA period for regime detection.
-
-        Returns:
-            'bull', 'bear', or 'neutral'.
-        """
-        return self._detect_market_regime(simulation_id, current_date, regime_symbol, sma_period)
 
     async def _load_regime_symbol_cache(
         self,
@@ -1064,11 +1035,11 @@ class SimulationEngine:
 
         recent_closes = [float(b.close) for b in bars[-sma_period:]]
         sma = sum(recent_closes) / len(recent_closes)
-        spy_close = float(bars[-1].close)
-        regime = "bull" if spy_close > sma else "bear"
+        regime_close = float(bars[-1].close)
+        regime = "bull" if regime_close > sma else "bear"
         logger.debug(
             f"Simulation {simulation_id}: {regime_symbol} regime={regime} "
-            f"close={spy_close:.2f} sma{sma_period}={sma:.2f} on {current_date}"
+            f"close={regime_close:.2f} sma{sma_period}={sma:.2f} on {current_date}"
         )
         return regime
 

@@ -128,6 +128,7 @@ export const ArenaSetupForm = ({
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>(['none']);
   const [maxPerSector, setMaxPerSector] = useState('2');
   const [maxOpenPositions, setMaxOpenPositions] = useState('');
+  const [maSweetSpotCenter, setMaSweetSpotCenter] = useState('8.5');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch stock lists
@@ -216,6 +217,12 @@ export const ArenaSetupForm = ({
     const parsedMaxOpenPositions =
       hasStrategy && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null;
 
+    // Only send ma_sweet_spot_center when an enriched_score strategy is selected
+    const hasEnrichedScore = selectedStrategies.some((s) => s === 'enriched_score' || s === 'enriched_score_high_atr');
+    const parsedMaSweetSpotCenter = hasEnrichedScore && maSweetSpotCenter
+      ? parseFloat(maSweetSpotCenter)
+      : undefined;
+
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
         symbols: symbolList,
@@ -247,9 +254,10 @@ export const ArenaSetupForm = ({
         portfolio_strategy: selectedStrategies[0] ?? 'none',
         max_per_sector: parsedMaxPerSector,
         max_open_positions: parsedMaxOpenPositions,
+        ma_sweet_spot_center: parsedMaSweetSpotCenter,
       });
     }
-  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, selectedStrategies, maxPerSector, maxOpenPositions, onSubmit, onSubmitComparison]);
+  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, selectedStrategies, maxPerSector, maxOpenPositions, maSweetSpotCenter, onSubmit, onSubmitComparison]);
 
   const symbolList = parseSymbols(symbols);
   const hasValidSymbols = symbolList.length > 0 && symbolList.length <= MAX_ARENA_SYMBOLS;
@@ -260,6 +268,9 @@ export const ArenaSetupForm = ({
   const hasValidMinBuyScore = isValidMinBuyScore(parseFloat(minBuyScore));
 
   const hasStrategySelected = selectedStrategies.length > 0;
+  const hasEnrichedScoreStrategy = selectedStrategies.some(
+    (s) => s === 'enriched_score' || s === 'enriched_score_high_atr',
+  );
 
   const canSubmit =
     hasValidSymbols &&
@@ -559,6 +570,25 @@ export const ArenaSetupForm = ({
                   Overall position cap (optional)
                 </p>
               </div>
+            </div>
+          )}
+
+          {hasEnrichedScoreStrategy && (
+            <div className="space-y-2">
+              <Label htmlFor="arena-ma-sweet-spot-center">MA20 Sweet Spot (%)</Label>
+              <Input
+                id="arena-ma-sweet-spot-center"
+                type="number"
+                min="0.1"
+                step="0.5"
+                value={maSweetSpotCenter}
+                onChange={(e) => setMaSweetSpotCenter(e.target.value)}
+                className="mt-1"
+                disabled={isLoading}
+              />
+              <p className="text-xs text-muted-foreground">
+                Target MA20 distance percentage — candidates within this band score highest (default: 8.5)
+              </p>
             </div>
           )}
         </div>

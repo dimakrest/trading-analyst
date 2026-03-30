@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import Field
 from pydantic import field_validator
+from pydantic import model_validator
 
 from app.core.config import get_settings
 from app.schemas.base import StrictBaseModel
@@ -227,6 +228,17 @@ class CreateSimulationRequest(StrictBaseModel):
         description="Tighter trail % to use after ratchet trigger (used with ratchet_trigger_pct)",
     )
 
+    # --- Layer 9: Portfolio Selector Tuning ---
+    ma_sweet_spot_center: float = Field(
+        default=8.5,
+        gt=0,
+        lt=50,
+        description=(
+            "MA20 distance sweet-spot center for EnrichedScoreSelector tiebreaking. "
+            "Signals closest to this % below MA20 are preferred. Default: 8.5 (midpoint of 5-12% range)."
+        ),
+    )
+
     # --- Layer 7: Market Regime Filter ---
     regime_filter: bool = Field(
         default=False,
@@ -238,6 +250,7 @@ class CreateSimulationRequest(StrictBaseModel):
     regime_symbol: str = Field(
         default="SPY",
         max_length=10,
+        pattern=r"^[A-Z]{1,5}$",
         description="Ticker used as market regime indicator (default: 'SPY').",
     )
     regime_sma_period: int = Field(
@@ -293,6 +306,14 @@ class CreateSimulationRequest(StrictBaseModel):
             msg = f"Unknown portfolio strategy: {v}. Available: {available}"
             raise ValueError(msg)
         return v
+
+    @model_validator(mode="after")
+    def validate_ratchet_pair(self) -> "CreateSimulationRequest":
+        """Ensure ratchet_trigger_pct and ratchet_trail_pct are both set or both None."""
+        if (self.ratchet_trigger_pct is None) != (self.ratchet_trail_pct is None):
+            msg = "ratchet_trigger_pct and ratchet_trail_pct must both be set or both be None"
+            raise ValueError(msg)
+        return self
 
 
 class CreateComparisonRequest(StrictBaseModel):

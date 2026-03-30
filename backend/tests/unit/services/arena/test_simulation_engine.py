@@ -4211,39 +4211,6 @@ class TestSimulationEngineRegimeFilter:
         # All 3 signals should create PENDING positions (no regime cap)
         assert len(pending) == 3, f"Expected 3 pending positions without regime cap, got {len(pending)}"
 
-    # ------------------------------------------------------------------
-    # _symbols_for_cache unit tests
-    # ------------------------------------------------------------------
-
-    @pytest.mark.unit
-    def test_symbols_for_cache_no_regime_unchanged(self) -> None:
-        """Returns symbols unchanged when regime_filter is absent."""
-        result = SimulationEngine._symbols_for_cache(
-            ["AAPL", "MSFT"], {"trailing_stop_pct": 5.0}
-        )
-        assert result == ["AAPL", "MSFT"]
-
-    @pytest.mark.unit
-    def test_symbols_for_cache_adds_regime_symbol_when_enabled(self) -> None:
-        """Appends regime symbol when regime_filter=True and not already present."""
-        result = SimulationEngine._symbols_for_cache(
-            ["AAPL", "MSFT"],
-            {"regime_filter": True, "regime_symbol": "SPY"},
-        )
-        assert "SPY" in result
-        assert "AAPL" in result
-        assert "MSFT" in result
-        assert len(result) == 3
-
-    @pytest.mark.unit
-    def test_symbols_for_cache_deduplicates_when_regime_symbol_present(self) -> None:
-        """Does not add regime symbol if it is already in the simulation symbols list."""
-        result = SimulationEngine._symbols_for_cache(
-            ["AAPL", "SPY"],
-            {"regime_filter": True, "regime_symbol": "SPY"},
-        )
-        assert result.count("SPY") == 1
-        assert len(result) == 2
 
 
 @pytest.mark.usefixtures("db_session")

@@ -158,6 +158,17 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
                 )
               }
             />
+            {(simulation.portfolio_strategy === 'enriched_score' ||
+              simulation.portfolio_strategy === 'enriched_score_high_atr') &&
+              simulation.ma_sweet_spot_center != null && (
+                <ConfigItem
+                  icon={<LayoutGrid className="h-3.5 w-3.5" />}
+                  label="MA20 Sweet Spot %"
+                  value={
+                    <span className="text-text-primary">{simulation.ma_sweet_spot_center}</span>
+                  }
+                />
+              )}
           </div>
         )}
 

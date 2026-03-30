@@ -201,14 +201,18 @@ class EnrichedScoreSelector(PortfolioSelector):
     # Closer than 5% = weak setup, further than 12% = possible structural breakdown.
     _MA_SWEET_SPOT_CENTER: float = 8.5  # midpoint of [5, 12]
 
-    def __init__(self, atr_preference: str = "low") -> None:
-        """Initialize with optional ATR preference for the final tiebreaker.
+    def __init__(self, atr_preference: str = "low", ma_sweet_spot_center: float = 8.5) -> None:
+        """Initialize with optional ATR preference and MA sweet spot center.
 
         Args:
             atr_preference: "low" (default) or "high" — controls ATR sort
                 direction as the last tiebreaker in the cascade.
+            ma_sweet_spot_center: MA20 distance sweet-spot center (%). Signals
+                whose absolute MA20 distance is closest to this value are
+                preferred. Default: 8.5 (midpoint of the 5-12% range).
         """
         self._atr_preference = atr_preference
+        self._ma_sweet_spot_center = ma_sweet_spot_center
 
     @property
     def name(self) -> str:
@@ -248,7 +252,7 @@ class EnrichedScoreSelector(PortfolioSelector):
         # Distance from sweet spot center: lower = better.
         ma_distance_pct = m.get("ma_distance_pct")
         if ma_distance_pct is not None:
-            ma_deviation = abs(abs(ma_distance_pct) - self._MA_SWEET_SPOT_CENTER)
+            ma_deviation = abs(abs(ma_distance_pct) - self._ma_sweet_spot_center)
         else:
             ma_deviation = float("inf")  # unknown = worst
 

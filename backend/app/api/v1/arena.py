@@ -269,6 +269,8 @@ async def create_simulation(
         "regime_sma_period": request.regime_sma_period,
         "regime_bull_max_positions": request.regime_bull_max_positions,
         "regime_bear_max_positions": request.regime_bear_max_positions,
+        # Layer 9: Portfolio selector tuning
+        "ma_sweet_spot_center": request.ma_sweet_spot_center,
     }
     if request.agent_config_id is not None:
         agent_config["agent_config_id"] = request.agent_config_id

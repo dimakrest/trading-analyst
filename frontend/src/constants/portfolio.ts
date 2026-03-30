@@ -35,4 +35,14 @@ export const PORTFOLIO_STRATEGIES: readonly PortfolioStrategyOption[] = [
     label: 'Score + Moderate ATR',
     description: 'Rank by score, prefer ATR% closest to median (avoid extremes)',
   },
+  {
+    name: 'enriched_score',
+    label: 'Enriched Score',
+    description: 'Multi-factor cascade (MA20 sweet spot, ATR, sector cap), prefer lowest ATR',
+  },
+  {
+    name: 'enriched_score_high_atr',
+    label: 'Enriched Score + High ATR',
+    description: 'Multi-factor cascade (MA20 sweet spot, ATR, sector cap), prefer highest ATR',
+  },
 ] as const;
