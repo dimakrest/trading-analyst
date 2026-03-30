@@ -10,6 +10,7 @@ Tests cover:
 import pytest
 
 from app.services.portfolio_selector import (
+    EnrichedScoreSelector,
     FifoSelector,
     QualifyingSignal,
     ScoreSectorSelector,
@@ -637,9 +638,9 @@ class TestRegistry:
         selector = get_selector("")
         assert isinstance(selector, FifoSelector)
 
-    def test_list_selectors_returns_all_four(self) -> None:
+    def test_list_selectors_returns_all_selectors(self) -> None:
         selectors = list_selectors()
-        assert len(selectors) == 4
+        assert len(selectors) == len(SELECTOR_REGISTRY)
 
     def test_list_selectors_has_required_keys(self) -> None:
         for entry in list_selectors():
@@ -654,10 +655,400 @@ class TestRegistry:
         assert listed_names == registry_names
 
     def test_registry_contains_expected_keys(self) -> None:
-        expected = {"none", "score_sector_low_atr", "score_sector_high_atr", "score_sector_moderate_atr"}
+        expected = {
+            "none",
+            "score_sector_low_atr",
+            "score_sector_high_atr",
+            "score_sector_moderate_atr",
+            "enriched_score",
+            "enriched_score_high_atr",
+        }
         assert set(SELECTOR_REGISTRY.keys()) == expected
 
     def test_get_selector_returns_same_instance_from_registry(self) -> None:
         """Registry singletons — same object returned each time."""
         assert get_selector("none") is get_selector("none")
         assert get_selector("score_sector_low_atr") is get_selector("score_sector_low_atr")
+
+    def test_get_selector_enriched_score(self) -> None:
+        selector = get_selector("enriched_score")
+        assert isinstance(selector, EnrichedScoreSelector)
+        assert selector.name == "enriched_score"
+
+    def test_get_selector_enriched_score_high_atr(self) -> None:
+        selector = get_selector("enriched_score_high_atr")
+        assert isinstance(selector, EnrichedScoreSelector)
+        assert selector.name == "enriched_score_high_atr"
+
+
+# ---------------------------------------------------------------------------
+# EnrichedScoreSelector
+# ---------------------------------------------------------------------------
+
+def _enriched_sig(
+    symbol: str,
+    score: int = 75,
+    sector: str | None = "Technology",
+    atr_pct: float | None = 2.0,
+    cci_value: float | None = None,
+    cci_direction: str | None = None,
+    ma_distance_pct: float | None = None,
+    rvol: float | None = None,
+    candle_duration: str | None = None,
+    candle_pattern: str | None = None,
+) -> QualifyingSignal:
+    """Factory for QualifyingSignal with optional enriched metadata."""
+    metadata: dict | None = None
+    if any(v is not None for v in [cci_value, cci_direction, ma_distance_pct, rvol, candle_duration, candle_pattern]):
+        metadata = {
+            "cci_value": cci_value,
+            "cci_direction": cci_direction,
+            "ma_distance_pct": ma_distance_pct,
+            "rvol": rvol,
+            "candle_duration": candle_duration,
+            "candle_pattern": candle_pattern,
+        }
+    return QualifyingSignal(
+        symbol=symbol, score=score, sector=sector, atr_pct=atr_pct, metadata=metadata
+    )
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorIdentity:
+    """Identity/metadata tests for EnrichedScoreSelector."""
+
+    def test_name_default(self) -> None:
+        # Arrange / Act
+        selector = EnrichedScoreSelector()
+        # Assert
+        assert selector.name == "enriched_score"
+
+    def test_name_high_atr(self) -> None:
+        selector = EnrichedScoreSelector("high")
+        assert selector.name == "enriched_score_high_atr"
+
+    def test_description_contains_cascade_keywords(self) -> None:
+        selector = EnrichedScoreSelector()
+        desc = selector.description.lower()
+        assert "score" in desc
+        assert "candle" in desc
+
+    def test_description_high_atr_mentions_highest(self) -> None:
+        selector = EnrichedScoreSelector("high")
+        assert "highest" in selector.description.lower()
+
+    def test_description_low_atr_mentions_lowest(self) -> None:
+        selector = EnrichedScoreSelector("low")
+        assert "lowest" in selector.description.lower()
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorPrimarySort:
+    """Score is the primary sort key — metadata never overrides a score difference."""
+
+    @pytest.fixture
+    def selector(self) -> EnrichedScoreSelector:
+        return EnrichedScoreSelector()
+
+    def test_higher_score_wins_over_better_metadata(self, selector: EnrichedScoreSelector) -> None:
+        # Arrange: A has lower score but superior metadata
+        signals = [
+            _enriched_sig("A", score=75, candle_duration="3-day", cci_value=-180.0, rvol=3.0),
+            _enriched_sig("B", score=100, candle_duration="1-day", cci_value=-110.0, rvol=1.1),
+        ]
+        # Act
+        ranked = selector.rank(signals)
+        # Assert: B wins because score dominates
+        assert ranked[0].symbol == "B"
+        assert ranked[1].symbol == "A"
+
+    def test_rank_three_different_scores(self, selector: EnrichedScoreSelector) -> None:
+        # Arrange
+        signals = [
+            _enriched_sig("A", score=75),
+            _enriched_sig("B", score=100),
+            _enriched_sig("C", score=90),
+        ]
+        # Act
+        ranked = selector.rank(signals)
+        # Assert
+        assert [s.symbol for s in ranked] == ["B", "C", "A"]
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorCciDirection:
+    """Tiebreaker 2: CCI direction — rising > flat > falling (momentum turning)."""
+
+    @pytest.fixture
+    def selector(self) -> EnrichedScoreSelector:
+        return EnrichedScoreSelector()
+
+    def test_rising_beats_flat(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="flat"),
+            _enriched_sig("B", score=75, cci_direction="rising"),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_flat_beats_falling(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="falling"),
+            _enriched_sig("B", score=75, cci_direction="flat"),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_rising_beats_falling(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="falling"),
+            _enriched_sig("B", score=75, cci_direction="rising"),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_full_direction_ordering(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="falling"),
+            _enriched_sig("B", score=75, cci_direction="rising"),
+            _enriched_sig("C", score=75, cci_direction="flat"),
+        ]
+        ranked = selector.rank(signals)
+        assert [s.symbol for s in ranked] == ["B", "C", "A"]
+
+    def test_none_direction_falls_back_to_zero(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction=None),
+            _enriched_sig("B", score=75, cci_direction="rising"),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorCandleQuality:
+    """Tiebreaker 3: candle quality — 3-day > 2-day > 1-day."""
+
+    @pytest.fixture
+    def selector(self) -> EnrichedScoreSelector:
+        return EnrichedScoreSelector()
+
+    def test_three_day_beats_two_day(self, selector: EnrichedScoreSelector) -> None:
+        # Tie CCI direction so candle quality decides
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="rising", candle_duration="2-day"),
+            _enriched_sig("B", score=75, cci_direction="rising", candle_duration="3-day"),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_two_day_beats_one_day(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="rising", candle_duration="1-day"),
+            _enriched_sig("B", score=75, cci_direction="rising", candle_duration="2-day"),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_full_candle_duration_ordering(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="rising", candle_duration="1-day"),
+            _enriched_sig("B", score=75, cci_direction="rising", candle_duration="3-day"),
+            _enriched_sig("C", score=75, cci_direction="rising", candle_duration="2-day"),
+        ]
+        ranked = selector.rank(signals)
+        assert [s.symbol for s in ranked] == ["B", "C", "A"]
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorRvol:
+    """Tiebreaker 4: RVOL — higher volume conviction wins."""
+
+    @pytest.fixture
+    def selector(self) -> EnrichedScoreSelector:
+        return EnrichedScoreSelector()
+
+    def test_higher_rvol_wins(self, selector: EnrichedScoreSelector) -> None:
+        # Tie all earlier tiebreakers
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="rising", candle_duration="1-day", rvol=1.1),
+            _enriched_sig("B", score=75, cci_direction="rising", candle_duration="1-day", rvol=3.0),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_none_rvol_defaults_to_1(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="rising", candle_duration="1-day", rvol=None),
+            _enriched_sig("B", score=75, cci_direction="rising", candle_duration="1-day", rvol=2.5),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorMaSweetSpot:
+    """Tiebreaker 5: MA20 distance — moderate distance (sweet spot ~8.5%) preferred."""
+
+    @pytest.fixture
+    def selector(self) -> EnrichedScoreSelector:
+        return EnrichedScoreSelector()
+
+    def test_sweet_spot_beats_extreme(self, selector: EnrichedScoreSelector) -> None:
+        # -8% is closer to 8.5% sweet spot than -20%
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-20.0),
+            _enriched_sig("B", score=75, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_sweet_spot_beats_too_close(self, selector: EnrichedScoreSelector) -> None:
+        # -9% is closer to 8.5% than -3%
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-3.0),
+            _enriched_sig("B", score=75, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-9.0),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_none_ma_sorted_to_end(self, selector: EnrichedScoreSelector) -> None:
+        signals = [
+            _enriched_sig("A", score=75, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=None),
+            _enriched_sig("B", score=75, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorAtrTiebreaker:
+    """Tiebreaker 6: ATR — low preference selects calmer stocks first."""
+
+    def test_low_atr_preference_selects_lower_atr_first(self) -> None:
+        selector = EnrichedScoreSelector("low")
+        signals = [
+            _enriched_sig("A", score=75, atr_pct=4.0, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+            _enriched_sig("B", score=75, atr_pct=1.0, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_high_atr_preference_selects_higher_atr_first(self) -> None:
+        selector = EnrichedScoreSelector("high")
+        signals = [
+            _enriched_sig("A", score=75, atr_pct=1.0, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+            _enriched_sig("B", score=75, atr_pct=4.0, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+    def test_none_atr_sorted_to_end_low_preference(self) -> None:
+        selector = EnrichedScoreSelector("low")
+        signals = [
+            _enriched_sig("A", score=75, atr_pct=None, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+            _enriched_sig("B", score=75, atr_pct=2.0, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[-1].symbol == "A"
+
+    def test_none_atr_treated_as_zero_high_preference(self) -> None:
+        selector = EnrichedScoreSelector("high")
+        signals = [
+            _enriched_sig("A", score=75, atr_pct=None, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+            _enriched_sig("B", score=75, atr_pct=1.0, cci_direction="rising", candle_duration="1-day", rvol=2.0, ma_distance_pct=-8.0),
+        ]
+        ranked = selector.rank(signals)
+        assert ranked[0].symbol == "B"
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorBackwardCompat:
+    """Signals without metadata must be handled gracefully (None-safe)."""
+
+    @pytest.fixture
+    def selector(self) -> EnrichedScoreSelector:
+        return EnrichedScoreSelector()
+
+    def test_none_metadata_does_not_raise(self, selector: EnrichedScoreSelector) -> None:
+        # Arrange: no metadata on any signal
+        signals = [
+            QualifyingSignal(symbol="A", score=75, sector="Tech", atr_pct=2.0),
+            QualifyingSignal(symbol="B", score=75, sector="Tech", atr_pct=3.0),
+        ]
+        # Act / Assert: must not raise
+        ranked = selector.rank(signals)
+        assert len(ranked) == 2
+
+    def test_none_metadata_ranks_by_atr_as_final_tiebreaker(self, selector: EnrichedScoreSelector) -> None:
+        # Arrange: both signals lack metadata; ATR is the only discriminator
+        signals = [
+            QualifyingSignal(symbol="A", score=75, sector="Tech", atr_pct=4.0),
+            QualifyingSignal(symbol="B", score=75, sector="Tech", atr_pct=1.0),
+        ]
+        # Act
+        ranked = selector.rank(signals)
+        # Assert: lower ATR wins in default (low) preference
+        assert ranked[0].symbol == "B"
+
+    def test_mixed_metadata_presence_no_error(self, selector: EnrichedScoreSelector) -> None:
+        # Arrange: one signal has metadata, the other does not
+        signals = [
+            _enriched_sig("A", score=75, candle_duration="3-day", cci_value=-180.0, rvol=3.0),
+            QualifyingSignal(symbol="B", score=75, sector="Tech", atr_pct=2.0),
+        ]
+        # Act
+        ranked = selector.rank(signals)
+        # Assert: A wins because 3-day > no metadata (falls back to 0)
+        assert ranked[0].symbol == "A"
+
+    def test_empty_signals_returns_empty(self, selector: EnrichedScoreSelector) -> None:
+        assert selector.rank([]) == []
+
+    def test_single_signal_returns_unchanged(self, selector: EnrichedScoreSelector) -> None:
+        s = QualifyingSignal(symbol="X", score=75, sector="Tech", atr_pct=2.0)
+        assert selector.rank([s]) == [s]
+
+
+@pytest.mark.unit
+class TestEnrichedScoreSelectorFullCascade:
+    """End-to-end cascade test: all 6 tiebreakers applied in order."""
+
+    def test_full_cascade_ordering(self) -> None:
+        """
+        Three signals all at score=75:
+          A: CCI falling, 1-day candle, RVOL 1.1, MA -3%,  ATR 4.0
+          B: CCI rising,  3-day candle, RVOL 3.0, MA -9%,  ATR 1.0
+          C: CCI flat,    2-day candle, RVOL 2.0, MA -8%,  ATR 2.0
+
+        Expected order: B (rising CCI) > C (flat CCI) > A (falling CCI)
+        """
+        selector = EnrichedScoreSelector()
+        signals = [
+            _enriched_sig("A", score=75, atr_pct=4.0, cci_direction="falling", candle_duration="1-day", rvol=1.1, ma_distance_pct=-3.0),
+            _enriched_sig("B", score=75, atr_pct=1.0, cci_direction="rising", candle_duration="3-day", rvol=3.0, ma_distance_pct=-9.0),
+            _enriched_sig("C", score=75, atr_pct=2.0, cci_direction="flat", candle_duration="2-day", rvol=2.0, ma_distance_pct=-8.0),
+        ]
+        ranked = selector.rank(signals)
+        assert [s.symbol for s in ranked] == ["B", "C", "A"]
+
+    def test_select_applies_constraints_after_ranking(self) -> None:
+        """Sector constraint is applied on top of the cascade ranking."""
+        selector = EnrichedScoreSelector()
+        signals = [
+            _enriched_sig("A", score=75, sector="Tech", atr_pct=4.0, cci_direction="falling", candle_duration="1-day"),
+            _enriched_sig("B", score=75, sector="Tech", atr_pct=1.0, cci_direction="rising", candle_duration="3-day"),
+            _enriched_sig("C", score=75, sector="Energy", atr_pct=2.0, cci_direction="flat", candle_duration="2-day"),
+        ]
+        # max 1 per sector
+        result = selector.select(
+            signals,
+            existing_sector_counts={},
+            current_open_count=0,
+            max_per_sector=1,
+        )
+        symbols = {s.symbol for s in result}
+        # B wins Tech slot (rising CCI), C wins Energy, A blocked
+        assert "B" in symbols
+        assert "C" in symbols
+        assert "A" not in symbols

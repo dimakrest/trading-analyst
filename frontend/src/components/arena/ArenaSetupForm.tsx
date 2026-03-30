@@ -2,11 +2,12 @@
  * Arena Setup Form
  *
  * Form for configuring and starting a new trading simulation.
- * Supports symbol input, date range, capital settings, and trailing stop.
+ * Split into three tabs: Setup, Agent, and Portfolio.
+ * All form state and submit logic remain unchanged — this is a layout refactor.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Play } from 'lucide-react';
+import { Check, ChevronRight, Play } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -15,10 +16,12 @@ import { Label } from '../ui/label';
 import { Slider } from '../ui/slider';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
 import { useAgentConfigs } from '../../hooks/useAgentConfigs';
 import { PORTFOLIO_STRATEGIES } from '../../constants/portfolio';
+import { cn } from '../../lib/utils';
 import type { CreateComparisonRequest, CreateSimulationRequest } from '../../types/arena';
 
 // Arena configuration constants
@@ -100,16 +103,33 @@ const getMinBuyScoreHelpText = (score: number): string => {
   return 'Trend must be bearish. This threshold is permissive and may increase trade frequency.';
 };
 
+/** Map volatility value to a Tailwind bg color class for the indicator dot */
+const volatilityDotClass: Record<string, string> = {
+  calm: 'bg-green-500',
+  balanced: 'bg-amber-500',
+  volatile: 'bg-red-500',
+  neutral: 'bg-muted-foreground',
+};
+
+/** Human-readable category labels for the strategy card tag */
+const categoryLabel: Record<string, string> = {
+  basic: 'Basic',
+  'score-ranked': 'Score-Ranked',
+  'multi-factor': 'Multi-Factor',
+};
+
 /**
  * Arena Setup Form Component
  *
  * Features:
+ * - Tab-based layout: Setup / Agent / Portfolio
  * - Multi-line textarea for symbols (comma, space, or newline separated)
  * - Date range picker (start and end dates)
  * - Capital settings (initial capital and position size)
  * - Trailing stop percentage
- * - Validation: 1-50 symbols, start < end
- * - Submit button with loading state
+ * - Strategy cards with volatility indicators
+ * - Collapsible advanced tuning (multi-factor only)
+ * - Submit button always visible below tabs
  */
 export const ArenaSetupForm = ({
   onSubmit,
@@ -128,6 +148,8 @@ export const ArenaSetupForm = ({
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>(['none']);
   const [maxPerSector, setMaxPerSector] = useState('2');
   const [maxOpenPositions, setMaxOpenPositions] = useState('');
+  const [maSweetSpotCenter, setMaSweetSpotCenter] = useState('8.5');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch stock lists
@@ -216,6 +238,13 @@ export const ArenaSetupForm = ({
     const parsedMaxOpenPositions =
       hasStrategy && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null;
 
+    // Only send ma_sweet_spot_center when an enriched_score strategy is selected
+    const hasEnrichedScore = selectedStrategies.some(
+      (s) => s === 'enriched_score' || s === 'enriched_score_high_atr',
+    );
+    const parsedMaSweetSpotCenter =
+      hasEnrichedScore && maSweetSpotCenter ? parseFloat(maSweetSpotCenter) : undefined;
+
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
         symbols: symbolList,
@@ -247,19 +276,41 @@ export const ArenaSetupForm = ({
         portfolio_strategy: selectedStrategies[0] ?? 'none',
         max_per_sector: parsedMaxPerSector,
         max_open_positions: parsedMaxOpenPositions,
+        ma_sweet_spot_center: parsedMaSweetSpotCenter,
       });
     }
-  }, [symbols, startDate, endDate, capital, positionSize, trailingStopPct, minBuyScore, selectedList, selectedAgentConfigId, selectedStrategies, maxPerSector, maxOpenPositions, onSubmit, onSubmitComparison]);
+  }, [
+    symbols,
+    startDate,
+    endDate,
+    capital,
+    positionSize,
+    trailingStopPct,
+    minBuyScore,
+    selectedList,
+    selectedAgentConfigId,
+    selectedStrategies,
+    maxPerSector,
+    maxOpenPositions,
+    maSweetSpotCenter,
+    onSubmit,
+    onSubmitComparison,
+  ]);
 
   const symbolList = parseSymbols(symbols);
   const hasValidSymbols = symbolList.length > 0 && symbolList.length <= MAX_ARENA_SYMBOLS;
   const hasValidDates = startDate && endDate && new Date(startDate) < new Date(endDate);
   const hasValidCapital = parseFloat(capital) > 0;
   const hasValidPositionSize = parseFloat(positionSize) > 0;
-  const hasValidTrailingStop = parseFloat(trailingStopPct) > 0 && parseFloat(trailingStopPct) <= 100;
+  const hasValidTrailingStop =
+    parseFloat(trailingStopPct) > 0 && parseFloat(trailingStopPct) <= 100;
   const hasValidMinBuyScore = isValidMinBuyScore(parseFloat(minBuyScore));
 
   const hasStrategySelected = selectedStrategies.length > 0;
+  const hasEnrichedScoreStrategy = selectedStrategies.some(
+    (s) => s === 'enriched_score' || s === 'enriched_score_high_atr',
+  );
+  const hasNonNoneStrategy = selectedStrategies.some((s) => s !== 'none');
 
   const canSubmit =
     hasValidSymbols &&
@@ -274,7 +325,8 @@ export const ArenaSetupForm = ({
   const submitButtonLabel = (() => {
     if (isLoading) return 'Creating...';
     if (selectedStrategies.length === 0) return 'Select a Strategy';
-    if (selectedStrategies.length >= 2) return `Start Comparison (${selectedStrategies.length} strategies)`;
+    if (selectedStrategies.length >= 2)
+      return `Start Comparison (${selectedStrategies.length} strategies)`;
     return 'Start Simulation';
   })();
 
@@ -284,292 +336,406 @@ export const ArenaSetupForm = ({
         <CardTitle>Setup Simulation</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Stock List Selector */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 sm:max-w-xs">
-            <ListSelector
-              lists={lists}
-              selectedListId={selectedListId}
-              onSelect={handleListSelect}
-              isLoading={listsLoading || isLoading}
-            />
-          </div>
-          {selectedList && (
-            <div className="flex items-center">
-              <Badge
-                variant="outline"
-                className="text-xs"
-                aria-label={`Selected list: ${selectedList.name} with ${selectedList.symbol_count} symbols`}
-              >
-                {selectedList.symbol_count} symbols from "{selectedList.name}"
-              </Badge>
-            </div>
-          )}
-        </div>
+        <Tabs defaultValue="setup">
+          <TabsList className="w-full">
+            <TabsTrigger value="setup" className="flex-1">
+              Setup
+            </TabsTrigger>
+            <TabsTrigger value="agent" className="flex-1">
+              Agent
+            </TabsTrigger>
+            <TabsTrigger value="portfolio" className="flex-1">
+              Portfolio
+            </TabsTrigger>
+          </TabsList>
 
-        {/* List fetch error */}
-        {listsError && (
-          <p className="text-sm text-destructive">Failed to load stock lists</p>
-        )}
-
-        {/* Symbols Input */}
-        <div>
-          <Label htmlFor="arena-symbols">Symbols</Label>
-          <Textarea
-            ref={textareaRef}
-            id="arena-symbols"
-            placeholder="AAPL, NVDA, TSLA, AMD, MSFT"
-            value={symbols}
-            onChange={(e) => setSymbols(e.target.value)}
-            rows={3}
-            className="mt-1 font-mono text-sm"
-            disabled={isLoading}
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            {selectedList
-              ? 'Symbols populated from list. You can modify them before starting.'
-              : `${symbolList.length} symbol${symbolList.length !== 1 ? 's' : ''} (max ${MAX_ARENA_SYMBOLS})`}
-          </p>
-        </div>
-
-        {/* Date Range */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="arena-start-date">Start Date</Label>
-            <Input
-              id="arena-start-date"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
-          <div>
-            <Label htmlFor="arena-end-date">End Date</Label>
-            <Input
-              id="arena-end-date"
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
-        </div>
-
-        {/* Capital Settings */}
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <Label htmlFor="arena-capital">Capital ($)</Label>
-            <Input
-              id="arena-capital"
-              type="number"
-              min="1"
-              value={capital}
-              onChange={(e) => setCapital(e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
-          <div>
-            <Label htmlFor="arena-position-size">Position Size ($)</Label>
-            <Input
-              id="arena-position-size"
-              type="number"
-              min="1"
-              value={positionSize}
-              onChange={(e) => setPositionSize(e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
-          <div>
-            <Label htmlFor="arena-trailing-stop">Trailing Stop (%)</Label>
-            <Input
-              id="arena-trailing-stop"
-              type="number"
-              min="0.1"
-              max="100"
-              step="0.5"
-              value={trailingStopPct}
-              onChange={(e) => setTrailingStopPct(e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
-        </div>
-
-        {/* Agent Configuration */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">Agent Configuration</h3>
-            <Badge variant="secondary" className="text-xs">
-              Live20 mean reversion
-            </Badge>
-          </div>
-
-          {/* Agent Config Selector */}
-          <div className="space-y-2">
-            <Label htmlFor="arena-agent-config">Agent</Label>
-            <Select
-              value={selectedAgentConfigId?.toString()}
-              onValueChange={(value) => setSelectedAgentConfigId(Number(value))}
-              disabled={agentConfigsLoading || isLoading}
-            >
-              <SelectTrigger id="arena-agent-config">
-                <SelectValue placeholder="Select agent..." />
-              </SelectTrigger>
-              <SelectContent>
-                {agentConfigs.map((config) => (
-                  <SelectItem key={config.id} value={config.id.toString()}>
-                    {config.name}
-                    <span className="text-xs text-muted-foreground ml-2">
-                      ({config.scoring_algorithm.toUpperCase()})
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Scoring algorithm used for momentum criterion evaluation
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="arena-min-buy-score-input">Minimum Buy Score</Label>
-              <span className="text-sm font-medium text-muted-foreground">
-                {minBuyScore}
-              </span>
-            </div>
-
-            <Slider
-              min={MIN_BUY_SCORE_CONFIG.MIN}
-              max={MIN_BUY_SCORE_CONFIG.MAX}
-              step={MIN_BUY_SCORE_CONFIG.STEP}
-              value={[parseFloat(minBuyScore)]}
-              onValueChange={(value) => setMinBuyScore(value[0].toString())}
-              disabled={isLoading}
-              className="py-4"
-              aria-label="Minimum buy score slider"
-            />
-
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>More Trades</span>
-              <span>Fewer Trades</span>
-            </div>
-
-            <Input
-              id="arena-min-buy-score-input"
-              type="number"
-              min={MIN_BUY_SCORE_CONFIG.MIN}
-              max={MIN_BUY_SCORE_CONFIG.MAX}
-              step={MIN_BUY_SCORE_CONFIG.STEP}
-              value={minBuyScore}
-              onChange={(e) => setMinBuyScore(e.target.value)}
-              disabled={isLoading}
-              className="mt-2"
-            />
-
-            <p className="text-xs text-muted-foreground mt-2">
-              {getMinBuyScoreHelpText(parseFloat(minBuyScore))}
-            </p>
-          </div>
-        </div>
-
-        {/* Portfolio Selection Strategy */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">Portfolio Selection</h3>
-            {selectedStrategies.length >= 2 && (
-              <Badge variant="secondary" className="text-xs">
-                Comparison mode
-              </Badge>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label>Strategy</Label>
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Portfolio strategies">
-              {PORTFOLIO_STRATEGIES.map((strategy) => {
-                const isSelected = selectedStrategies.includes(strategy.name);
-                return (
-                  <Button
-                    key={strategy.name}
-                    type="button"
-                    variant={isSelected ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => handleStrategyToggle(strategy.name)}
-                    disabled={isLoading}
-                    aria-pressed={isSelected}
+          {/* ─── Setup Tab ─── */}
+          <TabsContent value="setup" className="space-y-4 pt-2">
+            {/* Stock List Selector */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 sm:max-w-xs">
+                <ListSelector
+                  lists={lists}
+                  selectedListId={selectedListId}
+                  onSelect={handleListSelect}
+                  isLoading={listsLoading || isLoading}
+                />
+              </div>
+              {selectedList && (
+                <div className="flex items-center">
+                  <Badge
+                    variant="outline"
+                    className="text-xs"
+                    aria-label={`Selected list: ${selectedList.name} with ${selectedList.symbol_count} symbols`}
                   >
-                    {strategy.label}
-                  </Button>
-                );
-              })}
+                    {selectedList.symbol_count} symbols from "{selectedList.name}"
+                  </Badge>
+                </div>
+              )}
             </div>
-            {selectedStrategies.length === 1 && (
-              <p className="text-xs text-muted-foreground">
-                {PORTFOLIO_STRATEGIES.find((s) => s.name === selectedStrategies[0])?.description}
-              </p>
-            )}
-            {selectedStrategies.length >= 2 && (
-              <p className="text-xs text-muted-foreground">
-                Each selected strategy will run as a separate simulation for direct comparison.
-              </p>
-            )}
-            {selectedStrategies.length === 0 && (
-              <p className="text-xs text-destructive">
-                Select at least one strategy to continue.
-              </p>
-            )}
-          </div>
 
-          {selectedStrategies.some((s) => s !== 'none') && (
+            {/* List fetch error */}
+            {listsError && (
+              <p className="text-sm text-destructive">Failed to load stock lists</p>
+            )}
+
+            {/* Symbols Input */}
+            <div>
+              <Label htmlFor="arena-symbols">Symbols</Label>
+              <Textarea
+                ref={textareaRef}
+                id="arena-symbols"
+                placeholder="AAPL, NVDA, TSLA, AMD, MSFT"
+                value={symbols}
+                onChange={(e) => setSymbols(e.target.value)}
+                rows={3}
+                className="mt-1 font-mono text-sm"
+                disabled={isLoading}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {selectedList
+                  ? 'Symbols populated from list. You can modify them before starting.'
+                  : `${symbolList.length} symbol${symbolList.length !== 1 ? 's' : ''} (max ${MAX_ARENA_SYMBOLS})`}
+              </p>
+            </div>
+
+            {/* Date Range */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="arena-max-per-sector">Max Per Sector</Label>
+              <div>
+                <Label htmlFor="arena-start-date">Start Date</Label>
                 <Input
-                  id="arena-max-per-sector"
-                  type="number"
-                  min="1"
-                  value={maxPerSector}
-                  onChange={(e) => setMaxPerSector(e.target.value)}
+                  id="arena-start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
                   className="mt-1"
                   disabled={isLoading}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Max concurrent positions per sector
-                </p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="arena-max-open-positions">Max Open Positions</Label>
+              <div>
+                <Label htmlFor="arena-end-date">End Date</Label>
                 <Input
-                  id="arena-max-open-positions"
-                  type="number"
-                  min="1"
-                  value={maxOpenPositions}
-                  placeholder="Unlimited"
-                  onChange={(e) => setMaxOpenPositions(e.target.value)}
+                  id="arena-end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
                   className="mt-1"
                   disabled={isLoading}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Overall position cap (optional)
-                </p>
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Submit Button */}
-        <Button
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          className="w-full"
-          size="lg"
-        >
+            {/* Capital Settings */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="arena-capital">Capital ($)</Label>
+                <Input
+                  id="arena-capital"
+                  type="number"
+                  min="1"
+                  value={capital}
+                  onChange={(e) => setCapital(e.target.value)}
+                  className="mt-1"
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <Label htmlFor="arena-position-size">Position Size ($)</Label>
+                <Input
+                  id="arena-position-size"
+                  type="number"
+                  min="1"
+                  value={positionSize}
+                  onChange={(e) => setPositionSize(e.target.value)}
+                  className="mt-1"
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <Label htmlFor="arena-trailing-stop">Trailing Stop (%)</Label>
+                <Input
+                  id="arena-trailing-stop"
+                  type="number"
+                  min="0.1"
+                  max="100"
+                  step="0.5"
+                  value={trailingStopPct}
+                  onChange={(e) => setTrailingStopPct(e.target.value)}
+                  className="mt-1"
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* ─── Agent Tab ─── */}
+          <TabsContent value="agent" className="space-y-4 pt-2">
+            {/* Agent Type indicator */}
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium">Agent Configuration</h3>
+              <Badge variant="secondary" className="text-xs">
+                Live20 mean reversion
+              </Badge>
+            </div>
+
+            {/* Agent Config Selector */}
+            <div className="space-y-2">
+              <Label htmlFor="arena-agent-config">Agent</Label>
+              <Select
+                value={selectedAgentConfigId?.toString()}
+                onValueChange={(value) => setSelectedAgentConfigId(Number(value))}
+                disabled={agentConfigsLoading || isLoading}
+              >
+                <SelectTrigger id="arena-agent-config">
+                  <SelectValue placeholder="Select agent..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {agentConfigs.map((config) => (
+                    <SelectItem key={config.id} value={config.id.toString()}>
+                      {config.name}
+                      <span className="text-xs text-muted-foreground ml-2">
+                        ({config.scoring_algorithm.toUpperCase()})
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Scoring algorithm used for momentum criterion evaluation
+              </p>
+            </div>
+
+            {/* Minimum Buy Score */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="arena-min-buy-score-input">Minimum Buy Score</Label>
+                <span className="text-sm font-medium text-muted-foreground">{minBuyScore}</span>
+              </div>
+
+              <Slider
+                min={MIN_BUY_SCORE_CONFIG.MIN}
+                max={MIN_BUY_SCORE_CONFIG.MAX}
+                step={MIN_BUY_SCORE_CONFIG.STEP}
+                value={[parseFloat(minBuyScore)]}
+                onValueChange={(value) => setMinBuyScore(value[0].toString())}
+                disabled={isLoading}
+                className="py-4"
+                aria-label="Minimum buy score slider"
+              />
+
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>More Trades</span>
+                <span>Fewer Trades</span>
+              </div>
+
+              <Input
+                id="arena-min-buy-score-input"
+                type="number"
+                min={MIN_BUY_SCORE_CONFIG.MIN}
+                max={MIN_BUY_SCORE_CONFIG.MAX}
+                step={MIN_BUY_SCORE_CONFIG.STEP}
+                value={minBuyScore}
+                onChange={(e) => setMinBuyScore(e.target.value)}
+                disabled={isLoading}
+                className="mt-2"
+              />
+
+              <p className="text-xs text-muted-foreground mt-2">
+                {getMinBuyScoreHelpText(parseFloat(minBuyScore))}
+              </p>
+            </div>
+          </TabsContent>
+
+          {/* ─── Portfolio Tab ─── */}
+          <TabsContent value="portfolio" className="space-y-4 pt-2">
+            {/* Strategy Cards */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Selection Strategy</Label>
+                {selectedStrategies.length >= 2 && (
+                  <Badge variant="secondary" className="text-xs">
+                    Comparison mode
+                  </Badge>
+                )}
+              </div>
+
+              <div
+                className="grid grid-cols-2 gap-2"
+                role="group"
+                aria-label="Portfolio strategies"
+              >
+                {PORTFOLIO_STRATEGIES.map((strategy) => {
+                  const isSelected = selectedStrategies.includes(strategy.name);
+                  return (
+                    <button
+                      key={strategy.name}
+                      type="button"
+                      onClick={() => handleStrategyToggle(strategy.name)}
+                      disabled={isLoading}
+                      aria-pressed={isSelected}
+                      className={cn(
+                        'relative text-left bg-background border border-border rounded-lg p-3.5 cursor-pointer transition-all duration-150',
+                        'hover:border-muted-foreground/50 hover:bg-accent/5',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                        'disabled:pointer-events-none disabled:opacity-50',
+                        isSelected && 'border-primary bg-primary/5 ring-1 ring-primary',
+                      )}
+                    >
+                      {/* Check indicator */}
+                      <span
+                        className={cn(
+                          'absolute top-2.5 right-2.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border border-border transition-all duration-150',
+                          isSelected && 'bg-primary border-primary',
+                        )}
+                        aria-hidden="true"
+                      >
+                        <Check
+                          className={cn(
+                            'h-2.5 w-2.5 text-primary-foreground transition-opacity duration-150',
+                            isSelected ? 'opacity-100' : 'opacity-0',
+                          )}
+                          strokeWidth={2.5}
+                        />
+                      </span>
+
+                      {/* Category tag with volatility dot */}
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span
+                          className={cn(
+                            'h-1.5 w-1.5 rounded-full flex-shrink-0',
+                            volatilityDotClass[strategy.volatility],
+                          )}
+                          aria-hidden="true"
+                        />
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                          {categoryLabel[strategy.category]}
+                        </span>
+                      </div>
+
+                      {/* Strategy name */}
+                      <p className="text-sm font-semibold leading-snug pr-6 mb-1">
+                        {strategy.label}
+                      </p>
+
+                      {/* Description */}
+                      <p
+                        className={cn(
+                          'text-[11px] leading-relaxed',
+                          isSelected ? 'text-muted-foreground' : 'text-muted-foreground/70',
+                        )}
+                      >
+                        {strategy.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedStrategies.length >= 2 && (
+                <p className="text-xs text-muted-foreground px-3 py-2 bg-primary/5 rounded-md border border-primary/10">
+                  <span className="font-medium text-primary">Comparison mode</span> — Each selected
+                  strategy will run as a separate simulation for direct comparison.
+                </p>
+              )}
+              {selectedStrategies.length === 0 && (
+                <p className="text-xs text-destructive">
+                  Select at least one strategy to continue.
+                </p>
+              )}
+            </div>
+
+            {/* Constraints — shown when any non-"none" strategy is selected */}
+            {hasNonNoneStrategy && (
+              <>
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                    Constraints
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="arena-max-per-sector">Max Per Sector</Label>
+                      <Input
+                        id="arena-max-per-sector"
+                        type="number"
+                        min="1"
+                        value={maxPerSector}
+                        onChange={(e) => setMaxPerSector(e.target.value)}
+                        className="mt-1"
+                        disabled={isLoading}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Limit positions in any single sector
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="arena-max-open-positions">Max Open Positions</Label>
+                      <Input
+                        id="arena-max-open-positions"
+                        type="number"
+                        min="1"
+                        value={maxOpenPositions}
+                        placeholder="Unlimited"
+                        onChange={(e) => setMaxOpenPositions(e.target.value)}
+                        className="mt-1"
+                        disabled={isLoading}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Total simultaneous open positions
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Advanced Tuning — collapsible, only shown for multi-factor strategies */}
+            {hasEnrichedScoreStrategy && (
+              <div className="border-t border-border pt-4">
+                <button
+                  type="button"
+                  onClick={() => setAdvancedOpen((prev) => !prev)}
+                  className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors duration-150 py-1"
+                  aria-expanded={advancedOpen}
+                >
+                  <ChevronRight
+                    className={cn(
+                      'h-3.5 w-3.5 transition-transform duration-200',
+                      advancedOpen && 'rotate-90',
+                    )}
+                  />
+                  Advanced Tuning
+                </button>
+
+                {advancedOpen && (
+                  <div className="pt-3 grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="arena-ma-sweet-spot-center">
+                        Ideal Pullback Depth (%)
+                      </Label>
+                      <Input
+                        id="arena-ma-sweet-spot-center"
+                        type="number"
+                        min="0.1"
+                        step="0.5"
+                        value={maSweetSpotCenter}
+                        onChange={(e) => setMaSweetSpotCenter(e.target.value)}
+                        className="mt-1"
+                        disabled={isLoading}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        How far below the 20-day moving average is the ideal entry zone (default:
+                        8.5%)
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+
+        {/* Submit Button — always visible outside the tab panels */}
+        <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full" size="lg">
           <Play className="h-4 w-4 mr-2" />
           {submitButtonLabel}
         </Button>

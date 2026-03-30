@@ -8,6 +8,9 @@ import logging
 from datetime import date
 from typing import ClassVar
 
+from app.indicators.cci_analysis import CCIAnalysis
+from app.indicators.multi_day_patterns import analyze_multi_day_patterns
+from app.indicators.trend import detect_trend
 from app.models.recommendation import ScoringAlgorithm
 from app.services.arena.agent_protocol import AgentDecision, BaseAgent, PriceBar
 from app.services.live20_evaluator import Live20Evaluator
@@ -157,8 +160,9 @@ class Live20ArenaAgent(BaseAgent):
         closes = [float(bar.close) for bar in price_history]
         volumes = [float(bar.volume) for bar in price_history]
 
-        # Evaluate criteria using shared evaluator
-        criteria, _, _, _ = self._evaluator.evaluate_criteria(
+        # Evaluate criteria using shared evaluator — capture all 4 return values
+        # for enriched metadata on BUY signals.
+        criteria, volume_signal, momentum_analysis, _ = self._evaluator.evaluate_criteria(
             opens, highs, lows, closes, volumes,
             scoring_algorithm=self._scoring_algorithm,
             signal_scores=self._signal_scores,
@@ -194,9 +198,35 @@ class Live20ArenaAgent(BaseAgent):
         else:
             action = "NO_SIGNAL"
 
+        # Build enriched metadata for BUY signals only.
+        # Metadata powers the EnrichedScoreSelector tiebreaker cascade.
+        metadata: dict | None = None
+        if action == "BUY":
+            trend_direction = detect_trend(closes, period=10)
+            multi_day_result = analyze_multi_day_patterns(
+                opens, highs, lows, closes, trend_direction
+            )
+            metadata = {
+                "cci_value": (
+                    momentum_analysis.value
+                    if isinstance(momentum_analysis, CCIAnalysis)
+                    else None
+                ),
+                "cci_direction": (
+                    momentum_analysis.direction.value
+                    if isinstance(momentum_analysis, CCIAnalysis)
+                    else None
+                ),
+                "ma_distance_pct": self._evaluator.get_ma20_distance(closes),
+                "rvol": volume_signal.rvol,
+                "candle_duration": multi_day_result.duration.value,
+                "candle_pattern": multi_day_result.pattern_name,
+            }
+
         return AgentDecision(
             symbol=symbol,
             action=action,
             score=score,
             reasoning="; ".join(reasoning_parts),
+            metadata=metadata,
         )

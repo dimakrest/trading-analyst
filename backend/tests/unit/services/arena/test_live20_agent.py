@@ -926,3 +926,358 @@ class TestLive20ArenaAgentConsistency:
         assert decision.symbol == "MSFT"
         # Flat data typically results in NO_SIGNAL
         assert decision.action == "NO_SIGNAL"
+
+
+class TestLive20ArenaAgentMetadata:
+    """Tests verifying enriched metadata is populated on BUY decisions.
+
+    BUY decisions must carry metadata for EnrichedScoreSelector.
+    Non-BUY decisions (HOLD, NO_SIGNAL) must have metadata=None.
+    """
+
+    @pytest.fixture
+    def agent(self) -> Live20ArenaAgent:
+        """Create agent instance for testing."""
+        return Live20ArenaAgent()
+
+    def _make_bar(
+        self,
+        day_offset: int,
+        open_price: float,
+        high: float,
+        low: float,
+        close: float,
+        volume: int = 1000000,
+    ) -> PriceBar:
+        return PriceBar(
+            date=date(2024, 1, 1 + day_offset),
+            open=Decimal(str(open_price)),
+            high=Decimal(str(high)),
+            low=Decimal(str(low)),
+            close=Decimal(str(close)),
+            volume=volume,
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_hold_decision_has_no_metadata(self, agent: Live20ArenaAgent) -> None:
+        """HOLD action must never carry metadata."""
+        # Arrange: has_open_position=True forces HOLD
+        bars = [self._make_bar(i, 100.0, 101.0, 99.0, 100.0) for i in range(30)]
+
+        # Act
+        decision = await agent.evaluate(
+            symbol="AAPL",
+            price_history=bars,
+            current_date=date(2024, 1, 30),
+            has_open_position=True,
+        )
+
+        # Assert
+        assert decision.action == "HOLD"
+        assert decision.metadata is None
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_no_signal_decision_has_no_metadata(self, agent: Live20ArenaAgent) -> None:
+        """NO_SIGNAL action must not carry metadata."""
+        # Arrange: insufficient data forces NO_SIGNAL
+        bars = [self._make_bar(i, 100.0, 101.0, 99.0, 100.0) for i in range(10)]
+
+        # Act
+        decision = await agent.evaluate(
+            symbol="AAPL",
+            price_history=bars,
+            current_date=date(2024, 1, 10),
+            has_open_position=False,
+        )
+
+        # Assert
+        assert decision.action == "NO_SIGNAL"
+        assert decision.metadata is None
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_no_signal_flat_has_no_metadata(self, agent: Live20ArenaAgent) -> None:
+        """NO_SIGNAL from failed criteria also must not carry metadata."""
+        # Arrange: flat data cannot produce a BUY
+        bars = [
+            PriceBar(
+                date=date(2024, 1, 1 + i),
+                open=Decimal("100"),
+                high=Decimal("100"),
+                low=Decimal("100"),
+                close=Decimal("100"),
+                volume=1000000,
+            )
+            for i in range(30)
+        ]
+
+        # Act
+        decision = await agent.evaluate(
+            symbol="AAPL",
+            price_history=bars,
+            current_date=date(2024, 1, 30),
+            has_open_position=False,
+        )
+
+        # Assert
+        assert decision.action == "NO_SIGNAL"
+        assert decision.metadata is None
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_buy_decision_has_metadata(self, monkeypatch) -> None:
+        """BUY decisions must carry a metadata dict with all expected keys."""
+        # Arrange: monkeypatch evaluate_criteria to force BUY
+        from app.services.live20_evaluator import CriterionResult
+        from app.indicators.cci_analysis import CCIAnalysis, CCIDirection, CCIZone, CCISignalType
+        from app.indicators.volume import VolumeSignalAnalysis, VolumeApproach
+
+        agent = Live20ArenaAgent(config={"min_buy_score": 75})
+
+        mock_cci = CCIAnalysis(
+            value=-150.0,
+            zone=CCIZone.OVERSOLD,
+            direction=CCIDirection.RISING,
+            signal_type=CCISignalType.REVERSAL_BUY,
+        )
+        mock_volume = VolumeSignalAnalysis(
+            approach=VolumeApproach.NONE,
+            aligned_for_long=True,
+            rvol=2.5,
+            description="test",
+        )
+        mock_criteria = [
+            CriterionResult("trend", "bearish", True, 0),
+            CriterionResult("ma20_distance", "-8.0%", True, 25),
+            CriterionResult("candle", "hammer", True, 25),
+            CriterionResult("volume", "2.5x", True, 25),
+            CriterionResult("momentum", "oversold", True, 25),
+        ]
+
+        def _mock_evaluate_criteria(*_args, **_kwargs):
+            return mock_criteria, mock_volume, mock_cci, "hammer pattern"
+
+        monkeypatch.setattr(agent._evaluator, "evaluate_criteria", _mock_evaluate_criteria)
+
+        bars = [
+            PriceBar(
+                date=date(2024, 1, 1 + i),
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal("100"),
+                volume=1000000,
+            )
+            for i in range(30)
+        ]
+
+        # Act
+        decision = await agent.evaluate(
+            symbol="AAPL",
+            price_history=bars,
+            current_date=date(2024, 1, 30),
+            has_open_position=False,
+        )
+
+        # Assert: must be BUY and must carry metadata
+        assert decision.action == "BUY"
+        assert decision.metadata is not None
+        meta = decision.metadata
+        assert "cci_value" in meta
+        assert "cci_direction" in meta
+        assert "ma_distance_pct" in meta
+        assert "rvol" in meta
+        assert "candle_duration" in meta
+        assert "candle_pattern" in meta
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_buy_metadata_cci_fields_populated_for_cci_algorithm(
+        self, monkeypatch
+    ) -> None:
+        """CCI fields in metadata must reflect the CCIAnalysis values."""
+        # Arrange
+        from app.services.live20_evaluator import CriterionResult
+        from app.indicators.cci_analysis import CCIAnalysis, CCIDirection, CCIZone, CCISignalType
+        from app.indicators.volume import VolumeSignalAnalysis, VolumeApproach
+
+        agent = Live20ArenaAgent(config={"min_buy_score": 75})
+
+        mock_cci = CCIAnalysis(
+            value=-172.3,
+            zone=CCIZone.OVERSOLD,
+            direction=CCIDirection.RISING,
+            signal_type=CCISignalType.REVERSAL_BUY,
+        )
+        mock_volume = VolumeSignalAnalysis(
+            approach=VolumeApproach.NONE,
+            aligned_for_long=True,
+            rvol=3.1,
+            description="high volume",
+        )
+        mock_criteria = [
+            CriterionResult("trend", "bearish", True, 0),
+            CriterionResult("ma20_distance", "-10.0%", True, 25),
+            CriterionResult("candle", "morning_star", True, 25),
+            CriterionResult("volume", "3.1x", True, 25),
+            CriterionResult("momentum", "oversold", True, 25),
+        ]
+
+        monkeypatch.setattr(
+            agent._evaluator,
+            "evaluate_criteria",
+            lambda *a, **kw: (mock_criteria, mock_volume, mock_cci, "morning star"),
+        )
+
+        bars = [
+            PriceBar(
+                date=date(2024, 1, 1 + i),
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal("100"),
+                volume=1000000,
+            )
+            for i in range(30)
+        ]
+
+        # Act
+        decision = await agent.evaluate(
+            symbol="AAPL",
+            price_history=bars,
+            current_date=date(2024, 1, 30),
+            has_open_position=False,
+        )
+
+        # Assert
+        assert decision.action == "BUY"
+        meta = decision.metadata
+        assert meta["cci_value"] == -172.3
+        assert meta["cci_direction"] == "rising"
+        assert meta["rvol"] == 3.1
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_buy_metadata_cci_fields_none_for_rsi2_algorithm(
+        self, monkeypatch
+    ) -> None:
+        """When RSI-2 is the scoring algorithm, cci_value and cci_direction are None."""
+        # Arrange
+        from app.services.live20_evaluator import CriterionResult
+        from app.indicators.rsi2_analysis import RSI2Analysis
+        from app.indicators.volume import VolumeSignalAnalysis, VolumeApproach
+
+        agent = Live20ArenaAgent(config={"min_buy_score": 75, "scoring_algorithm": "rsi2"})
+
+        mock_rsi2 = RSI2Analysis(value=3.0, long_score=20)
+        mock_volume = VolumeSignalAnalysis(
+            approach=VolumeApproach.NONE,
+            aligned_for_long=True,
+            rvol=2.0,
+            description="vol",
+        )
+        mock_criteria = [
+            CriterionResult("trend", "bearish", True, 0),
+            CriterionResult("ma20_distance", "-8.0%", True, 25),
+            CriterionResult("candle", "hammer", True, 25),
+            CriterionResult("volume", "2.0x", True, 25),
+            CriterionResult("momentum", "oversold", True, 25),
+        ]
+
+        monkeypatch.setattr(
+            agent._evaluator,
+            "evaluate_criteria",
+            lambda *a, **kw: (mock_criteria, mock_volume, mock_rsi2, "hammer"),
+        )
+
+        bars = [
+            PriceBar(
+                date=date(2024, 1, 1 + i),
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal("100"),
+                volume=1000000,
+            )
+            for i in range(30)
+        ]
+
+        # Act
+        decision = await agent.evaluate(
+            symbol="AAPL",
+            price_history=bars,
+            current_date=date(2024, 1, 30),
+            has_open_position=False,
+        )
+
+        # Assert: BUY with RSI-2 has None CCI fields
+        assert decision.action == "BUY"
+        meta = decision.metadata
+        assert meta["cci_value"] is None
+        assert meta["cci_direction"] is None
+        # Non-CCI fields are still populated
+        assert meta["rvol"] == 2.0
+        assert meta["candle_duration"] is not None
+        assert meta["ma_distance_pct"] is not None
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_buy_metadata_candle_duration_is_valid_value(
+        self, monkeypatch
+    ) -> None:
+        """candle_duration in metadata must be one of the PatternDuration enum values."""
+        # Arrange
+        from app.services.live20_evaluator import CriterionResult
+        from app.indicators.cci_analysis import CCIAnalysis, CCIDirection, CCIZone, CCISignalType
+        from app.indicators.volume import VolumeSignalAnalysis, VolumeApproach
+
+        agent = Live20ArenaAgent(config={"min_buy_score": 75})
+
+        mock_cci = CCIAnalysis(
+            value=-120.0,
+            zone=CCIZone.OVERSOLD,
+            direction=CCIDirection.RISING,
+            signal_type=CCISignalType.REVERSAL_BUY,
+        )
+        mock_volume = VolumeSignalAnalysis(
+            approach=VolumeApproach.NONE, aligned_for_long=True, rvol=1.5, description="vol",
+        )
+        mock_criteria = [
+            CriterionResult("trend", "bearish", True, 0),
+            CriterionResult("ma20_distance", "-6.0%", True, 25),
+            CriterionResult("candle", "hammer", True, 25),
+            CriterionResult("volume", "1.5x", True, 25),
+            CriterionResult("momentum", "oversold", True, 25),
+        ]
+
+        monkeypatch.setattr(
+            agent._evaluator,
+            "evaluate_criteria",
+            lambda *a, **kw: (mock_criteria, mock_volume, mock_cci, "hammer"),
+        )
+
+        bars = [
+            PriceBar(
+                date=date(2024, 1, 1 + i),
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal("100"),
+                volume=1000000,
+            )
+            for i in range(30)
+        ]
+
+        # Act
+        decision = await agent.evaluate(
+            symbol="AAPL",
+            price_history=bars,
+            current_date=date(2024, 1, 30),
+            has_open_position=False,
+        )
+
+        # Assert
+        assert decision.action == "BUY"
+        assert decision.metadata["candle_duration"] in {"1-day", "2-day", "3-day"}

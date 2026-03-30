@@ -14,7 +14,7 @@ export type SimulationStatus = 'pending' | 'running' | 'paused' | 'completed' | 
 export type PositionStatus = 'pending' | 'open' | 'closed';
 
 /** Why a position was closed */
-export type ExitReason = 'stop_hit' | 'simulation_end' | 'insufficient_capital';
+export type ExitReason = 'stop_hit' | 'simulation_end' | 'insufficient_capital' | 'take_profit' | 'max_hold';
 
 /** Agent information from /api/v1/arena/agents */
 export interface AgentInfo {
@@ -48,6 +48,7 @@ export interface Simulation {
   portfolio_strategy: string | null;
   max_per_sector: number | null;
   max_open_positions: number | null;
+  ma_sweet_spot_center?: number | null;
   group_id: string | null;
   status: SimulationStatus;
   current_day: number;
@@ -158,6 +159,8 @@ export interface CreateSimulationRequest {
   max_per_sector?: number | null;
   /** Max total open positions (null = unlimited) */
   max_open_positions?: number | null;
+  /** MA20 sweet spot center percentage for enriched_score strategies */
+  ma_sweet_spot_center?: number;
 }
 
 /** Response from step endpoint */

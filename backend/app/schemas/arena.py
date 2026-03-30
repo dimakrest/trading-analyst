@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import Field
 from pydantic import field_validator
+from pydantic import model_validator
 
 from app.core.config import get_settings
 from app.schemas.base import StrictBaseModel
@@ -132,11 +133,167 @@ class CreateSimulationRequest(StrictBaseModel):
         description="Max total open positions (None = unlimited)",
     )
 
+    # --- Layer 4: ATR-Based Trailing Stops ---
+    stop_type: str = Field(
+        default="fixed",
+        description=(
+            "Trailing stop type: 'fixed' uses a fixed trailing_stop_pct, "
+            "'atr' computes the trail distance as atr_stop_multiplier * ATR%."
+        ),
+    )
+    atr_stop_multiplier: float = Field(
+        default=2.0,
+        gt=0,
+        description="Multiplier applied to ATR% to compute trail distance (stop_type='atr').",
+    )
+    atr_stop_min_pct: float = Field(
+        default=2.0,
+        gt=0,
+        lt=100,
+        description="Minimum ATR-based trail percentage (floor, stop_type='atr').",
+    )
+    atr_stop_max_pct: float = Field(
+        default=10.0,
+        gt=0,
+        lt=100,
+        description="Maximum ATR-based trail percentage (ceiling, stop_type='atr').",
+    )
+
+    # --- Layer 5: Take Profit Rules ---
+    take_profit_pct: float | None = Field(
+        default=None,
+        gt=0,
+        lt=1000,
+        description=(
+            "Fixed take-profit target as a percentage return "
+            "(e.g., 8.0 exits when position is up 8%). None = disabled."
+        ),
+    )
+    take_profit_atr_mult: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "ATR-multiple take-profit target "
+            "(e.g., 3.0 exits when return >= 3 * ATR%). None = disabled."
+        ),
+    )
+
+    # --- Layer 6: Max Holding Period ---
+    max_hold_days: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Maximum number of trading days to hold a position before forced exit. "
+            "None = disabled (hold indefinitely)."
+        ),
+    )
+
+    max_hold_days_profit: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Extended max hold for profitable positions (trading days). "
+            "When set, profitable positions use this instead of max_hold_days. None = use max_hold_days for all."
+        ),
+    )
+
+    # --- Layer 3: Percentage-Based Position Sizing ---
+    position_size_pct: float | None = Field(
+        default=None,
+        gt=0,
+        le=100,
+        description=(
+            "Position size as percentage of current equity (e.g., 33.0 = 33%). "
+            "Overrides fixed position_size when set. None = use fixed position_size."
+        ),
+    )
+
+    # --- Layer 8: Breakeven & Profit Ratcheting ---
+    breakeven_trigger_pct: float | None = Field(
+        default=None,
+        gt=0,
+        lt=100,
+        description="Move stop to entry price once position return exceeds this % (None=disabled)",
+    )
+    ratchet_trigger_pct: float | None = Field(
+        default=None,
+        gt=0,
+        lt=100,
+        description="Tighten trail once position return exceeds this % (None=disabled)",
+    )
+    ratchet_trail_pct: float | None = Field(
+        default=None,
+        gt=0,
+        lt=100,
+        description="Tighter trail % to use after ratchet trigger (used with ratchet_trigger_pct)",
+    )
+
+    # --- Layer 9: Portfolio Selector Tuning ---
+    ma_sweet_spot_center: float = Field(
+        default=8.5,
+        gt=0,
+        lt=50,
+        description=(
+            "MA20 distance sweet-spot center for EnrichedScoreSelector tiebreaking. "
+            "Signals closest to this % below MA20 are preferred. Default: 8.5 (midpoint of 5-12% range)."
+        ),
+    )
+
+    # --- Layer 7: Market Regime Filter ---
+    regime_filter: bool = Field(
+        default=False,
+        description=(
+            "Enable market regime filter. When True, adjusts max_open_positions "
+            "dynamically based on whether the regime symbol is above or below its SMA."
+        ),
+    )
+    regime_symbol: str = Field(
+        default="SPY",
+        max_length=10,
+        pattern=r"^[A-Z]{1,5}$",
+        description="Ticker used as market regime indicator (default: 'SPY').",
+    )
+    regime_sma_period: int = Field(
+        default=20,
+        ge=5,
+        le=200,
+        description=(
+            "SMA period for regime detection. "
+            "SPY close > SMA(period) = bull, SPY close < SMA(period) = bear."
+        ),
+    )
+    regime_bull_max_positions: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Max open positions in bull regime (regime symbol > SMA). "
+            "None = use max_open_positions (or unlimited)."
+        ),
+    )
+    regime_bear_max_positions: int = Field(
+        default=1,
+        ge=0,
+        description=(
+            "Max open positions in bear regime (regime symbol < SMA). "
+            "0 = block all new entries."
+        ),
+    )
+
     # Shared validators — plain functions applied via field_validator(...)
     _normalize_symbols = field_validator("symbols", mode="before")(_normalize_symbols_value)
     _validate_symbols_count = field_validator("symbols")(_validate_symbols_count_value)
     _validate_date_range = field_validator("end_date")(_validate_date_range_value)
     _validate_agent_type = field_validator("agent_type")(_validate_agent_type_value)
+
+    @field_validator("stop_type")
+    @classmethod
+    def validate_stop_type(cls, v: str) -> str:
+        """Validate stop_type is a recognized value."""
+        allowed = {"fixed", "atr"}
+        if v not in allowed:
+            msg = f"Unknown stop_type: {v!r}. Allowed: {', '.join(sorted(allowed))}"
+            raise ValueError(msg)
+        return v
 
     @field_validator("portfolio_strategy")
     @classmethod
@@ -149,6 +306,14 @@ class CreateSimulationRequest(StrictBaseModel):
             msg = f"Unknown portfolio strategy: {v}. Available: {available}"
             raise ValueError(msg)
         return v
+
+    @model_validator(mode="after")
+    def validate_ratchet_pair(self) -> "CreateSimulationRequest":
+        """Ensure ratchet_trigger_pct and ratchet_trail_pct are both set or both None."""
+        if (self.ratchet_trigger_pct is None) != (self.ratchet_trail_pct is None):
+            msg = "ratchet_trigger_pct and ratchet_trail_pct must both be set or both be None"
+            raise ValueError(msg)
+        return self
 
 
 class CreateComparisonRequest(StrictBaseModel):

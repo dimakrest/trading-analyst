@@ -31,9 +31,9 @@ from app.services.arena.analytics import compute_simulation_analytics
 from app.models.stock_sector import StockSector
 from app.services.arena.agent_protocol import AgentDecision, PriceBar
 from app.services.arena.agent_registry import get_agent
-from app.services.arena.trailing_stop import FixedPercentTrailingStop
+from app.services.arena.trailing_stop import AtrTrailingStop, FixedPercentTrailingStop
 from app.services.data_service import DataService
-from app.services.portfolio_selector import QualifyingSignal, get_selector
+from app.services.portfolio_selector import EnrichedScoreSelector, QualifyingSignal, get_selector
 from app.utils.technical_indicators import calculate_atr_percentage
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,15 @@ class SimulationEngine:
             simulation.end_date,
             lookback_days,
         )
+        # Regime filter: pre-load regime symbol (e.g. SPY) into price cache
+        if simulation.agent_config.get("regime_filter", False):
+            await self._load_regime_symbol_cache(
+                simulation.id,
+                simulation.agent_config.get("regime_symbol", "SPY"),
+                simulation.start_date,
+                simulation.end_date,
+                simulation.agent_config.get("regime_sma_period", 20),
+            )
         # Prefetch any missing sector data from Yahoo Finance (non-blocking on failure)
         try:
             sector_name_map = await self.data_service.batch_prefetch_sectors(
@@ -227,8 +236,41 @@ class SimulationEngine:
 
         # Get agent and trailing stop config
         agent = get_agent(simulation.agent_type, simulation.agent_config)
+        stop_type: str = simulation.agent_config.get("stop_type", "fixed")
         trail_pct = Decimal(str(simulation.agent_config.get("trailing_stop_pct", 5.0)))
-        trailing_stop = FixedPercentTrailingStop(trail_pct)
+
+        # Build the stop object used for fixed-percent updates.
+        # For ATR stops each position carries its own trail_pct (set at entry),
+        # so we construct AtrTrailingStop to handle the initial calculation and
+        # use its update() method (which accepts a per-call trail_pct) for updates.
+        fixed_trailing_stop = FixedPercentTrailingStop(trail_pct)
+        atr_trailing_stop: AtrTrailingStop | None = None
+        if stop_type == "atr":
+            atr_trailing_stop = AtrTrailingStop(
+                atr_multiplier=float(
+                    simulation.agent_config.get("atr_stop_multiplier", 2.0)
+                ),
+                min_pct=float(simulation.agent_config.get("atr_stop_min_pct", 2.0)),
+                max_pct=float(simulation.agent_config.get("atr_stop_max_pct", 10.0)),
+            )
+
+        # Exit rule parameters (None = feature disabled)
+        take_profit_pct: float | None = simulation.agent_config.get("take_profit_pct")
+        take_profit_atr_mult: float | None = simulation.agent_config.get(
+            "take_profit_atr_mult"
+        )
+        max_hold_days: int | None = simulation.agent_config.get("max_hold_days")
+        max_hold_days_profit: int | None = simulation.agent_config.get(
+            "max_hold_days_profit"
+        )
+
+        # Breakeven & profit ratcheting (None = feature disabled)
+        breakeven_trigger_pct: float | None = simulation.agent_config.get("breakeven_trigger_pct")
+        ratchet_trigger_pct: float | None = simulation.agent_config.get("ratchet_trigger_pct")
+        ratchet_trail_pct: float | None = simulation.agent_config.get("ratchet_trail_pct")
+
+        # Position sizing: percentage of equity (overrides fixed position_size)
+        position_size_pct: float | None = simulation.agent_config.get("position_size_pct")
 
         # Ensure price cache is loaded (handles resume case)
         if simulation_id not in self._price_cache:
@@ -239,6 +281,15 @@ class SimulationEngine:
                 simulation.end_date,
                 agent.required_lookback_days,
             )
+            # Regime filter: load regime symbol if enabled
+            if simulation.agent_config.get("regime_filter", False):
+                await self._load_regime_symbol_cache(
+                    simulation_id,
+                    simulation.agent_config.get("regime_symbol", "SPY"),
+                    simulation.start_date,
+                    simulation.end_date,
+                    simulation.agent_config.get("regime_sma_period", 20),
+                )
             await self._load_sector_cache(simulation_id, simulation.symbols)
 
         # Use cached trading days (lazy-load for resume case)
@@ -277,6 +328,27 @@ class SimulationEngine:
             p.symbol: p for p in pending_result.scalars().all()
         }
 
+        # Compute current equity once before processing symbols (for percentage sizing).
+        # Doing this outside the loop avoids O(n²) and ensures the same equity
+        # baseline is used for all pending positions opened on the same day.
+        effective_position_size = simulation.position_size  # default: fixed
+        if position_size_pct is not None:
+            pos_value = Decimal("0")
+            for pos in positions_by_symbol.values():
+                if pos.status == PositionStatus.OPEN.value:
+                    pos_bar = self._get_cached_bar_for_date(
+                        simulation_id, pos.symbol, current_date
+                    )
+                    if pos_bar:
+                        pos_value += pos.shares * pos_bar.close
+            current_equity = cash + pos_value
+            effective_position_size = current_equity * (
+                Decimal(str(position_size_pct)) / Decimal("100")
+            )
+
+        # Build O(1) trading-day index lookup (used for max-hold-days checks).
+        trading_days_idx: dict[date, int] = {d: i for i, d in enumerate(trading_days)}
+
         # Process each symbol
         decisions: dict[str, dict] = {}
         # Collect BUY signals for portfolio selection (processed after symbol loop)
@@ -307,8 +379,10 @@ class SimulationEngine:
             # Check for pending position to open
             pending = pending_by_symbol.get(symbol)
             if pending:
+                # effective_position_size was computed before the loop (O(1) per symbol)
+
                 # Calculate shares
-                calculated_shares = int(simulation.position_size / today_bar.open)
+                calculated_shares = int(effective_position_size / today_bar.open)
                 cost = calculated_shares * today_bar.open if calculated_shares > 0 else Decimal("0")
 
                 if calculated_shares < 1:
@@ -317,7 +391,7 @@ class SimulationEngine:
                     pending.exit_reason = ExitReason.INSUFFICIENT_CAPITAL.value
                     pending.agent_reasoning = (
                         f"Position skipped: price ${today_bar.open} > "
-                        f"position size ${simulation.position_size}"
+                        f"position size ${effective_position_size:.2f}"
                     )
                 elif cost > cash:
                     # Not enough cash to open position - cancel pending
@@ -333,8 +407,29 @@ class SimulationEngine:
                     pending.entry_price = today_bar.open
                     pending.shares = calculated_shares
 
-                    # Initialize trailing stop
-                    highest, stop = trailing_stop.calculate_initial_stop(today_bar.open)
+                    # Initialize trailing stop — ATR or fixed
+                    if atr_trailing_stop is not None:
+                        symbol_atr_pct = self._calculate_symbol_atr_pct(
+                            simulation_id, symbol, current_date
+                        )
+                        if symbol_atr_pct is not None and symbol_atr_pct > 0:
+                            highest, stop, computed_trail_pct = (
+                                atr_trailing_stop.calculate_initial_stop(
+                                    today_bar.open, symbol_atr_pct
+                                )
+                            )
+                            # Store computed trail_pct so daily updates use the
+                            # same distance that was set at entry (per-position).
+                            pending.trailing_stop_pct = computed_trail_pct
+                        else:
+                            # No ATR data — degrade gracefully to fixed stop
+                            highest, stop = fixed_trailing_stop.calculate_initial_stop(
+                                today_bar.open
+                            )
+                    else:
+                        highest, stop = fixed_trailing_stop.calculate_initial_stop(
+                            today_bar.open
+                        )
                     pending.highest_price = highest
                     pending.current_stop = stop
 
@@ -344,13 +439,23 @@ class SimulationEngine:
             # Update existing position
             position = positions_by_symbol.get(symbol)
             if position and position.status == PositionStatus.OPEN.value:
-                # Update trailing stop
-                update = trailing_stop.update(
-                    current_high=today_bar.high,
-                    current_low=today_bar.low,
-                    previous_highest=position.highest_price,
-                    previous_stop=position.current_stop,
-                )
+                # Update trailing stop — ATR stops use the per-position trail_pct
+                # stored at entry time; fixed stops use the class-level value.
+                if atr_trailing_stop is not None:
+                    update = atr_trailing_stop.update(
+                        current_high=today_bar.high,
+                        current_low=today_bar.low,
+                        previous_highest=position.highest_price,
+                        previous_stop=position.current_stop,
+                        trail_pct=position.trailing_stop_pct,
+                    )
+                else:
+                    update = fixed_trailing_stop.update(
+                        current_high=today_bar.high,
+                        current_low=today_bar.low,
+                        previous_highest=position.highest_price,
+                        previous_stop=position.current_stop,
+                    )
 
                 if update.stop_triggered:
                     # Close position at stop price or open price (whichever is worse)
@@ -374,9 +479,147 @@ class SimulationEngine:
 
                     del positions_by_symbol[symbol]
                 else:
-                    # Update stop levels
+                    # Stop not triggered — update tracked high and stop level.
                     position.highest_price = update.highest_price
                     position.current_stop = update.stop_price
+
+                    # --- Layer 8: Breakeven stop floor ---
+                    # Once the position has gained enough, pin the stop at entry
+                    # so a winner can never turn into a loser.
+                    if breakeven_trigger_pct is not None and position.entry_price:
+                        breakeven_threshold = position.entry_price * (
+                            Decimal("1") + Decimal(str(breakeven_trigger_pct)) / Decimal("100")
+                        )
+                        if position.highest_price >= breakeven_threshold:
+                            position.current_stop = max(
+                                position.current_stop, position.entry_price
+                            )
+
+                    # --- Layer 8: Profit ratcheting — tighter trail at high gains ---
+                    if (
+                        ratchet_trigger_pct is not None
+                        and ratchet_trail_pct is not None
+                        and position.entry_price
+                    ):
+                        ratchet_threshold = position.entry_price * (
+                            Decimal("1") + Decimal(str(ratchet_trigger_pct)) / Decimal("100")
+                        )
+                        if position.highest_price >= ratchet_threshold:
+                            ratchet_stop = position.highest_price * (
+                                Decimal("1") - Decimal(str(ratchet_trail_pct)) / Decimal("100")
+                            )
+                            position.current_stop = max(
+                                position.current_stop, ratchet_stop
+                            )
+
+                    # --- Layer 5: Take Profit ---
+                    # Check AFTER the trailing stop so that a stop exit always
+                    # takes precedence. Trigger on intraday high; exit at
+                    # max(target_price, today_open) for gap-up handling.
+                    if take_profit_pct is not None or take_profit_atr_mult is not None:
+                        unrealized_return_pct_at_high = float(
+                            (today_bar.high - position.entry_price)
+                            / position.entry_price
+                            * 100
+                        )
+                        take_profit_triggered = False
+                        tp_target_pct: float | None = None
+
+                        if (
+                            take_profit_pct is not None
+                            and unrealized_return_pct_at_high >= take_profit_pct
+                        ):
+                            take_profit_triggered = True
+                            tp_target_pct = take_profit_pct
+
+                        if not take_profit_triggered and take_profit_atr_mult is not None:
+                            pos_atr_pct = self._calculate_symbol_atr_pct(
+                                simulation_id, symbol, current_date
+                            )
+                            if pos_atr_pct is not None and pos_atr_pct > 0:
+                                atr_target = take_profit_atr_mult * pos_atr_pct
+                                if unrealized_return_pct_at_high >= atr_target:
+                                    take_profit_triggered = True
+                                    tp_target_pct = atr_target
+
+                        if take_profit_triggered:
+                            tp_target_price = position.entry_price * (
+                                1 + Decimal(str(tp_target_pct)) / 100
+                            )
+                            exit_price = max(tp_target_price, today_bar.open)
+                            realized_pnl = (
+                                exit_price - position.entry_price
+                            ) * position.shares
+                            return_pct = (
+                                (exit_price - position.entry_price)
+                                / position.entry_price
+                                * 100
+                            )
+
+                            position.status = PositionStatus.CLOSED.value
+                            position.exit_date = current_date
+                            position.exit_price = exit_price
+                            position.exit_reason = ExitReason.TAKE_PROFIT.value
+                            position.realized_pnl = realized_pnl
+                            position.return_pct = return_pct
+
+                            cash += position.shares * exit_price
+
+                            simulation.total_trades += 1
+                            if realized_pnl > 0:
+                                simulation.winning_trades += 1
+
+                            del positions_by_symbol[symbol]
+
+                    # --- Layer 6: Max Holding Period ---
+                    # Only check positions that are still open after stop and
+                    # take-profit checks above.
+                    if (
+                        max_hold_days is not None
+                        and symbol in positions_by_symbol
+                        and position.entry_date is not None
+                    ):
+                        entry_idx = trading_days_idx.get(position.entry_date)
+                        current_idx = trading_days_idx.get(current_date)
+                        if entry_idx is None or current_idx is None:
+                            hold_days = 0
+                        else:
+                            hold_days = current_idx - entry_idx
+
+                        # Use extended hold for profitable positions
+                        effective_hold_limit = max_hold_days
+                        if (
+                            max_hold_days_profit is not None
+                            and position.entry_price
+                            and today_bar.close > position.entry_price
+                        ):
+                            effective_hold_limit = max_hold_days_profit
+
+                        if hold_days >= effective_hold_limit:
+                            exit_price = today_bar.close
+                            realized_pnl = (
+                                exit_price - position.entry_price
+                            ) * position.shares
+                            return_pct = (
+                                (exit_price - position.entry_price)
+                                / position.entry_price
+                                * 100
+                            )
+
+                            position.status = PositionStatus.CLOSED.value
+                            position.exit_date = current_date
+                            position.exit_price = exit_price
+                            position.exit_reason = ExitReason.MAX_HOLD.value
+                            position.realized_pnl = realized_pnl
+                            position.return_pct = return_pct
+
+                            cash += position.shares * exit_price
+
+                            simulation.total_trades += 1
+                            if realized_pnl > 0:
+                                simulation.winning_trades += 1
+
+                            del positions_by_symbol[symbol]
 
             # Get agent decision (only if not already holding)
             has_position = symbol in positions_by_symbol
@@ -397,7 +640,33 @@ class SimulationEngine:
         strategy_name = simulation.agent_config.get("portfolio_strategy", "none")
         max_per_sector: int | None = simulation.agent_config.get("max_per_sector")
         max_open_positions: int | None = simulation.agent_config.get("max_open_positions")
+
+        # --- Layer 7: Market Regime Filter ---
+        # Dynamically adjust max_open_positions based on regime symbol trend.
+        # This runs AFTER reading the base max_open_positions so the bull regime
+        # can optionally override it and the bear regime reduces it.
+        if simulation.agent_config.get("regime_filter", False):
+            regime_symbol: str = simulation.agent_config.get("regime_symbol", "SPY")
+            sma_period: int = simulation.agent_config.get("regime_sma_period", 20)
+            regime = self._detect_market_regime(simulation_id, current_date, regime_symbol, sma_period)
+            if regime == "bear":
+                bear_max: int = simulation.agent_config.get("regime_bear_max_positions", 1)
+                max_open_positions = bear_max
+            elif regime == "bull":
+                bull_max: int | None = simulation.agent_config.get("regime_bull_max_positions")
+                if bull_max is not None:
+                    max_open_positions = bull_max
+            # neutral: leave max_open_positions unchanged
+
         selector = get_selector(strategy_name)
+
+        # Override ma_sweet_spot_center if configured for enriched selectors
+        ma_sweet_spot_center = simulation.agent_config.get("ma_sweet_spot_center")
+        if ma_sweet_spot_center is not None and isinstance(selector, EnrichedScoreSelector):
+            selector = EnrichedScoreSelector(
+                atr_preference=selector._atr_preference,
+                ma_sweet_spot_center=ma_sweet_spot_center,
+            )
 
         # Build qualifying signals with sector and ATR data from caches
         qualifying: list[QualifyingSignal] = []
@@ -406,9 +675,10 @@ class SimulationEngine:
             qualifying.append(
                 QualifyingSignal(
                     symbol=symbol,
-                    score=decision.score,
+                    score=decision.score or 0,
                     sector=sim_sector_map.get(symbol),
                     atr_pct=self._calculate_symbol_atr_pct(simulation_id, symbol, current_date),
+                    metadata=decision.metadata,
                 )
             )
 
@@ -435,6 +705,10 @@ class SimulationEngine:
             # Annotate decision for transparency in snapshots
             decisions[symbol]["portfolio_selected"] = is_selected
             if is_selected:
+                # For ATR stops the actual trail_pct is computed at position
+                # open time (next day) when we have the entry price.  Store
+                # the configured fixed trail_pct as a placeholder; it will be
+                # overwritten when the position transitions from PENDING → OPEN.
                 new_position = ArenaPosition(
                     simulation_id=simulation.id,
                     symbol=symbol,
@@ -673,6 +947,101 @@ class SimulationEngine:
         # Build cache from results
         cache: dict[str, list[PriceBar]] = {symbol: bars for symbol, bars in results}
         self._price_cache[simulation_id] = cache
+
+
+    async def _load_regime_symbol_cache(
+        self,
+        simulation_id: int,
+        regime_symbol: str,
+        start_date: date,
+        end_date: date,
+        sma_period: int,
+    ) -> None:
+        """Fetch regime symbol (e.g. SPY) into the price cache with SMA lookback.
+
+        Merges into the existing cache without overwriting simulation symbol data.
+        The regime symbol is deliberately not added to simulation.symbols so it
+        never participates in position or trading-day logic.
+
+        Args:
+            simulation_id: Simulation ID for cache key.
+            regime_symbol: Ticker to use as regime indicator (e.g. 'SPY').
+            start_date: Simulation start date.
+            end_date: Simulation end date.
+            sma_period: SMA period; extra lookback = sma_period * 2 + 30 days.
+        """
+        cache = self._price_cache.setdefault(simulation_id, {})
+        if regime_symbol in cache:
+            return  # Already loaded
+
+        extra_lookback = sma_period * 2 + 30
+        data_start = start_date - timedelta(days=extra_lookback)
+
+        records = await self.data_service.get_price_data(
+            symbol=regime_symbol,
+            start_date=datetime.combine(data_start, datetime.min.time(), tzinfo=timezone.utc),
+            end_date=datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc),
+            interval="1d",
+        )
+        bars = [
+            PriceBar(
+                date=r.timestamp.date(),
+                open=Decimal(str(r.open_price)),
+                high=Decimal(str(r.high_price)),
+                low=Decimal(str(r.low_price)),
+                close=Decimal(str(r.close_price)),
+                volume=int(r.volume),
+            )
+            for r in records
+        ]
+        cache[regime_symbol] = bars
+        logger.debug(
+            f"Simulation {simulation_id}: loaded {len(bars)} {regime_symbol} bars for regime filter"
+        )
+
+    def _detect_market_regime(
+        self,
+        simulation_id: int,
+        current_date: date,
+        regime_symbol: str,
+        sma_period: int,
+    ) -> str:
+        """Detect market regime using regime symbol close vs its SMA.
+
+        No look-ahead: only uses bars up to and including current_date.
+
+        Args:
+            simulation_id: Simulation ID for cache lookup.
+            current_date: The current simulation date (inclusive upper bound).
+            regime_symbol: Ticker to look up in price cache (e.g. 'SPY').
+            sma_period: Number of periods for the simple moving average.
+
+        Returns:
+            'bull' if close > SMA(period), 'bear' otherwise.
+            'neutral' if insufficient data.
+        """
+        bars = self._get_cached_price_history(
+            simulation_id,
+            regime_symbol,
+            current_date - timedelta(days=sma_period * 2 + 30),
+            current_date,
+        )
+        if len(bars) < sma_period:
+            logger.debug(
+                f"Simulation {simulation_id}: insufficient {regime_symbol} bars "
+                f"({len(bars)} < {sma_period}) for regime on {current_date}, defaulting to neutral"
+            )
+            return "neutral"
+
+        recent_closes = [float(b.close) for b in bars[-sma_period:]]
+        sma = sum(recent_closes) / len(recent_closes)
+        regime_close = float(bars[-1].close)
+        regime = "bull" if regime_close > sma else "bear"
+        logger.debug(
+            f"Simulation {simulation_id}: {regime_symbol} regime={regime} "
+            f"close={regime_close:.2f} sma{sma_period}={sma:.2f} on {current_date}"
+        )
+        return regime
 
     async def _load_sector_cache(self, simulation_id: int, symbols: list[str]) -> None:
         """Batch-load sector data for all symbols. One query, no Yahoo API calls.

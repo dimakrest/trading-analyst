@@ -17,6 +17,7 @@ import {
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { formatTrailingStop } from '../../utils/arena';
+import { PORTFOLIO_STRATEGIES } from '../../constants/portfolio';
 import type { Simulation } from '../../types/arena';
 
 /** Default number of symbols shown before expansion */
@@ -133,7 +134,10 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
               icon={<LayoutGrid className="h-3.5 w-3.5" />}
               label="Portfolio Strategy"
               value={
-                <span className="text-text-primary">{simulation.portfolio_strategy}</span>
+                <span className="text-text-primary">
+                  {PORTFOLIO_STRATEGIES.find((s) => s.name === simulation.portfolio_strategy)
+                    ?.label ?? simulation.portfolio_strategy}
+                </span>
               }
             />
             <ConfigItem
@@ -158,6 +162,17 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
                 )
               }
             />
+            {(simulation.portfolio_strategy === 'enriched_score' ||
+              simulation.portfolio_strategy === 'enriched_score_high_atr') &&
+              simulation.ma_sweet_spot_center != null && (
+                <ConfigItem
+                  icon={<LayoutGrid className="h-3.5 w-3.5" />}
+                  label="Pullback Depth"
+                  value={
+                    <span className="text-text-primary">{simulation.ma_sweet_spot_center}</span>
+                  }
+                />
+              )}
           </div>
         )}
 
