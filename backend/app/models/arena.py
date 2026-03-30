@@ -184,6 +184,11 @@ class ArenaSimulation(Base):
         Numeric(precision=12, scale=2), nullable=True, doc="Sum of all realized P&L"
     )
 
+    # Win streak tracking (for risk-based sizing)
+    consecutive_wins: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, doc="Consecutive winning trades (resets on loss)"
+    )
+
     # Error tracking
     error_message: Mapped[str | None] = mapped_column(
         Text, nullable=True, doc="Error message if simulation failed"

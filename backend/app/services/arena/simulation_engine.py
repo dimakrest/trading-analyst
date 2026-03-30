@@ -27,9 +27,9 @@ from app.models.arena import (
     PositionStatus,
     SimulationStatus,
 )
-from app.services.arena.analytics import compute_simulation_analytics
 from app.models.stock_sector import StockSector
 from app.services.arena.agent_protocol import AgentDecision, PriceBar
+from app.services.arena.analytics import compute_simulation_analytics
 from app.services.arena.agent_registry import get_agent
 from app.services.arena.trailing_stop import AtrTrailingStop, FixedPercentTrailingStop
 from app.services.data_service import DataService
@@ -269,8 +269,23 @@ class SimulationEngine:
         ratchet_trigger_pct: float | None = simulation.agent_config.get("ratchet_trigger_pct")
         ratchet_trail_pct: float | None = simulation.agent_config.get("ratchet_trail_pct")
 
-        # Position sizing: percentage of equity (overrides fixed position_size)
+        # Position sizing config — read all sizing-related fields once
         position_size_pct: float | None = simulation.agent_config.get("position_size_pct")
+        # Resolve sizing_mode: explicit > legacy position_size_pct > fixed
+        sizing_mode: str = simulation.agent_config.get("sizing_mode") or (
+            "fixed_pct" if position_size_pct is not None else "fixed"
+        )
+        risk_per_trade_pct: float = float(
+            simulation.agent_config.get("risk_per_trade_pct", 2.5)
+        )
+        win_streak_bonus_pct: float = float(
+            simulation.agent_config.get("win_streak_bonus_pct", 0.3)
+        )
+        max_risk_pct: float = float(simulation.agent_config.get("max_risk_pct", 4.0))
+        # ATR stop multiplier used in risk-based sizing formula
+        atr_stop_multiplier: float = float(
+            simulation.agent_config.get("atr_stop_multiplier", 2.0)
+        )
 
         # Ensure price cache is loaded (handles resume case)
         if simulation_id not in self._price_cache:
@@ -328,23 +343,38 @@ class SimulationEngine:
             p.symbol: p for p in pending_result.scalars().all()
         }
 
-        # Compute current equity once before processing symbols (for percentage sizing).
+        # Per-day ATR memoization: avoid recalculating ATR multiple times per symbol per day.
+        _day_atr_cache: dict[str, float | None] = {}
+
+        def _get_atr_for_day(symbol: str) -> float | None:
+            if symbol not in _day_atr_cache:
+                _day_atr_cache[symbol] = self._calculate_symbol_atr_pct(
+                    simulation_id, symbol, current_date
+                )
+            return _day_atr_cache[symbol]
+
+        # Compute current equity once before processing symbols (for equity-based sizing).
         # Doing this outside the loop avoids O(n²) and ensures the same equity
         # baseline is used for all pending positions opened on the same day.
-        effective_position_size = simulation.position_size  # default: fixed
-        if position_size_pct is not None:
-            pos_value = Decimal("0")
-            for pos in positions_by_symbol.values():
-                if pos.status == PositionStatus.OPEN.value:
-                    pos_bar = self._get_cached_bar_for_date(
-                        simulation_id, pos.symbol, current_date
-                    )
-                    if pos_bar:
-                        pos_value += pos.shares * pos_bar.close
-            current_equity = cash + pos_value
-            effective_position_size = current_equity * (
-                Decimal(str(position_size_pct)) / Decimal("100")
-            )
+        pos_value = Decimal("0")
+        for pos in positions_by_symbol.values():
+            if pos.status == PositionStatus.OPEN.value:
+                pos_bar = self._get_cached_bar_for_date(
+                    simulation_id, pos.symbol, current_date
+                )
+                if pos_bar:
+                    pos_value += pos.shares * pos_bar.close
+        current_equity = cash + pos_value
+
+        # Determine effective_position_size for fixed/fixed_pct modes.
+        # For risk_based mode the size is computed per-symbol at open time
+        # because it depends on that symbol's ATR.
+        if sizing_mode == "fixed_pct":
+            pct = Decimal(str(position_size_pct)) if position_size_pct is not None else Decimal("33")
+            effective_position_size = current_equity * (pct / Decimal("100"))
+        else:
+            # fixed or risk_based fallback default
+            effective_position_size = simulation.position_size
 
         # Build O(1) trading-day index lookup (used for max-hold-days checks).
         trading_days_idx: dict[date, int] = {d: i for i, d in enumerate(trading_days)}
@@ -379,10 +409,39 @@ class SimulationEngine:
             # Check for pending position to open
             pending = pending_by_symbol.get(symbol)
             if pending:
-                # effective_position_size was computed before the loop (O(1) per symbol)
+                # Compute per-symbol position size for risk_based mode.
+                # fixed/fixed_pct use the pre-computed effective_position_size.
+                if sizing_mode == "risk_based":
+                    symbol_atr_pct = _get_atr_for_day(symbol)
+                    if symbol_atr_pct is None or symbol_atr_pct < 0.01:
+                        # No ATR data — degrade gracefully to fixed position_size
+                        symbol_effective_size = simulation.position_size
+                    else:
+                        stop_distance_per_share = (
+                            atr_stop_multiplier
+                            * symbol_atr_pct
+                            / 100
+                            * float(today_bar.open)
+                        )
+                        streak_bonus = simulation.consecutive_wins * win_streak_bonus_pct
+                        effective_risk = min(
+                            risk_per_trade_pct + streak_bonus, max_risk_pct
+                        )
+                        risk_amount = current_equity * Decimal(str(effective_risk / 100))
+                        calculated_risk_shares = int(
+                            float(risk_amount) / stop_distance_per_share
+                        )
+                        # Position value is shares * price (for cash check)
+                        symbol_effective_size = (
+                            Decimal(str(calculated_risk_shares)) * today_bar.open
+                            if calculated_risk_shares > 0
+                            else Decimal("0")
+                        )
+                else:
+                    symbol_effective_size = effective_position_size
 
                 # Calculate shares
-                calculated_shares = int(effective_position_size / today_bar.open)
+                calculated_shares = int(symbol_effective_size / today_bar.open)
                 cost = calculated_shares * today_bar.open if calculated_shares > 0 else Decimal("0")
 
                 if calculated_shares < 1:
@@ -391,7 +450,7 @@ class SimulationEngine:
                     pending.exit_reason = ExitReason.INSUFFICIENT_CAPITAL.value
                     pending.agent_reasoning = (
                         f"Position skipped: price ${today_bar.open} > "
-                        f"position size ${effective_position_size:.2f}"
+                        f"position size ${symbol_effective_size:.2f}"
                     )
                 elif cost > cash:
                     # Not enough cash to open position - cancel pending
@@ -407,11 +466,10 @@ class SimulationEngine:
                     pending.entry_price = today_bar.open
                     pending.shares = calculated_shares
 
-                    # Initialize trailing stop — ATR or fixed
+                    # Initialize trailing stop — ATR or fixed.
+                    # Use _get_atr_for_day to avoid redundant ATR calculations.
                     if atr_trailing_stop is not None:
-                        symbol_atr_pct = self._calculate_symbol_atr_pct(
-                            simulation_id, symbol, current_date
-                        )
+                        symbol_atr_pct = _get_atr_for_day(symbol)
                         if symbol_atr_pct is not None and symbol_atr_pct > 0:
                             highest, stop, computed_trail_pct = (
                                 atr_trailing_stop.calculate_initial_stop(
@@ -461,22 +519,14 @@ class SimulationEngine:
                     # Close position at stop price or open price (whichever is worse)
                     # Gap-down handling: if stock opens below stop, we get filled at open
                     exit_price = min(update.trigger_price, today_bar.open)
-                    realized_pnl = (exit_price - position.entry_price) * position.shares
-                    return_pct = (exit_price - position.entry_price) / position.entry_price * 100
-
-                    position.status = PositionStatus.CLOSED.value
-                    position.exit_date = current_date
-                    position.exit_price = exit_price
-                    position.exit_reason = ExitReason.STOP_HIT.value
-                    position.realized_pnl = realized_pnl
-                    position.return_pct = return_pct
-
-                    cash += position.shares * exit_price
-
-                    simulation.total_trades += 1
-                    if realized_pnl > 0:
-                        simulation.winning_trades += 1
-
+                    cash = self._close_position(
+                        position=position,
+                        simulation=simulation,
+                        exit_reason=ExitReason.STOP_HIT,
+                        exit_price=exit_price,
+                        exit_date=current_date,
+                        cash=cash,
+                    )
                     del positions_by_symbol[symbol]
                 else:
                     # Stop not triggered — update tracked high and stop level.
@@ -533,9 +583,7 @@ class SimulationEngine:
                             tp_target_pct = take_profit_pct
 
                         if not take_profit_triggered and take_profit_atr_mult is not None:
-                            pos_atr_pct = self._calculate_symbol_atr_pct(
-                                simulation_id, symbol, current_date
-                            )
+                            pos_atr_pct = _get_atr_for_day(symbol)
                             if pos_atr_pct is not None and pos_atr_pct > 0:
                                 atr_target = take_profit_atr_mult * pos_atr_pct
                                 if unrealized_return_pct_at_high >= atr_target:
@@ -547,28 +595,14 @@ class SimulationEngine:
                                 1 + Decimal(str(tp_target_pct)) / 100
                             )
                             exit_price = max(tp_target_price, today_bar.open)
-                            realized_pnl = (
-                                exit_price - position.entry_price
-                            ) * position.shares
-                            return_pct = (
-                                (exit_price - position.entry_price)
-                                / position.entry_price
-                                * 100
+                            cash = self._close_position(
+                                position=position,
+                                simulation=simulation,
+                                exit_reason=ExitReason.TAKE_PROFIT,
+                                exit_price=exit_price,
+                                exit_date=current_date,
+                                cash=cash,
                             )
-
-                            position.status = PositionStatus.CLOSED.value
-                            position.exit_date = current_date
-                            position.exit_price = exit_price
-                            position.exit_reason = ExitReason.TAKE_PROFIT.value
-                            position.realized_pnl = realized_pnl
-                            position.return_pct = return_pct
-
-                            cash += position.shares * exit_price
-
-                            simulation.total_trades += 1
-                            if realized_pnl > 0:
-                                simulation.winning_trades += 1
-
                             del positions_by_symbol[symbol]
 
                     # --- Layer 6: Max Holding Period ---
@@ -596,29 +630,14 @@ class SimulationEngine:
                             effective_hold_limit = max_hold_days_profit
 
                         if hold_days >= effective_hold_limit:
-                            exit_price = today_bar.close
-                            realized_pnl = (
-                                exit_price - position.entry_price
-                            ) * position.shares
-                            return_pct = (
-                                (exit_price - position.entry_price)
-                                / position.entry_price
-                                * 100
+                            cash = self._close_position(
+                                position=position,
+                                simulation=simulation,
+                                exit_reason=ExitReason.MAX_HOLD,
+                                exit_price=today_bar.close,
+                                exit_date=current_date,
+                                cash=cash,
                             )
-
-                            position.status = PositionStatus.CLOSED.value
-                            position.exit_date = current_date
-                            position.exit_price = exit_price
-                            position.exit_reason = ExitReason.MAX_HOLD.value
-                            position.realized_pnl = realized_pnl
-                            position.return_pct = return_pct
-
-                            cash += position.shares * exit_price
-
-                            simulation.total_trades += 1
-                            if realized_pnl > 0:
-                                simulation.winning_trades += 1
-
                             del positions_by_symbol[symbol]
 
             # Get agent decision (only if not already holding)
@@ -677,7 +696,7 @@ class SimulationEngine:
                     symbol=symbol,
                     score=decision.score or 0,
                     sector=sim_sector_map.get(symbol),
-                    atr_pct=self._calculate_symbol_atr_pct(simulation_id, symbol, current_date),
+                    atr_pct=_get_atr_for_day(symbol),
                     metadata=decision.metadata,
                 )
             )
@@ -1182,6 +1201,50 @@ class SimulationEngine:
         )
         return result.scalars().all()
 
+    def _close_position(
+        self,
+        position: ArenaPosition,
+        simulation: ArenaSimulation,
+        exit_reason: ExitReason,
+        exit_price: Decimal,
+        exit_date: date,
+        cash: Decimal,
+    ) -> Decimal:
+        """Close a single position and update simulation counters.
+
+        Sets all exit fields on the position, increments trade counters, and
+        updates the consecutive_wins streak. Returns the updated cash balance.
+
+        Args:
+            position: Open position to close.
+            simulation: Parent simulation (counters updated in-place).
+            exit_reason: Why the position was closed.
+            exit_price: Price at which to exit.
+            exit_date: Date of exit.
+            cash: Current cash balance before this close.
+
+        Returns:
+            Updated cash balance after receiving position proceeds.
+        """
+        realized_pnl = (exit_price - position.entry_price) * position.shares
+        return_pct = (exit_price - position.entry_price) / position.entry_price * 100
+
+        position.status = PositionStatus.CLOSED.value
+        position.exit_date = exit_date
+        position.exit_price = exit_price
+        position.exit_reason = exit_reason.value
+        position.realized_pnl = realized_pnl
+        position.return_pct = return_pct
+
+        simulation.total_trades += 1
+        if realized_pnl > 0:
+            simulation.winning_trades += 1
+            simulation.consecutive_wins += 1
+        else:
+            simulation.consecutive_wins = 0
+
+        return cash + position.shares * exit_price
+
     async def _close_all_positions(
         self, simulation: ArenaSimulation, close_date: date, reason: ExitReason
     ) -> list[ArenaPosition]:
@@ -1197,6 +1260,7 @@ class SimulationEngine:
         """
         open_positions = await self._get_open_positions(simulation.id)
 
+        # Use a dummy cash=0 since end-of-simulation proceeds are not tracked further
         for position in open_positions:
             bar = self._get_cached_bar_for_date(simulation.id, position.symbol, close_date)
             if not bar:
@@ -1208,20 +1272,14 @@ class SimulationEngine:
                 )
                 continue
 
-            exit_price = bar.close
-            realized_pnl = (exit_price - position.entry_price) * position.shares
-            return_pct = (exit_price - position.entry_price) / position.entry_price * 100
-
-            position.status = PositionStatus.CLOSED.value
-            position.exit_date = close_date
-            position.exit_price = exit_price
-            position.exit_reason = reason.value
-            position.realized_pnl = realized_pnl
-            position.return_pct = return_pct
-
-            simulation.total_trades += 1
-            if realized_pnl > 0:
-                simulation.winning_trades += 1
+            self._close_position(
+                position=position,
+                simulation=simulation,
+                exit_reason=reason,
+                exit_price=bar.close,
+                exit_date=close_date,
+                cash=Decimal("0"),
+            )
 
         return list(open_positions)
 

@@ -96,6 +96,7 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     portfolio_strategy = agent_config.get("portfolio_strategy")
     max_per_sector = agent_config.get("max_per_sector")
     max_open_positions = agent_config.get("max_open_positions")
+    sizing_mode = agent_config.get("sizing_mode")
 
     return SimulationResponse(
         id=simulation.id,
@@ -118,6 +119,7 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         portfolio_strategy=portfolio_strategy,
         max_per_sector=max_per_sector,
         max_open_positions=max_open_positions,
+        sizing_mode=sizing_mode,
         group_id=simulation.group_id,
         status=simulation.status,
         current_day=simulation.current_day,
@@ -259,6 +261,11 @@ async def create_simulation(
         "max_hold_days_profit": request.max_hold_days_profit,
         # Layer 3: Percentage-based position sizing
         "position_size_pct": request.position_size_pct,
+        # Layer 3 (risk-based): Volatility-adjusted position sizing
+        "sizing_mode": request.sizing_mode,
+        "risk_per_trade_pct": request.risk_per_trade_pct,
+        "win_streak_bonus_pct": request.win_streak_bonus_pct,
+        "max_risk_pct": request.max_risk_pct,
         # Layer 8: Breakeven & profit ratcheting
         "breakeven_trigger_pct": request.breakeven_trigger_pct,
         "ratchet_trigger_pct": request.ratchet_trigger_pct,
@@ -678,6 +685,11 @@ async def create_comparison(
         "scoring_algorithm": scoring_algorithm,
         "max_per_sector": request.max_per_sector,
         "max_open_positions": request.max_open_positions,
+        # Layer 3 (risk-based): Volatility-adjusted position sizing
+        "sizing_mode": request.sizing_mode,
+        "risk_per_trade_pct": request.risk_per_trade_pct,
+        "win_streak_bonus_pct": request.win_streak_bonus_pct,
+        "max_risk_pct": request.max_risk_pct,
     }
     if request.agent_config_id is not None:
         base_agent_config["agent_config_id"] = request.agent_config_id

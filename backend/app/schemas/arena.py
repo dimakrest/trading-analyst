@@ -208,6 +208,34 @@ class CreateSimulationRequest(StrictBaseModel):
         ),
     )
 
+    # --- Layer 3 (risk-based): Volatility-Adjusted Position Sizing ---
+    sizing_mode: str = Field(
+        default="fixed",
+        description=(
+            "Position sizing mode: 'fixed' uses position_size, "
+            "'fixed_pct' uses position_size_pct % of equity, "
+            "'risk_based' sizes so each trade risks risk_per_trade_pct% of equity."
+        ),
+    )
+    risk_per_trade_pct: float = Field(
+        default=2.5,
+        gt=0,
+        le=10,
+        description="Base risk per trade as % of equity (sizing_mode='risk_based').",
+    )
+    win_streak_bonus_pct: float = Field(
+        default=0.3,
+        ge=0,
+        le=2,
+        description="Extra risk % per consecutive win (sizing_mode='risk_based').",
+    )
+    max_risk_pct: float = Field(
+        default=4.0,
+        gt=0,
+        le=10,
+        description="Maximum effective risk % per trade cap (sizing_mode='risk_based').",
+    )
+
     # --- Layer 8: Breakeven & Profit Ratcheting ---
     breakeven_trigger_pct: float | None = Field(
         default=None,
@@ -295,6 +323,16 @@ class CreateSimulationRequest(StrictBaseModel):
             raise ValueError(msg)
         return v
 
+    @field_validator("sizing_mode")
+    @classmethod
+    def validate_sizing_mode(cls, v: str) -> str:
+        """Validate sizing_mode is a recognized value."""
+        allowed = {"fixed", "fixed_pct", "risk_based"}
+        if v not in allowed:
+            msg = f"Unknown sizing_mode: {v!r}. Allowed: {', '.join(sorted(allowed))}"
+            raise ValueError(msg)
+        return v
+
     @field_validator("portfolio_strategy")
     @classmethod
     def validate_portfolio_strategy(cls, v: str) -> str:
@@ -312,6 +350,14 @@ class CreateSimulationRequest(StrictBaseModel):
         """Ensure ratchet_trigger_pct and ratchet_trail_pct are both set or both None."""
         if (self.ratchet_trigger_pct is None) != (self.ratchet_trail_pct is None):
             msg = "ratchet_trigger_pct and ratchet_trail_pct must both be set or both be None"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def validate_sizing_stop_combination(self) -> "CreateSimulationRequest":
+        """Ensure risk_based sizing is only used with ATR stops."""
+        if self.sizing_mode == "risk_based" and self.stop_type != "atr":
+            msg = "sizing_mode='risk_based' requires stop_type='atr'"
             raise ValueError(msg)
         return self
 
@@ -393,6 +439,34 @@ class CreateComparisonRequest(StrictBaseModel):
         default=None,
         ge=1,
         description="Max total open positions (None = unlimited)",
+    )
+
+    # --- Layer 3 (risk-based): Volatility-Adjusted Position Sizing ---
+    sizing_mode: str = Field(
+        default="fixed",
+        description=(
+            "Position sizing mode: 'fixed' uses position_size, "
+            "'fixed_pct' uses position_size_pct % of equity, "
+            "'risk_based' sizes so each trade risks risk_per_trade_pct% of equity."
+        ),
+    )
+    risk_per_trade_pct: float = Field(
+        default=2.5,
+        gt=0,
+        le=10,
+        description="Base risk per trade as % of equity (sizing_mode='risk_based').",
+    )
+    win_streak_bonus_pct: float = Field(
+        default=0.3,
+        ge=0,
+        le=2,
+        description="Extra risk % per consecutive win (sizing_mode='risk_based').",
+    )
+    max_risk_pct: float = Field(
+        default=4.0,
+        gt=0,
+        le=10,
+        description="Maximum effective risk % per trade cap (sizing_mode='risk_based').",
     )
 
     # Shared validators — same standalone functions as CreateSimulationRequest
@@ -539,6 +613,7 @@ class SimulationResponse(StrictBaseModel):
     portfolio_strategy: str | None = None
     max_per_sector: int | None = None
     max_open_positions: int | None = None
+    sizing_mode: str | None = None
     group_id: str | None = None
     status: str
     current_day: int

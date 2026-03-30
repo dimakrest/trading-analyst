@@ -585,6 +585,189 @@ describe('ArenaSetupForm', () => {
     });
   });
 
+  describe('Stop Type and Sizing Mode', () => {
+    /** Helper: render and fill the minimum valid inputs on the Setup tab */
+    const renderWithValidSetupInputs = () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+        />
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+        target: { value: 'AAPL' },
+      });
+      fireEvent.change(screen.getByLabelText(/start date/i), {
+        target: { value: '2024-01-01' },
+      });
+      fireEvent.change(screen.getByLabelText(/end date/i), {
+        target: { value: '2024-06-01' },
+      });
+    };
+
+    it('should show Stop Type and Sizing Mode selects on the Setup tab', () => {
+      renderWithValidSetupInputs();
+      expect(screen.getByRole('combobox', { name: /stop type/i })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: /sizing mode/i })).toBeInTheDocument();
+    });
+
+    it('should hide Position Size ($) and show ATR params when ATR stop is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // ATR stop params should not be visible by default
+      expect(screen.queryByLabelText(/atr multiplier/i)).not.toBeInTheDocument();
+
+      // Select ATR stop
+      await user.click(screen.getByRole('combobox', { name: /stop type/i }));
+      await user.click(screen.getByRole('option', { name: /atr-based/i }));
+
+      // ATR params should appear
+      expect(screen.getByLabelText(/atr multiplier/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/atr min/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/atr max/i)).toBeInTheDocument();
+    });
+
+    it('should hide Position Size ($) and show Position Size (%) when fixed_pct is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Fixed $ field should be visible by default
+      expect(screen.getByLabelText(/position size \(\$\)/i)).toBeInTheDocument();
+
+      // Select fixed_pct sizing
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /fixed % of equity/i }));
+
+      // Fixed $ should be hidden, fixed % should appear
+      expect(screen.queryByLabelText(/position size \(\$\)/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/position size \(%\)/i)).toBeInTheDocument();
+    });
+
+    it('should auto-set stop type to ATR and show risk params when risk_based sizing is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Select risk_based sizing
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /risk-based/i }));
+
+      // Position size fixed $ should be hidden
+      expect(screen.queryByLabelText(/position size \(\$\)/i)).not.toBeInTheDocument();
+
+      // Risk parameters should appear
+      expect(screen.getByLabelText(/risk per trade/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/win streak bonus/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/max risk cap/i)).toBeInTheDocument();
+
+      // ATR stop params should also be visible (auto-set)
+      expect(screen.getByLabelText(/atr multiplier/i)).toBeInTheDocument();
+    });
+
+    it('should disable Stop Type selector when risk_based sizing is active', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Select risk_based
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /risk-based/i }));
+
+      // Stop Type selector should be disabled (risk_based forces ATR)
+      expect(screen.getByRole('combobox', { name: /stop type/i })).toHaveAttribute(
+        'data-disabled'
+      );
+    });
+
+    it('should include stop_type in submission', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Select ATR stop
+      await user.click(screen.getByRole('combobox', { name: /stop type/i }));
+      await user.click(screen.getByRole('option', { name: /atr-based/i }));
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stop_type: 'atr',
+          atr_stop_multiplier: 2.0,
+          atr_stop_min_pct: 2.0,
+          atr_stop_max_pct: 10.0,
+        })
+      );
+    });
+
+    it('should include sizing_mode and risk fields in submission when risk_based is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Select risk_based sizing
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /risk-based/i }));
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sizing_mode: 'risk_based',
+          stop_type: 'atr',
+          risk_per_trade_pct: 2.5,
+          win_streak_bonus_pct: 0.3,
+          max_risk_pct: 4.0,
+        })
+      );
+    });
+
+    it('should hydrate sizing_mode from initialValues on replay', () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            sizing_mode: 'risk_based',
+          }}
+        />
+      );
+
+      // Risk parameters should be visible since sizing_mode is 'risk_based'
+      expect(screen.getByLabelText(/risk per trade/i)).toBeInTheDocument();
+    });
+
+    it('should default sizing_mode to fixed when initialValues.sizing_mode is null', () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            sizing_mode: null,
+          }}
+        />
+      );
+
+      // Fixed mode: Position Size ($) should be visible, risk params hidden
+      expect(screen.getByLabelText(/position size \(\$\)/i)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/risk per trade/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('initialValues (replay feature)', () => {
     it('should populate form fields from initialValues', () => {
       const initialValues = {

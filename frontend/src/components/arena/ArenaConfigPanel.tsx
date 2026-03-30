@@ -11,6 +11,7 @@ import {
   ChevronUp,
   LayoutGrid,
   Settings2,
+  ShieldAlert,
   Target,
   TrendingDown,
 } from 'lucide-react';
@@ -22,6 +23,13 @@ import type { Simulation } from '../../types/arena';
 
 /** Default number of symbols shown before expansion */
 const SYMBOLS_PREVIEW_COUNT = 8;
+
+/** Human-readable labels for sizing modes */
+const SIZING_MODE_LABEL: Record<string, string> = {
+  fixed: 'Fixed $',
+  fixed_pct: 'Fixed %',
+  risk_based: 'Risk-Based',
+};
 
 interface ArenaConfigPanelProps {
   /** Simulation configuration to display */
@@ -173,6 +181,21 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
                   }
                 />
               )}
+          </div>
+        )}
+
+        {/* Sizing Mode Row — only shown when a non-default (non-fixed) sizing mode is configured */}
+        {simulation.sizing_mode && simulation.sizing_mode !== 'fixed' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 pt-3 border-t border-border-subtle">
+            <ConfigItem
+              icon={<ShieldAlert className="h-3.5 w-3.5" />}
+              label="Sizing Mode"
+              value={
+                <span className="text-text-primary">
+                  {SIZING_MODE_LABEL[simulation.sizing_mode] ?? simulation.sizing_mode}
+                </span>
+              }
+            />
           </div>
         )}
 

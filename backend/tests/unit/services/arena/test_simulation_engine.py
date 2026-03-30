@@ -4524,3 +4524,720 @@ class TestSimulationEngineBreakevenAndRatchet:
         assert pos.current_stop == normal_trail_stop.quantize(Decimal("0.0001")), (
             f"Expected normal trail stop {normal_trail_stop}, got {pos.current_stop}"
         )
+
+
+@pytest.mark.usefixtures("db_session")
+class TestRiskBasedPositionSizing:
+    """Tests for risk-based position sizing (Phase 3, step 3a).
+
+    Verifies that sizing_mode='risk_based' computes shares from the
+    ATR stop distance formula, handles zero-ATR fallback, respects the
+    max_risk_pct cap, and that sizing_mode precedence is correct.
+    """
+
+    def _make_simulation(
+        self,
+        agent_config_extra: dict,
+        initial_capital: Decimal = Decimal("10000.00"),
+        position_size: Decimal = Decimal("1000.00"),
+    ) -> ArenaSimulation:
+        """Return an unsaved running simulation with a pending position."""
+        config = {"trailing_stop_pct": 5.0, **agent_config_extra}
+        return ArenaSimulation(
+            name="Risk Sizing Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 25),
+            initial_capital=initial_capital,
+            position_size=position_size,
+            agent_type="live20",
+            agent_config=config,
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=10,
+        )
+
+    @pytest.mark.unit
+    async def test_risk_based_sizing_formula(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """shares = risk_amount / stop_distance_per_share.
+
+        Setup:
+          - equity = $10,000, risk_per_trade_pct = 2.0
+          - atr_pct = 2.0%, atr_stop_multiplier = 2.0
+          - entry_price (open) = $100
+          - stop_distance_per_share = 2.0 * 2.0/100 * 100 = $4.00
+          - risk_amount = 10000 * 2/100 = $200
+          - shares = 200 / 4 = 50
+        """
+        sim = self._make_simulation(
+            agent_config_extra={
+                "stop_type": "atr",
+                "atr_stop_multiplier": 2.0,
+                "atr_stop_min_pct": 1.0,
+                "atr_stop_max_pct": 15.0,
+                "sizing_mode": "risk_based",
+                "risk_per_trade_pct": 2.0,
+                "win_streak_bonus_pct": 0.0,
+                "max_risk_pct": 10.0,
+            }
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        pending = ArenaPosition(
+            simulation_id=sim.id,
+            symbol="AAPL",
+            status=PositionStatus.PENDING.value,
+            signal_date=date(2024, 1, 15),
+            trailing_stop_pct=Decimal("5.00"),
+        )
+        db_session.add(pending)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._trading_days_cache[sim.id] = [date(2024, 1, 16), date(2024, 1, 17)]
+
+        # Build 20 price bars so ATR calculation has enough data.
+        # Open/close = 100, high = 102, low = 98 → TR per bar ≈ 4 → ATR ≈ 2%
+        atr_bars = [
+            PriceBar(
+                date=date(2024, 1, 1) + timedelta(days=i),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("100.00"),
+                volume=1_000_000,
+            )
+            for i in range(20)
+        ]
+        # Today's bar (Jan 16): open at 100, same volatility
+        today_bar = PriceBar(
+            date=date(2024, 1, 16),
+            open=Decimal("100.00"),
+            high=Decimal("102.00"),
+            low=Decimal("98.00"),
+            close=Decimal("100.00"),
+            volume=1_000_000,
+        )
+        engine._price_cache[sim.id] = {"AAPL": atr_bars + [today_bar]}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="HOLD", reasoning="holding")
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(sim.id)
+
+        await db_session.refresh(pending)
+        assert pending.status == PositionStatus.OPEN.value
+        # Bars: high=102, low=98, close=100 → TR = 4 (absolute) → ATR ≈ 4% of price
+        # stop_distance_per_share = 2.0 * 4.0/100 * 100 = 8.00
+        # risk_amount = 10000 * 2/100 = 200
+        # shares = 200 / 8.0 = 25
+        # Allow ±5 shares tolerance for ATR floating-point variation
+        assert pending.shares is not None
+        assert 20 <= pending.shares <= 30, (
+            f"Expected ~25 shares for risk-based sizing, got {pending.shares}"
+        )
+
+    @pytest.mark.unit
+    async def test_risk_based_zero_atr_falls_back_to_fixed(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """When ATR is None (insufficient data), fall back to fixed position_size."""
+        sim = self._make_simulation(
+            agent_config_extra={
+                "stop_type": "atr",
+                "atr_stop_multiplier": 2.0,
+                "atr_stop_min_pct": 1.0,
+                "atr_stop_max_pct": 15.0,
+                "sizing_mode": "risk_based",
+                "risk_per_trade_pct": 2.0,
+                "win_streak_bonus_pct": 0.0,
+                "max_risk_pct": 10.0,
+            },
+            position_size=Decimal("1000.00"),
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        pending = ArenaPosition(
+            simulation_id=sim.id,
+            symbol="AAPL",
+            status=PositionStatus.PENDING.value,
+            signal_date=date(2024, 1, 15),
+            trailing_stop_pct=Decimal("5.00"),
+        )
+        db_session.add(pending)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._trading_days_cache[sim.id] = [date(2024, 1, 16), date(2024, 1, 17)]
+
+        # Only 3 bars — insufficient for ATR (requires ≥15)
+        sparse_bars = [
+            PriceBar(
+                date=date(2024, 1, 14) + timedelta(days=i),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("100.00"),
+                volume=1_000_000,
+            )
+            for i in range(3)
+        ]
+        today_bar = PriceBar(
+            date=date(2024, 1, 16),
+            open=Decimal("100.00"),
+            high=Decimal("102.00"),
+            low=Decimal("98.00"),
+            close=Decimal("100.00"),
+            volume=1_000_000,
+        )
+        engine._price_cache[sim.id] = {"AAPL": sparse_bars + [today_bar]}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="HOLD", reasoning="holding")
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(sim.id)
+
+        await db_session.refresh(pending)
+        assert pending.status == PositionStatus.OPEN.value
+        # Fallback: $1000 / $100 = 10 shares
+        assert pending.shares == 10
+
+    @pytest.mark.unit
+    async def test_risk_based_effective_risk_capped_at_max(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Effective risk never exceeds max_risk_pct, even with a long win streak.
+
+        Setup: base_risk=2.5%, win_streak_bonus=0.5%, max_risk=3.0%, streak=10
+        base_risk + 10*0.5 = 7.5% — must be capped to 3.0%.
+        """
+        sim = self._make_simulation(
+            agent_config_extra={
+                "stop_type": "atr",
+                "atr_stop_multiplier": 2.0,
+                "atr_stop_min_pct": 1.0,
+                "atr_stop_max_pct": 15.0,
+                "sizing_mode": "risk_based",
+                "risk_per_trade_pct": 2.5,
+                "win_streak_bonus_pct": 0.5,
+                "max_risk_pct": 3.0,
+            },
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+        # Simulate a 10-trade win streak
+        sim.consecutive_wins = 10
+        await db_session.commit()
+
+        pending = ArenaPosition(
+            simulation_id=sim.id,
+            symbol="AAPL",
+            status=PositionStatus.PENDING.value,
+            signal_date=date(2024, 1, 15),
+            trailing_stop_pct=Decimal("5.00"),
+        )
+        db_session.add(pending)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._trading_days_cache[sim.id] = [date(2024, 1, 16), date(2024, 1, 17)]
+
+        # 20 bars with ~2% ATR (TR=4 on price=100)
+        atr_bars = [
+            PriceBar(
+                date=date(2024, 1, 1) + timedelta(days=i),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("100.00"),
+                volume=1_000_000,
+            )
+            for i in range(20)
+        ]
+        today_bar = PriceBar(
+            date=date(2024, 1, 16),
+            open=Decimal("100.00"),
+            high=Decimal("102.00"),
+            low=Decimal("98.00"),
+            close=Decimal("100.00"),
+            volume=1_000_000,
+        )
+        engine._price_cache[sim.id] = {"AAPL": atr_bars + [today_bar]}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="HOLD", reasoning="holding")
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(sim.id)
+
+        await db_session.refresh(pending)
+        assert pending.status == PositionStatus.OPEN.value
+        # ATR ≈ 4% (TR=4 on price=100), capped risk = 3.0%
+        # stop_distance_per_share = 2.0 * 4.0/100 * 100 = 8.00
+        # risk_amount = 10000 * 3/100 = 300
+        # shares = 300 / 8.0 = 37 (±5 tolerance)
+        assert pending.shares is not None
+        assert 32 <= pending.shares <= 42, (
+            f"Expected ~37 shares at capped 3% risk, got {pending.shares}"
+        )
+
+    @pytest.mark.unit
+    async def test_sizing_mode_precedence_explicit_overrides_legacy(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """sizing_mode='fixed' takes precedence over a non-None position_size_pct.
+
+        When sizing_mode='fixed' is explicitly set, the legacy position_size_pct
+        field is ignored and the fixed position_size is used instead.
+        """
+        sim = self._make_simulation(
+            agent_config_extra={
+                "sizing_mode": "fixed",
+                "position_size_pct": 50.0,  # would give 50 shares, but should be ignored
+            },
+            position_size=Decimal("1000.00"),
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        pending = ArenaPosition(
+            simulation_id=sim.id,
+            symbol="AAPL",
+            status=PositionStatus.PENDING.value,
+            signal_date=date(2024, 1, 15),
+            trailing_stop_pct=Decimal("5.00"),
+        )
+        db_session.add(pending)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._trading_days_cache[sim.id] = [date(2024, 1, 16), date(2024, 1, 17)]
+        price_bars = [
+            PriceBar(
+                date=date(2024, 1, 16),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("101.00"),
+                volume=1_000_000,
+            )
+        ]
+        engine._price_cache[sim.id] = {"AAPL": price_bars}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="HOLD", reasoning="holding")
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(sim.id)
+
+        await db_session.refresh(pending)
+        assert pending.status == PositionStatus.OPEN.value
+        # sizing_mode='fixed': $1000 / $100 = 10 shares (NOT 50 from position_size_pct)
+        assert pending.shares == 10
+
+    @pytest.mark.unit
+    async def test_sizing_mode_legacy_pct_fallback(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Legacy: no sizing_mode + position_size_pct set → behaves as fixed_pct."""
+        # 10000 equity, position_size_pct=33.0, open=100 → 33 shares
+        sim = self._make_simulation(
+            agent_config_extra={"position_size_pct": 33.0},  # no sizing_mode key
+            position_size=Decimal("1000.00"),
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        pending = ArenaPosition(
+            simulation_id=sim.id,
+            symbol="AAPL",
+            status=PositionStatus.PENDING.value,
+            signal_date=date(2024, 1, 15),
+            trailing_stop_pct=Decimal("5.00"),
+        )
+        db_session.add(pending)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._trading_days_cache[sim.id] = [date(2024, 1, 16), date(2024, 1, 17)]
+        price_bars = [
+            PriceBar(
+                date=date(2024, 1, 16),
+                open=Decimal("100.00"),
+                high=Decimal("102.00"),
+                low=Decimal("98.00"),
+                close=Decimal("101.00"),
+                volume=1_000_000,
+            )
+        ]
+        engine._price_cache[sim.id] = {"AAPL": price_bars}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="HOLD", reasoning="holding")
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(sim.id)
+
+        await db_session.refresh(pending)
+        assert pending.status == PositionStatus.OPEN.value
+        # 33% of $10,000 = $3,300 / $100 = 33 shares
+        assert pending.shares == 33
+
+
+@pytest.mark.usefixtures("db_session")
+class TestWinStreakTracking:
+    """Tests for consecutive_wins streak tracking (Phase 3, step 3b).
+
+    Verifies increment on win, reset on loss, and cap via max_risk_pct.
+    """
+
+    def _make_running_sim_with_open_position(
+        self,
+        agent_config_extra: dict | None = None,
+    ) -> tuple[ArenaSimulation, ArenaPosition]:
+        """Return unsaved simulation + open position pair."""
+        config = {"trailing_stop_pct": 5.0, **(agent_config_extra or {})}
+        sim = ArenaSimulation(
+            name="Win Streak Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 25),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config=config,
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=10,
+        )
+        pos = ArenaPosition(
+            symbol="AAPL",
+            status=PositionStatus.OPEN.value,
+            signal_date=date(2024, 1, 14),
+            entry_date=date(2024, 1, 15),
+            entry_price=Decimal("100.00"),
+            shares=10,
+            trailing_stop_pct=Decimal("5.00"),
+            highest_price=Decimal("100.00"),
+            current_stop=Decimal("95.00"),
+        )
+        return sim, pos
+
+    @pytest.mark.unit
+    async def test_consecutive_wins_increments_on_winning_trade(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """consecutive_wins increments when a position closes with positive PnL."""
+        sim, pos = self._make_running_sim_with_open_position()
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+        pos.simulation_id = sim.id
+        db_session.add(pos)
+        await db_session.commit()
+
+        assert sim.consecutive_wins == 0
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        # Price drops below stop → triggers close at $95, entry was $100 → loss
+        # We want a WIN: gap UP so stop does not trigger, price closes above entry.
+        # Use take_profit to force a profitable close.
+        # Actually simpler: use max_hold_days=1 + closing bar above entry.
+        sim.agent_config = {"trailing_stop_pct": 5.0, "max_hold_days": 1}
+        await db_session.commit()
+
+        trading_days = [date(2024, 1, 16), date(2024, 1, 17), date(2024, 1, 18)]
+        engine._trading_days_cache[sim.id] = trading_days
+        # Entry was Jan 15. Max hold=1 day means at idx=1 (Jan 17) it must close.
+        # But current_day=0, so we process Jan 16 first — hold_days = idx(Jan16) - idx(Jan15).
+        # entry_date=Jan 15 is NOT in trading_days, so hold_days=0 on Jan16. OK.
+        # On Jan 17: idx=1 - idx(Jan15 which is missing) → 0. Still 0.
+        # So we need entry_date IN trading_days. Use entry_date=Jan 16, current_day=0 → process Jan16.
+        pos.entry_date = date(2024, 1, 16)
+        pos.highest_price = Decimal("105.00")
+        pos.current_stop = Decimal("99.75")  # 105 * 0.95 — above entry, so no stop at 110 open
+        await db_session.commit()
+
+        # Jan 16: open=110 (gap up above entry=100), high=112, low=108, close=110
+        # hold_days = idx(Jan16) - idx(Jan16) = 0 → not triggered (need ≥1)
+        # Jan 17: hold_days = 1 ≥ 1 → close at close price 115 (profitable)
+        price_bars = [
+            PriceBar(
+                date=date(2024, 1, 16),
+                open=Decimal("110.00"),
+                high=Decimal("112.00"),
+                low=Decimal("108.00"),
+                close=Decimal("110.00"),
+                volume=1_000_000,
+            ),
+            PriceBar(
+                date=date(2024, 1, 17),
+                open=Decimal("113.00"),
+                high=Decimal("115.00"),
+                low=Decimal("111.00"),
+                close=Decimal("115.00"),
+                volume=1_000_000,
+            ),
+        ]
+        engine._price_cache[sim.id] = {"AAPL": price_bars}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            # Day 0 (Jan 16): hold_days=0, no close
+            await engine.step_day(sim.id)
+            # Day 1 (Jan 17): hold_days=1 ≥ max_hold_days=1, close at close=115
+            await engine.step_day(sim.id)
+
+        await db_session.refresh(sim)
+        await db_session.refresh(pos)
+
+        assert pos.status == PositionStatus.CLOSED.value
+        assert pos.realized_pnl > 0
+        assert sim.consecutive_wins == 1
+
+    @pytest.mark.unit
+    async def test_consecutive_wins_resets_on_losing_trade(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """consecutive_wins resets to 0 when a position closes with a loss."""
+        sim, pos = self._make_running_sim_with_open_position()
+        sim.agent_config = {"trailing_stop_pct": 5.0}
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        # Pre-set a win streak that should reset after this losing trade
+        sim.consecutive_wins = 3
+        pos.simulation_id = sim.id
+        db_session.add(pos)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        trading_days = [date(2024, 1, 17), date(2024, 1, 18), date(2024, 1, 19)]
+        engine._trading_days_cache[sim.id] = trading_days
+
+        # Price drops through stop: open=96, low=93 → triggers at stop=95 (min(95,96)=95)
+        # entry=100, exit=95 → loss of $50 on 10 shares
+        price_bars = [
+            PriceBar(
+                date=date(2024, 1, 17),
+                open=Decimal("96.00"),
+                high=Decimal("97.00"),
+                low=Decimal("93.00"),
+                close=Decimal("94.00"),
+                volume=1_000_000,
+            )
+        ]
+        engine._price_cache[sim.id] = {"AAPL": price_bars}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 60
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="NO_SIGNAL")
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(sim.id)
+
+        await db_session.refresh(sim)
+        await db_session.refresh(pos)
+
+        assert pos.status == PositionStatus.CLOSED.value
+        assert pos.realized_pnl < 0
+        assert sim.consecutive_wins == 0
+
+
+@pytest.mark.usefixtures("db_session")
+class TestClosePositionHelper:
+    """Tests for the _close_position() helper method (Phase 3, step 3c).
+
+    Verifies that the helper produces identical field values to what the
+    inline close blocks produced, and correctly updates simulation counters.
+    """
+
+    def _make_open_position(
+        self,
+        simulation_id: int,
+        entry_price: Decimal = Decimal("100.00"),
+        shares: int = 10,
+    ) -> ArenaPosition:
+        return ArenaPosition(
+            simulation_id=simulation_id,
+            symbol="AAPL",
+            status=PositionStatus.OPEN.value,
+            signal_date=date(2024, 1, 14),
+            entry_date=date(2024, 1, 15),
+            entry_price=entry_price,
+            shares=shares,
+            trailing_stop_pct=Decimal("5.00"),
+            highest_price=entry_price,
+            current_stop=(entry_price * Decimal("0.95")).quantize(Decimal("0.0001")),
+        )
+
+    @pytest.mark.unit
+    async def test_close_position_sets_all_fields_on_win(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """_close_position sets status, exit fields, pnl, and increments counters on win."""
+        sim = ArenaSimulation(
+            name="Close Helper Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 25),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=10,
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        pos = self._make_open_position(sim.id)
+        db_session.add(pos)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        exit_price = Decimal("110.00")
+        exit_date = date(2024, 1, 20)
+        new_cash = engine._close_position(
+            position=pos,
+            simulation=sim,
+            exit_reason=ExitReason.TAKE_PROFIT,
+            exit_price=exit_price,
+            exit_date=exit_date,
+            cash=Decimal("9000.00"),
+        )
+
+        assert pos.status == PositionStatus.CLOSED.value
+        assert pos.exit_date == exit_date
+        assert pos.exit_price == exit_price
+        assert pos.exit_reason == ExitReason.TAKE_PROFIT.value
+        assert pos.realized_pnl == Decimal("100.00")  # (110-100)*10
+        assert pos.return_pct == Decimal("10.00")  # 10%
+        assert sim.total_trades == 1
+        assert sim.winning_trades == 1
+        assert sim.consecutive_wins == 1
+        # cash: 9000 + 10 shares * 110 = 10100
+        assert new_cash == Decimal("10100.00")
+
+    @pytest.mark.unit
+    async def test_close_position_resets_streak_on_loss(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """_close_position resets consecutive_wins to 0 on a losing trade."""
+        sim = ArenaSimulation(
+            name="Close Helper Loss Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 25),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=10,
+        )
+        sim.consecutive_wins = 5
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        pos = self._make_open_position(sim.id)
+        db_session.add(pos)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._close_position(
+            position=pos,
+            simulation=sim,
+            exit_reason=ExitReason.STOP_HIT,
+            exit_price=Decimal("90.00"),  # loss: entry=100, exit=90
+            exit_date=date(2024, 1, 20),
+            cash=Decimal("9000.00"),
+        )
+
+        assert pos.realized_pnl == Decimal("-100.00")  # (90-100)*10
+        assert sim.winning_trades == 0
+        assert sim.consecutive_wins == 0  # reset from 5 to 0
+
+    @pytest.mark.unit
+    async def test_close_position_does_not_increment_winning_trades_on_loss(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """_close_position does not count losing trade in winning_trades."""
+        sim = ArenaSimulation(
+            name="Close Helper Counter Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 25),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=10,
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        pos = self._make_open_position(sim.id)
+        db_session.add(pos)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._close_position(
+            position=pos,
+            simulation=sim,
+            exit_reason=ExitReason.MAX_HOLD,
+            exit_price=Decimal("95.00"),
+            exit_date=date(2024, 1, 20),
+            cash=Decimal("9000.00"),
+        )
+
+        assert sim.total_trades == 1
+        assert sim.winning_trades == 0

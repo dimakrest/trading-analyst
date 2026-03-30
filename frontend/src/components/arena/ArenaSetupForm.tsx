@@ -3,7 +3,6 @@
  *
  * Form for configuring and starting a new trading simulation.
  * Split into three tabs: Setup, Agent, and Portfolio.
- * All form state and submit logic remain unchanged — this is a layout refactor.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -49,6 +48,7 @@ interface ArenaSetupFormProps {
     portfolio_strategy?: string;
     max_per_sector?: number | null;
     max_open_positions?: number | null;
+    sizing_mode?: string | null;
   };
 }
 
@@ -150,6 +150,17 @@ export const ArenaSetupForm = ({
   const [maxOpenPositions, setMaxOpenPositions] = useState('');
   const [maSweetSpotCenter, setMaSweetSpotCenter] = useState('8.5');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Stop type and ATR parameters
+  const [stopType, setStopType] = useState('fixed');
+  const [atrStopMultiplier, setAtrStopMultiplier] = useState('2.0');
+  const [atrStopMinPct, setAtrStopMinPct] = useState('2.0');
+  const [atrStopMaxPct, setAtrStopMaxPct] = useState('10.0');
+  // Sizing mode and risk parameters
+  const [sizingMode, setSizingMode] = useState('fixed');
+  const [positionSizePct, setPositionSizePct] = useState('33');
+  const [riskPerTradePct, setRiskPerTradePct] = useState('2.5');
+  const [winStreakBonusPct, setWinStreakBonusPct] = useState('0.3');
+  const [maxRiskPct, setMaxRiskPct] = useState('4.0');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch stock lists
@@ -198,6 +209,8 @@ export const ArenaSetupForm = ({
       if (initialValues.max_open_positions != null) {
         setMaxOpenPositions(initialValues.max_open_positions.toString());
       }
+      // Set sizing mode from replay (default to 'fixed' for old simulations without this field)
+      setSizingMode(initialValues.sizing_mode ?? 'fixed');
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -215,6 +228,17 @@ export const ArenaSetupForm = ({
         setSymbols(list.symbols.join(', '));
         setTimeout(() => textareaRef.current?.focus(), 0);
       }
+    }
+  };
+
+  /**
+   * Handle sizing mode change.
+   * When risk_based is selected, ATR stops are required — auto-set stop_type to 'atr'.
+   */
+  const handleSizingModeChange = (value: string) => {
+    setSizingMode(value);
+    if (value === 'risk_based') {
+      setStopType('atr');
     }
   };
 
@@ -245,6 +269,29 @@ export const ArenaSetupForm = ({
     const parsedMaSweetSpotCenter =
       hasEnrichedScore && maSweetSpotCenter ? parseFloat(maSweetSpotCenter) : undefined;
 
+    // Build ATR stop fields — only included when stop_type is 'atr'
+    const atrStopFields =
+      stopType === 'atr'
+        ? {
+            atr_stop_multiplier: parseFloat(atrStopMultiplier),
+            atr_stop_min_pct: parseFloat(atrStopMinPct),
+            atr_stop_max_pct: parseFloat(atrStopMaxPct),
+          }
+        : {};
+
+    // Build sizing fields based on current mode ('fixed' is the backend default — omit to keep payload clean)
+    let sizingFields: Partial<CreateSimulationRequest> = {};
+    if (sizingMode === 'fixed_pct') {
+      sizingFields = { sizing_mode: 'fixed_pct', position_size_pct: parseFloat(positionSizePct) };
+    } else if (sizingMode === 'risk_based') {
+      sizingFields = {
+        sizing_mode: 'risk_based',
+        risk_per_trade_pct: parseFloat(riskPerTradePct),
+        win_streak_bonus_pct: parseFloat(winStreakBonusPct),
+        max_risk_pct: parseFloat(maxRiskPct),
+      };
+    }
+
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
         symbols: symbolList,
@@ -252,6 +299,8 @@ export const ArenaSetupForm = ({
         end_date: endDate,
         initial_capital: parseFloat(capital),
         position_size: parseFloat(positionSize),
+        stop_type: stopType,
+        ...atrStopFields,
         trailing_stop_pct: parseFloat(trailingStopPct),
         min_buy_score: parseFloat(minBuyScore),
         stock_list_id: selectedList?.id,
@@ -260,6 +309,7 @@ export const ArenaSetupForm = ({
         portfolio_strategies: selectedStrategies,
         max_per_sector: parsedMaxPerSector,
         max_open_positions: parsedMaxOpenPositions,
+        ...sizingFields,
       });
     } else {
       await onSubmit({
@@ -268,6 +318,8 @@ export const ArenaSetupForm = ({
         end_date: endDate,
         initial_capital: parseFloat(capital),
         position_size: parseFloat(positionSize),
+        stop_type: stopType,
+        ...atrStopFields,
         trailing_stop_pct: parseFloat(trailingStopPct),
         min_buy_score: parseFloat(minBuyScore),
         stock_list_id: selectedList?.id,
@@ -277,6 +329,7 @@ export const ArenaSetupForm = ({
         max_per_sector: parsedMaxPerSector,
         max_open_positions: parsedMaxOpenPositions,
         ma_sweet_spot_center: parsedMaSweetSpotCenter,
+        ...sizingFields,
       });
     }
   }, [
@@ -285,6 +338,10 @@ export const ArenaSetupForm = ({
     endDate,
     capital,
     positionSize,
+    stopType,
+    atrStopMultiplier,
+    atrStopMinPct,
+    atrStopMaxPct,
     trailingStopPct,
     minBuyScore,
     selectedList,
@@ -293,6 +350,11 @@ export const ArenaSetupForm = ({
     maxPerSector,
     maxOpenPositions,
     maSweetSpotCenter,
+    sizingMode,
+    positionSizePct,
+    riskPerTradePct,
+    winStreakBonusPct,
+    maxRiskPct,
     onSubmit,
     onSubmitComparison,
   ]);
@@ -312,6 +374,10 @@ export const ArenaSetupForm = ({
   );
   const hasNonNoneStrategy = selectedStrategies.some((s) => s !== 'none');
 
+  const isAtrStop = stopType === 'atr';
+  const isFixedPctSizing = sizingMode === 'fixed_pct';
+  const isRiskBasedSizing = sizingMode === 'risk_based';
+
   const canSubmit =
     hasValidSymbols &&
     hasValidDates &&
@@ -322,13 +388,14 @@ export const ArenaSetupForm = ({
     hasStrategySelected &&
     !isLoading;
 
-  const submitButtonLabel = (() => {
-    if (isLoading) return 'Creating...';
-    if (selectedStrategies.length === 0) return 'Select a Strategy';
-    if (selectedStrategies.length >= 2)
-      return `Start Comparison (${selectedStrategies.length} strategies)`;
-    return 'Start Simulation';
-  })();
+  let submitButtonLabel = 'Start Simulation';
+  if (isLoading) {
+    submitButtonLabel = 'Creating...';
+  } else if (selectedStrategies.length === 0) {
+    submitButtonLabel = 'Select a Strategy';
+  } else if (selectedStrategies.length >= 2) {
+    submitButtonLabel = `Start Comparison (${selectedStrategies.length} strategies)`;
+  }
 
   return (
     <Card>
@@ -439,18 +506,38 @@ export const ArenaSetupForm = ({
                   disabled={isLoading}
                 />
               </div>
-              <div>
-                <Label htmlFor="arena-position-size">Position Size ($)</Label>
-                <Input
-                  id="arena-position-size"
-                  type="number"
-                  min="1"
-                  value={positionSize}
-                  onChange={(e) => setPositionSize(e.target.value)}
-                  className="mt-1"
-                  disabled={isLoading}
-                />
-              </div>
+              {/* Position Size — hidden when risk-based or fixed_pct sizing is active */}
+              {!isRiskBasedSizing && !isFixedPctSizing && (
+                <div>
+                  <Label htmlFor="arena-position-size">Position Size ($)</Label>
+                  <Input
+                    id="arena-position-size"
+                    type="number"
+                    min="1"
+                    value={positionSize}
+                    onChange={(e) => setPositionSize(e.target.value)}
+                    className="mt-1"
+                    disabled={isLoading}
+                  />
+                </div>
+              )}
+              {/* Position Size % — shown when fixed_pct sizing is active */}
+              {isFixedPctSizing && (
+                <div>
+                  <Label htmlFor="arena-position-size-pct">Position Size (%)</Label>
+                  <Input
+                    id="arena-position-size-pct"
+                    type="number"
+                    min="0.1"
+                    max="100"
+                    step="0.5"
+                    value={positionSizePct}
+                    onChange={(e) => setPositionSizePct(e.target.value)}
+                    className="mt-1"
+                    disabled={isLoading}
+                  />
+                </div>
+              )}
               <div>
                 <Label htmlFor="arena-trailing-stop">Trailing Stop (%)</Label>
                 <Input
@@ -466,6 +553,145 @@ export const ArenaSetupForm = ({
                 />
               </div>
             </div>
+
+            {/* Stop Type */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="arena-stop-type">Stop Type</Label>
+                <Select
+                  value={stopType}
+                  onValueChange={setStopType}
+                  disabled={isRiskBasedSizing || isLoading}
+                >
+                  <SelectTrigger id="arena-stop-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Fixed %</SelectItem>
+                    <SelectItem value="atr">ATR-Based</SelectItem>
+                  </SelectContent>
+                </Select>
+                {isRiskBasedSizing && (
+                  <p className="text-xs text-muted-foreground">
+                    Required by risk-based sizing
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="arena-sizing-mode">Sizing Mode</Label>
+                <Select
+                  value={sizingMode}
+                  onValueChange={handleSizingModeChange}
+                  disabled={isLoading}
+                >
+                  <SelectTrigger id="arena-sizing-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Fixed $</SelectItem>
+                    <SelectItem value="fixed_pct">Fixed % of Equity</SelectItem>
+                    <SelectItem value="risk_based">Risk-Based (ATR)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* ATR Stop Parameters — shown when stop_type is 'atr' */}
+            {isAtrStop && (
+              <div className="grid grid-cols-3 gap-4 pt-1">
+                <div>
+                  <Label htmlFor="arena-atr-multiplier">ATR Multiplier</Label>
+                  <Input
+                    id="arena-atr-multiplier"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={atrStopMultiplier}
+                    onChange={(e) => setAtrStopMultiplier(e.target.value)}
+                    className="mt-1"
+                    disabled={isLoading}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="arena-atr-min">ATR Min (%)</Label>
+                  <Input
+                    id="arena-atr-min"
+                    type="number"
+                    min="0.1"
+                    step="0.5"
+                    value={atrStopMinPct}
+                    onChange={(e) => setAtrStopMinPct(e.target.value)}
+                    className="mt-1"
+                    disabled={isLoading}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="arena-atr-max">ATR Max (%)</Label>
+                  <Input
+                    id="arena-atr-max"
+                    type="number"
+                    min="0.1"
+                    step="0.5"
+                    value={atrStopMaxPct}
+                    onChange={(e) => setAtrStopMaxPct(e.target.value)}
+                    className="mt-1"
+                    disabled={isLoading}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Risk-Based Sizing Parameters — shown when sizing_mode is 'risk_based' */}
+            {isRiskBasedSizing && (
+              <div className="grid grid-cols-3 gap-4 pt-1">
+                <div>
+                  <Label htmlFor="arena-risk-per-trade">Risk Per Trade (%)</Label>
+                  <Input
+                    id="arena-risk-per-trade"
+                    type="number"
+                    min="0.1"
+                    max="10"
+                    step="0.1"
+                    value={riskPerTradePct}
+                    onChange={(e) => setRiskPerTradePct(e.target.value)}
+                    className="mt-1"
+                    disabled={isLoading}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Base risk % of equity</p>
+                </div>
+                <div>
+                  <Label htmlFor="arena-win-streak-bonus">Win Streak Bonus (%)</Label>
+                  <Input
+                    id="arena-win-streak-bonus"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value={winStreakBonusPct}
+                    onChange={(e) => setWinStreakBonusPct(e.target.value)}
+                    className="mt-1"
+                    disabled={isLoading}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Extra % per win streak</p>
+                </div>
+                <div>
+                  <Label htmlFor="arena-max-risk">Max Risk Cap (%)</Label>
+                  <Input
+                    id="arena-max-risk"
+                    type="number"
+                    min="0.1"
+                    max="10"
+                    step="0.1"
+                    value={maxRiskPct}
+                    onChange={(e) => setMaxRiskPct(e.target.value)}
+                    className="mt-1"
+                    disabled={isLoading}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Maximum risk cap</p>
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           {/* ─── Agent Tab ─── */}
