@@ -48,7 +48,14 @@ interface ArenaSetupFormProps {
     portfolio_strategy?: string;
     max_per_sector?: number | null;
     max_open_positions?: number | null;
-    sizing_mode?: string | null;
+    sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based' | null;
+    stop_type?: 'fixed' | 'atr';
+    atr_stop_multiplier?: number | null;
+    atr_stop_min_pct?: number | null;
+    atr_stop_max_pct?: number | null;
+    risk_per_trade_pct?: number | null;
+    win_streak_bonus_pct?: number | null;
+    max_risk_pct?: number | null;
   };
 }
 
@@ -151,12 +158,12 @@ export const ArenaSetupForm = ({
   const [maSweetSpotCenter, setMaSweetSpotCenter] = useState('8.5');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // Stop type and ATR parameters
-  const [stopType, setStopType] = useState('fixed');
+  const [stopType, setStopType] = useState<'fixed' | 'atr'>('fixed');
   const [atrStopMultiplier, setAtrStopMultiplier] = useState('2.0');
   const [atrStopMinPct, setAtrStopMinPct] = useState('2.0');
   const [atrStopMaxPct, setAtrStopMaxPct] = useState('10.0');
   // Sizing mode and risk parameters
-  const [sizingMode, setSizingMode] = useState('fixed');
+  const [sizingMode, setSizingMode] = useState<'fixed' | 'fixed_pct' | 'risk_based'>('fixed');
   const [positionSizePct, setPositionSizePct] = useState('33');
   const [riskPerTradePct, setRiskPerTradePct] = useState('2.5');
   const [winStreakBonusPct, setWinStreakBonusPct] = useState('0.3');
@@ -211,6 +218,28 @@ export const ArenaSetupForm = ({
       }
       // Set sizing mode from replay (default to 'fixed' for old simulations without this field)
       setSizingMode(initialValues.sizing_mode ?? 'fixed');
+      // Set stop type and ATR params from replay
+      if (initialValues.stop_type) {
+        setStopType(initialValues.stop_type);
+      }
+      if (initialValues.atr_stop_multiplier != null) {
+        setAtrStopMultiplier(initialValues.atr_stop_multiplier.toString());
+      }
+      if (initialValues.atr_stop_min_pct != null) {
+        setAtrStopMinPct(initialValues.atr_stop_min_pct.toString());
+      }
+      if (initialValues.atr_stop_max_pct != null) {
+        setAtrStopMaxPct(initialValues.atr_stop_max_pct.toString());
+      }
+      if (initialValues.risk_per_trade_pct != null) {
+        setRiskPerTradePct(initialValues.risk_per_trade_pct.toString());
+      }
+      if (initialValues.win_streak_bonus_pct != null) {
+        setWinStreakBonusPct(initialValues.win_streak_bonus_pct.toString());
+      }
+      if (initialValues.max_risk_pct != null) {
+        setMaxRiskPct(initialValues.max_risk_pct.toString());
+      }
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -236,9 +265,11 @@ export const ArenaSetupForm = ({
    * When risk_based is selected, ATR stops are required — auto-set stop_type to 'atr'.
    */
   const handleSizingModeChange = (value: string) => {
-    setSizingMode(value);
+    setSizingMode(value as 'fixed' | 'fixed_pct' | 'risk_based');
     if (value === 'risk_based') {
       setStopType('atr');
+    } else if (stopType === 'atr') {
+      setStopType('fixed');
     }
   };
 
@@ -292,13 +323,19 @@ export const ArenaSetupForm = ({
       };
     }
 
+    // Only include position_size in the payload when it's relevant (not risk-based or fixed_pct)
+    const positionSizeField =
+      !isRiskBasedSizing && !isFixedPctSizing
+        ? { position_size: parseFloat(positionSize) }
+        : {};
+
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
         symbols: symbolList,
         start_date: startDate,
         end_date: endDate,
         initial_capital: parseFloat(capital),
-        position_size: parseFloat(positionSize),
+        ...positionSizeField,
         stop_type: stopType,
         ...atrStopFields,
         trailing_stop_pct: parseFloat(trailingStopPct),
@@ -317,7 +354,7 @@ export const ArenaSetupForm = ({
         start_date: startDate,
         end_date: endDate,
         initial_capital: parseFloat(capital),
-        position_size: parseFloat(positionSize),
+        ...positionSizeField,
         stop_type: stopType,
         ...atrStopFields,
         trailing_stop_pct: parseFloat(trailingStopPct),
@@ -363,7 +400,6 @@ export const ArenaSetupForm = ({
   const hasValidSymbols = symbolList.length > 0 && symbolList.length <= MAX_ARENA_SYMBOLS;
   const hasValidDates = startDate && endDate && new Date(startDate) < new Date(endDate);
   const hasValidCapital = parseFloat(capital) > 0;
-  const hasValidPositionSize = parseFloat(positionSize) > 0;
   const hasValidTrailingStop =
     parseFloat(trailingStopPct) > 0 && parseFloat(trailingStopPct) <= 100;
   const hasValidMinBuyScore = isValidMinBuyScore(parseFloat(minBuyScore));
@@ -377,6 +413,9 @@ export const ArenaSetupForm = ({
   const isAtrStop = stopType === 'atr';
   const isFixedPctSizing = sizingMode === 'fixed_pct';
   const isRiskBasedSizing = sizingMode === 'risk_based';
+
+  const hasValidPositionSize =
+    isRiskBasedSizing || isFixedPctSizing || parseFloat(positionSize) > 0;
 
   const canSubmit =
     hasValidSymbols &&
@@ -560,7 +599,7 @@ export const ArenaSetupForm = ({
                 <Label htmlFor="arena-stop-type">Stop Type</Label>
                 <Select
                   value={stopType}
-                  onValueChange={setStopType}
+                  onValueChange={(v) => setStopType(v as 'fixed' | 'atr')}
                   disabled={isRiskBasedSizing || isLoading}
                 >
                   <SelectTrigger id="arena-stop-type">

@@ -4565,11 +4565,11 @@ class TestRiskBasedPositionSizing:
 
         Setup:
           - equity = $10,000, risk_per_trade_pct = 2.0
-          - atr_pct = 2.0%, atr_stop_multiplier = 2.0
-          - entry_price (open) = $100
-          - stop_distance_per_share = 2.0 * 2.0/100 * 100 = $4.00
+          - bars: high=102, low=98, close=100 → TR = 4 (absolute) → ATR ≈ 4% of price
+          - atr_stop_multiplier = 2.0, entry_price (open) = $100
+          - stop_distance_per_share = 2.0 * 4.0/100 * 100 = $8.00
           - risk_amount = 10000 * 2/100 = $200
-          - shares = 200 / 4 = 50
+          - shares = 200 / 8.0 = 25 (±5 tolerance for ATR floating-point variation)
         """
         sim = self._make_simulation(
             agent_config_extra={
@@ -5241,3 +5241,51 @@ class TestClosePositionHelper:
 
         assert sim.total_trades == 1
         assert sim.winning_trades == 0
+
+    @pytest.mark.unit
+    async def test_close_position_breakeven_preserves_no_win(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Breakeven trade (pnl=0) resets consecutive_wins (conservative by design)."""
+        sim = ArenaSimulation(
+            name="Close Helper Breakeven Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 25),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=10,
+        )
+        sim.consecutive_wins = 3
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        pos = self._make_open_position(sim.id, entry_price=Decimal("100.00"))
+        db_session.add(pos)
+        await db_session.commit()
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        new_cash = engine._close_position(
+            position=pos,
+            simulation=sim,
+            exit_reason=ExitReason.STOP_HIT,
+            exit_price=Decimal("100.00"),  # breakeven: exit == entry
+            exit_date=date(2024, 1, 20),
+            cash=Decimal("9000.00"),
+        )
+
+        # Breakeven: (100-100)*10 = 0
+        assert pos.realized_pnl == Decimal("0.00")
+        assert pos.return_pct == Decimal("0.00")
+        # Not a win: winning_trades should not be incremented
+        assert sim.winning_trades == 0
+        # Conservative: streak resets even on breakeven (pnl is not > 0)
+        assert sim.consecutive_wins == 0
+        assert sim.total_trades == 1
+        # Cash: 9000 + 10 shares * 100 = 10000
+        assert new_cash == Decimal("10000.00")

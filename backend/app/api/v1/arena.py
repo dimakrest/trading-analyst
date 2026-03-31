@@ -97,6 +97,9 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     max_per_sector = agent_config.get("max_per_sector")
     max_open_positions = agent_config.get("max_open_positions")
     sizing_mode = agent_config.get("sizing_mode")
+    risk_per_trade_pct = agent_config.get("risk_per_trade_pct")
+    win_streak_bonus_pct = agent_config.get("win_streak_bonus_pct")
+    max_risk_pct = agent_config.get("max_risk_pct")
 
     return SimulationResponse(
         id=simulation.id,
@@ -120,6 +123,9 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         max_per_sector=max_per_sector,
         max_open_positions=max_open_positions,
         sizing_mode=sizing_mode,
+        risk_per_trade_pct=risk_per_trade_pct,
+        win_streak_bonus_pct=win_streak_bonus_pct,
+        max_risk_pct=max_risk_pct,
         group_id=simulation.group_id,
         status=simulation.status,
         current_day=simulation.current_day,
@@ -685,6 +691,11 @@ async def create_comparison(
         "scoring_algorithm": scoring_algorithm,
         "max_per_sector": request.max_per_sector,
         "max_open_positions": request.max_open_positions,
+        # Layer 4: ATR-based trailing stops
+        "stop_type": request.stop_type,
+        "atr_stop_multiplier": request.atr_stop_multiplier,
+        "atr_stop_min_pct": request.atr_stop_min_pct,
+        "atr_stop_max_pct": request.atr_stop_max_pct,
         # Layer 3 (risk-based): Volatility-adjusted position sizing
         "sizing_mode": request.sizing_mode,
         "risk_per_trade_pct": request.risk_per_trade_pct,

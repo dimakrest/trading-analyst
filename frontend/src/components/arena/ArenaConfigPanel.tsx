@@ -9,9 +9,9 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  Layers,
   LayoutGrid,
   Settings2,
-  ShieldAlert,
   Target,
   TrendingDown,
 } from 'lucide-react';
@@ -188,7 +188,7 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
         {simulation.sizing_mode && simulation.sizing_mode !== 'fixed' && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 pt-3 border-t border-border-subtle">
             <ConfigItem
-              icon={<ShieldAlert className="h-3.5 w-3.5" />}
+              icon={<Layers className="h-3.5 w-3.5" />}
               label="Sizing Mode"
               value={
                 <span className="text-text-primary">

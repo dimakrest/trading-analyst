@@ -134,7 +134,7 @@ class CreateSimulationRequest(StrictBaseModel):
     )
 
     # --- Layer 4: ATR-Based Trailing Stops ---
-    stop_type: str = Field(
+    stop_type: Literal["fixed", "atr"] = Field(
         default="fixed",
         description=(
             "Trailing stop type: 'fixed' uses a fixed trailing_stop_pct, "
@@ -209,7 +209,7 @@ class CreateSimulationRequest(StrictBaseModel):
     )
 
     # --- Layer 3 (risk-based): Volatility-Adjusted Position Sizing ---
-    sizing_mode: str = Field(
+    sizing_mode: Literal["fixed", "fixed_pct", "risk_based"] = Field(
         default="fixed",
         description=(
             "Position sizing mode: 'fixed' uses position_size, "
@@ -312,26 +312,6 @@ class CreateSimulationRequest(StrictBaseModel):
     _validate_symbols_count = field_validator("symbols")(_validate_symbols_count_value)
     _validate_date_range = field_validator("end_date")(_validate_date_range_value)
     _validate_agent_type = field_validator("agent_type")(_validate_agent_type_value)
-
-    @field_validator("stop_type")
-    @classmethod
-    def validate_stop_type(cls, v: str) -> str:
-        """Validate stop_type is a recognized value."""
-        allowed = {"fixed", "atr"}
-        if v not in allowed:
-            msg = f"Unknown stop_type: {v!r}. Allowed: {', '.join(sorted(allowed))}"
-            raise ValueError(msg)
-        return v
-
-    @field_validator("sizing_mode")
-    @classmethod
-    def validate_sizing_mode(cls, v: str) -> str:
-        """Validate sizing_mode is a recognized value."""
-        allowed = {"fixed", "fixed_pct", "risk_based"}
-        if v not in allowed:
-            msg = f"Unknown sizing_mode: {v!r}. Allowed: {', '.join(sorted(allowed))}"
-            raise ValueError(msg)
-        return v
 
     @field_validator("portfolio_strategy")
     @classmethod
@@ -441,8 +421,34 @@ class CreateComparisonRequest(StrictBaseModel):
         description="Max total open positions (None = unlimited)",
     )
 
+    # --- Layer 4: ATR-Based Trailing Stops ---
+    stop_type: Literal["fixed", "atr"] = Field(
+        default="fixed",
+        description=(
+            "Trailing stop type: 'fixed' uses a fixed trailing_stop_pct, "
+            "'atr' computes the trail distance as atr_stop_multiplier * ATR%."
+        ),
+    )
+    atr_stop_multiplier: float = Field(
+        default=2.0,
+        gt=0,
+        description="Multiplier applied to ATR% to compute trail distance (stop_type='atr').",
+    )
+    atr_stop_min_pct: float = Field(
+        default=2.0,
+        gt=0,
+        lt=100,
+        description="Minimum ATR-based trail percentage (floor, stop_type='atr').",
+    )
+    atr_stop_max_pct: float = Field(
+        default=10.0,
+        gt=0,
+        lt=100,
+        description="Maximum ATR-based trail percentage (ceiling, stop_type='atr').",
+    )
+
     # --- Layer 3 (risk-based): Volatility-Adjusted Position Sizing ---
-    sizing_mode: str = Field(
+    sizing_mode: Literal["fixed", "fixed_pct", "risk_based"] = Field(
         default="fixed",
         description=(
             "Position sizing mode: 'fixed' uses position_size, "
@@ -474,6 +480,14 @@ class CreateComparisonRequest(StrictBaseModel):
     _validate_symbols_count = field_validator("symbols")(_validate_symbols_count_value)
     _validate_date_range = field_validator("end_date")(_validate_date_range_value)
     _validate_agent_type = field_validator("agent_type")(_validate_agent_type_value)
+
+    @model_validator(mode="after")
+    def validate_sizing_stop_combination(self) -> "CreateComparisonRequest":
+        """Ensure risk_based sizing is only used with ATR stops."""
+        if self.sizing_mode == "risk_based" and self.stop_type != "atr":
+            msg = "sizing_mode='risk_based' requires stop_type='atr'"
+            raise ValueError(msg)
+        return self
 
     @field_validator("portfolio_strategies")
     @classmethod
@@ -614,6 +628,9 @@ class SimulationResponse(StrictBaseModel):
     max_per_sector: int | None = None
     max_open_positions: int | None = None
     sizing_mode: str | None = None
+    risk_per_trade_pct: float | None = None
+    win_streak_bonus_pct: float | None = None
+    max_risk_pct: float | None = None
     group_id: str | None = None
     status: str
     current_day: int

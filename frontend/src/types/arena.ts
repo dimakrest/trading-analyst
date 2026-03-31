@@ -49,7 +49,7 @@ export interface Simulation {
   max_per_sector: number | null;
   max_open_positions: number | null;
   ma_sweet_spot_center?: number | null;
-  sizing_mode?: string | null;
+  sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based' | null;
   group_id: string | null;
   status: SimulationStatus;
   current_day: number;
@@ -147,7 +147,7 @@ export interface CreateSimulationRequest {
   /** Agent type (default: 'live20') */
   agent_type?: string;
   /** Trailing stop type: 'fixed' or 'atr' (default: 'fixed') */
-  stop_type?: string;
+  stop_type?: 'fixed' | 'atr';
   /** ATR stop multiplier (default: 2.0, used when stop_type='atr') */
   atr_stop_multiplier?: number;
   /** ATR stop minimum percentage floor (default: 2.0, used when stop_type='atr') */
@@ -171,7 +171,7 @@ export interface CreateSimulationRequest {
   /** MA20 sweet spot center percentage for enriched_score strategies */
   ma_sweet_spot_center?: number;
   /** Position sizing mode: 'fixed', 'fixed_pct', or 'risk_based' (default: 'fixed') */
-  sizing_mode?: string;
+  sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based';
   /** Position size as percentage of equity (used when sizing_mode='fixed_pct') */
   position_size_pct?: number;
   /** Base risk per trade as % of equity (used when sizing_mode='risk_based') */
@@ -208,7 +208,7 @@ export interface CreateComparisonRequest {
   position_size?: number;
   agent_type?: string;
   /** Trailing stop type: 'fixed' or 'atr' (default: 'fixed') */
-  stop_type?: string;
+  stop_type?: 'fixed' | 'atr';
   /** ATR stop multiplier (default: 2.0, used when stop_type='atr') */
   atr_stop_multiplier?: number;
   /** ATR stop minimum percentage floor (default: 2.0, used when stop_type='atr') */
@@ -223,7 +223,7 @@ export interface CreateComparisonRequest {
   max_per_sector?: number | null;
   max_open_positions?: number | null;
   /** Position sizing mode: 'fixed', 'fixed_pct', or 'risk_based' (default: 'fixed') */
-  sizing_mode?: string;
+  sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based';
   /** Position size as percentage of equity (used when sizing_mode='fixed_pct') */
   position_size_pct?: number;
   /** Base risk per trade as % of equity (used when sizing_mode='risk_based') */

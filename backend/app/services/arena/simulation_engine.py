@@ -56,6 +56,11 @@ class SimulationEngine:
         ...     print(f"Day {snapshot.day_number}: ${snapshot.total_equity}")
     """
 
+    # 33% of equity — legacy default for fixed_pct mode when position_size_pct is unset.
+    _DEFAULT_POSITION_SIZE_PCT = Decimal("33")
+    # Below 1bp indicates missing or corrupt ATR data, not genuine low volatility.
+    _MIN_ATR_PCT = 0.01
+
     def __init__(
         self,
         session: AsyncSession,
@@ -370,7 +375,7 @@ class SimulationEngine:
         # For risk_based mode the size is computed per-symbol at open time
         # because it depends on that symbol's ATR.
         if sizing_mode == "fixed_pct":
-            pct = Decimal(str(position_size_pct)) if position_size_pct is not None else Decimal("33")
+            pct = Decimal(str(position_size_pct)) if position_size_pct is not None else self._DEFAULT_POSITION_SIZE_PCT
             effective_position_size = current_equity * (pct / Decimal("100"))
         else:
             # fixed or risk_based fallback default
@@ -413,7 +418,7 @@ class SimulationEngine:
                 # fixed/fixed_pct use the pre-computed effective_position_size.
                 if sizing_mode == "risk_based":
                     symbol_atr_pct = _get_atr_for_day(symbol)
-                    if symbol_atr_pct is None or symbol_atr_pct < 0.01:
+                    if symbol_atr_pct is None or symbol_atr_pct < self._MIN_ATR_PCT:
                         # No ATR data — degrade gracefully to fixed position_size
                         symbol_effective_size = simulation.position_size
                     else:
@@ -431,7 +436,6 @@ class SimulationEngine:
                         calculated_risk_shares = int(
                             float(risk_amount) / stop_distance_per_share
                         )
-                        # Position value is shares * price (for cash check)
                         symbol_effective_size = (
                             Decimal(str(calculated_risk_shares)) * today_bar.open
                             if calculated_risk_shares > 0
@@ -467,7 +471,6 @@ class SimulationEngine:
                     pending.shares = calculated_shares
 
                     # Initialize trailing stop — ATR or fixed.
-                    # Use _get_atr_for_day to avoid redundant ATR calculations.
                     if atr_trailing_stop is not None:
                         symbol_atr_pct = _get_atr_for_day(symbol)
                         if symbol_atr_pct is not None and symbol_atr_pct > 0:
@@ -1227,7 +1230,10 @@ class SimulationEngine:
             Updated cash balance after receiving position proceeds.
         """
         realized_pnl = (exit_price - position.entry_price) * position.shares
-        return_pct = (exit_price - position.entry_price) / position.entry_price * 100
+        if not position.entry_price:
+            return_pct = Decimal("0")
+        else:
+            return_pct = (exit_price - position.entry_price) / position.entry_price * 100
 
         position.status = PositionStatus.CLOSED.value
         position.exit_date = exit_date
@@ -1241,6 +1247,7 @@ class SimulationEngine:
             simulation.winning_trades += 1
             simulation.consecutive_wins += 1
         else:
+            # Breakeven (pnl == 0) also resets streak — conservative by design.
             simulation.consecutive_wins = 0
 
         return cash + position.shares * exit_price
@@ -1260,7 +1267,8 @@ class SimulationEngine:
         """
         open_positions = await self._get_open_positions(simulation.id)
 
-        # Use a dummy cash=0 since end-of-simulation proceeds are not tracked further
+        # Use cash=Decimal("0"); proceeds are not tracked at end-of-simulation.
+        # consecutive_wins is also updated but unused after finalization.
         for position in open_positions:
             bar = self._get_cached_bar_for_date(simulation.id, position.symbol, close_date)
             if not bar:

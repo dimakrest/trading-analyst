@@ -557,6 +557,67 @@ class TestSimulationParameterExposure:
         assert sim_data["trailing_stop_pct"] == "5.0"
         assert sim_data["min_buy_score"] is None  # Missing field returns None
 
+    @pytest.mark.asyncio
+    async def test_create_simulation_exposes_risk_based_fields(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        """Risk-based sizing fields round-trip through create -> response."""
+        # Arrange
+        request_data = {
+            "symbols": ["AAPL"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "sizing_mode": "risk_based",
+            "stop_type": "atr",
+            "risk_per_trade_pct": 3.0,
+            "win_streak_bonus_pct": 0.5,
+            "max_risk_pct": 5.0,
+        }
+
+        # Act
+        response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json=request_data,
+        )
+
+        # Assert
+        assert response.status_code == 202
+        data = response.json()
+        assert data["sizing_mode"] == "risk_based"
+        assert data["risk_per_trade_pct"] == 3.0
+        assert data["win_streak_bonus_pct"] == 0.5
+        assert data["max_risk_pct"] == 5.0
+
+    @pytest.mark.asyncio
+    async def test_create_simulation_risk_based_defaults_exposed(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        """Default risk-based fields are exposed when sizing_mode is not set."""
+        # Arrange
+        request_data = {
+            "symbols": ["AAPL"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+        }
+
+        # Act
+        response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json=request_data,
+        )
+
+        # Assert
+        assert response.status_code == 202
+        data = response.json()
+        assert data["sizing_mode"] == "fixed"
+        assert data["risk_per_trade_pct"] == 2.5
+        assert data["win_streak_bonus_pct"] == 0.3
+        assert data["max_risk_pct"] == 4.0
+
 
 class TestListSimulations:
     """Tests for GET /api/v1/arena/simulations endpoint."""
