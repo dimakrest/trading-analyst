@@ -11,75 +11,26 @@ import {
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { stockListService } from '../../services/stockListService';
+import { parseTradingViewFile } from '../../utils/tradingViewParser';
 
 interface ImportListDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: (name: string) => void;
+  onSubmit: (data: { name: string; symbols: string[] }) => Promise<void>;
+  isSubmitting?: boolean;
 }
 
-interface ParsedWatchlist {
-  /** Name from ###header### or empty string when absent (user must fill in) */
-  name: string;
-  symbols: string[];
-}
-
-// Matches a valid ticker: 1–10 uppercase letters only (after stripping exchange prefix)
-const SYMBOL_RE = /^[A-Z]{1,10}$/;
-
-/**
- * Parse a TradingView exported watchlist file.
- *
- * Handles two formats:
- *   1. With header:  "###My List###\nNASDAQ:AAPL,NYSE:MSFT,..."
- *   2. Without header (most exports): "NASDAQ:AAPL,NYSE:MSFT,..."
- *
- * Tokens may be comma- or space-separated; exchange prefixes are stripped.
- * Invalid tokens (punctuation, URLs, notes) are silently ignored.
- *
- * Returns null only when no recognisable symbols are found at all.
- */
-const parseTradingViewFile = (text: string): ParsedWatchlist | null => {
-  const lines = text.trim().split('\n').filter(Boolean);
-  if (lines.length === 0) return null;
-
-  let name = '';
-  let symbolLines = lines;
-
-  const header = lines[0].match(/^###(.+)###$/);
-  if (header) {
-    name = header[1].trim();
-    symbolLines = lines.slice(1);
-  }
-
-  const symbols = [
-    ...new Set(
-      symbolLines
-        .join(',')
-        .split(/[,\s]+/)                          // split on commas or whitespace
-        .map((token) => {
-          const stripped = token
-            .split(':').pop()!                    // strip exchange prefix
-            .replace(/[^A-Za-z]/g, '')            // remove punctuation / dots
-            .toUpperCase();
-          return stripped;
-        })
-        .filter((s) => SYMBOL_RE.test(s))
-    ),
-  ];
-
-  if (symbols.length === 0) return null;
-  return { name, symbols };
-};
-
-export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDialogProps) => {
+export const ImportListDialog = ({
+  open,
+  onOpenChange,
+  onSubmit,
+  isSubmitting = false,
+}: ImportListDialogProps) => {
   const [symbols, setSymbols] = useState<string[] | null>(null);
   const [name, setName] = useState('');
   const [fileName, setFileName] = useState('');
   const [parseError, setParseError] = useState<string | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,11 +49,10 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
         setParseError('No recognisable symbols found. Please export a watchlist from TradingView.');
       } else {
         setSymbols(result.symbols);
-        // Pre-fill name from header if present, else use filename without extension
         setName(result.name || file.name.replace(/\.[^.]+$/, ''));
         setParseError(null);
       }
-      setImportError(null);
+      setError(null);
     };
     reader.readAsText(file);
   };
@@ -112,31 +62,21 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
-    setIsImporting(true);
-    setImportError(null);
+    setError(null);
     try {
-      await stockListService.createList({ name: trimmedName, symbols });
-      onSuccess(trimmedName);
+      await onSubmit({ name: trimmedName, symbols });
       handleClose();
     } catch (err: unknown) {
       let message = 'Failed to import list';
       if (err && typeof err === 'object') {
-        const axiosErr = err as { response?: { data?: { detail?: unknown } }; message?: string };
-        const detail = axiosErr.response?.data?.detail;
-        if (typeof detail === 'string') {
-          message = detail;
-        } else if (Array.isArray(detail)) {
-          // FastAPI 422: array of Pydantic validation error objects
-          message = detail
-            .map((e) => (e && typeof e === 'object' && 'msg' in e ? String(e.msg) : String(e)))
-            .join('; ');
+        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+        if (axiosErr.response?.data?.detail) {
+          message = axiosErr.response.data.detail;
         } else if (axiosErr.message) {
           message = axiosErr.message;
         }
       }
-      setImportError(message);
-    } finally {
-      setIsImporting(false);
+      setError(message);
     }
   };
 
@@ -145,7 +85,7 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
     setName('');
     setFileName('');
     setParseError(null);
-    setImportError(null);
+    setError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     onOpenChange(false);
   };
@@ -180,7 +120,7 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
             >
               <Upload className="w-4 h-4 text-text-muted flex-shrink-0" />
               <span className="text-sm text-text-muted truncate">
-                {fileName || 'Choose .txt file…'}
+                {fileName || 'Choose .txt file\u2026'}
               </span>
               <input
                 id="tv-file"
@@ -189,7 +129,7 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
                 accept=".txt"
                 className="sr-only"
                 onChange={handleFileChange}
-                disabled={isImporting}
+                disabled={isSubmitting}
               />
             </label>
           </div>
@@ -214,7 +154,7 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
                   id="import-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  disabled={isImporting}
+                  disabled={isSubmitting}
                   className="bg-bg-tertiary border-default focus:border-accent-primary focus:ring-2 focus:ring-accent-primary-muted"
                 />
               </div>
@@ -249,8 +189,8 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
           )}
 
           {/* Import Error */}
-          {importError && (
-            <p className="text-sm text-accent-bearish">{importError}</p>
+          {error && (
+            <p className="text-sm text-accent-bearish">{error}</p>
           )}
         </div>
 
@@ -259,7 +199,7 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
             type="button"
             variant="outline"
             onClick={handleClose}
-            disabled={isImporting}
+            disabled={isSubmitting}
             className="border-default hover:bg-bg-tertiary"
           >
             Cancel
@@ -267,9 +207,9 @@ export const ImportListDialog = ({ open, onOpenChange, onSuccess }: ImportListDi
           <Button
             type="button"
             onClick={handleImport}
-            disabled={!canImport || isImporting}
+            disabled={!canImport || isSubmitting}
           >
-            {isImporting ? 'Importing…' : 'Import'}
+            {isSubmitting ? 'Importing\u2026' : 'Import'}
           </Button>
         </DialogFooter>
       </DialogContent>

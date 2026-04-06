@@ -10,23 +10,8 @@ import {
   ImportListDialog,
 } from '../../components/stockLists';
 import { useStockLists } from '../../hooks/useStockLists';
+import { extractErrorMessage } from '../../utils/errors';
 import type { StockList } from '../../services/stockListService';
-
-/**
- * Extract user-friendly error message from various error types
- */
-const extractErrorMessage = (err: unknown): string => {
-  if (err && typeof err === 'object') {
-    const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-    if (axiosErr.response?.data?.detail) {
-      return axiosErr.response.data.detail;
-    }
-    if (axiosErr.message) {
-      return axiosErr.message;
-    }
-  }
-  return 'An unexpected error occurred';
-};
 
 /**
  * Stock Lists management page
@@ -40,7 +25,7 @@ const extractErrorMessage = (err: unknown): string => {
  * - Loading state while fetching
  */
 export const StockLists = () => {
-  const { lists, isLoading, error, createList, updateList, deleteList, refetch } = useStockLists();
+  const { lists, isLoading, error, createList, updateList, deleteList } = useStockLists();
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -50,6 +35,7 @@ export const StockLists = () => {
 
   // Submission states
   const [isCreating, setIsCreating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -64,6 +50,19 @@ export const StockLists = () => {
       throw err; // Re-throw to keep dialog open
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleImportList = async (data: { name: string; symbols: string[] }) => {
+    setIsImporting(true);
+    try {
+      await createList(data);
+      toast.success(`List "${data.name}" imported`);
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+      throw err; // Re-throw to keep dialog open
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -166,10 +165,8 @@ export const StockLists = () => {
       <ImportListDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
-        onSuccess={(name) => {
-          refetch();
-          toast.success(`List "${name}" imported`);
-        }}
+        onSubmit={handleImportList}
+        isSubmitting={isImporting}
       />
 
       {/* Delete Dialog */}
