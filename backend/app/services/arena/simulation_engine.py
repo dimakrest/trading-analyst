@@ -436,11 +436,14 @@ class SimulationEngine:
                         calculated_risk_shares = int(
                             float(risk_amount) / stop_distance_per_share
                         )
-                        symbol_effective_size = (
+                        # Cap position size at current equity to prevent oversized positions
+                        # from very low ATR values (e.g., 0.02% ATR → 62x equity without cap)
+                        raw_size = (
                             Decimal(str(calculated_risk_shares)) * today_bar.open
                             if calculated_risk_shares > 0
                             else Decimal("0")
                         )
+                        symbol_effective_size = min(raw_size, current_equity)
                 else:
                     symbol_effective_size = effective_position_size
 
@@ -1229,10 +1232,11 @@ class SimulationEngine:
         Returns:
             Updated cash balance after receiving position proceeds.
         """
-        realized_pnl = (exit_price - position.entry_price) * position.shares
         if not position.entry_price:
+            realized_pnl = Decimal("0")
             return_pct = Decimal("0")
         else:
+            realized_pnl = (exit_price - position.entry_price) * position.shares
             return_pct = (exit_price - position.entry_price) / position.entry_price * 100
 
         position.status = PositionStatus.CLOSED.value

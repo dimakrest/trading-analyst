@@ -169,6 +169,8 @@ export const ArenaSetupForm = ({
   const [winStreakBonusPct, setWinStreakBonusPct] = useState('0.3');
   const [maxRiskPct, setMaxRiskPct] = useState('4.0');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /** Tracks whether ATR stop was auto-set by switching to risk_based sizing */
+  const atrAutoSetByRiskSizing = useRef(false);
 
   // Fetch stock lists
   const { lists, isLoading: listsLoading, error: listsError } = useStockLists();
@@ -268,8 +270,11 @@ export const ArenaSetupForm = ({
     setSizingMode(value as 'fixed' | 'fixed_pct' | 'risk_based');
     if (value === 'risk_based') {
       setStopType('atr');
-    } else if (stopType === 'atr') {
+      atrAutoSetByRiskSizing.current = true;
+    } else if (atrAutoSetByRiskSizing.current) {
+      // Only reset to fixed if ATR was auto-set by risk_based — not if user chose ATR independently
       setStopType('fixed');
+      atrAutoSetByRiskSizing.current = false;
     }
   };
 
@@ -417,11 +422,23 @@ export const ArenaSetupForm = ({
   const hasValidPositionSize =
     isRiskBasedSizing || isFixedPctSizing || parseFloat(positionSize) > 0;
 
+  const hasValidFixedPctFields =
+    !isFixedPctSizing || parseFloat(positionSizePct) > 0;
+
+  const hasValidRiskFields =
+    !isRiskBasedSizing || (
+      parseFloat(riskPerTradePct) > 0 &&
+      parseFloat(winStreakBonusPct) >= 0 &&
+      parseFloat(maxRiskPct) > 0
+    );
+
   const canSubmit =
     hasValidSymbols &&
     hasValidDates &&
     hasValidCapital &&
     hasValidPositionSize &&
+    hasValidFixedPctFields &&
+    hasValidRiskFields &&
     hasValidTrailingStop &&
     hasValidMinBuyScore &&
     hasStrategySelected &&

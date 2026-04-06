@@ -196,6 +196,43 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
                 </span>
               }
             />
+            {simulation.sizing_mode === 'risk_based' && (
+              <>
+                <ConfigItem
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label="Risk Per Trade"
+                  value={
+                    simulation.risk_per_trade_pct != null ? (
+                      <span className="text-text-primary">{simulation.risk_per_trade_pct}%</span>
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )
+                  }
+                />
+                <ConfigItem
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label="Win Streak Bonus"
+                  value={
+                    simulation.win_streak_bonus_pct != null ? (
+                      <span className="text-text-primary">{simulation.win_streak_bonus_pct}%</span>
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )
+                  }
+                />
+                <ConfigItem
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label="Max Risk Cap"
+                  value={
+                    simulation.max_risk_pct != null ? (
+                      <span className="text-text-primary">{simulation.max_risk_pct}%</span>
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )
+                  }
+                />
+              </>
+            )}
           </div>
         )}
 

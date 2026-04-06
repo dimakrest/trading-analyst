@@ -50,6 +50,9 @@ export interface Simulation {
   max_open_positions: number | null;
   ma_sweet_spot_center?: number | null;
   sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based' | null;
+  risk_per_trade_pct?: number | null;
+  win_streak_bonus_pct?: number | null;
+  max_risk_pct?: number | null;
   group_id: string | null;
   status: SimulationStatus;
   current_day: number;
