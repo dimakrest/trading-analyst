@@ -1,7 +1,7 @@
 """add_consecutive_wins_to_arena_simulations
 
 Revision ID: e4f013928c7e
-Revises: c3d4e5f6a7b8
+Revises: 0a7455c082f5
 Create Date: 2026-03-30 10:07:48.166387
 
 Trading Analyst Database Migration
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'e4f013928c7e'
-down_revision: Union[str, Sequence[str], None] = 'c3d4e5f6a7b8'
+down_revision: Union[str, Sequence[str], None] = '0a7455c082f5'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
