@@ -341,6 +341,14 @@ class CreateSimulationRequest(StrictBaseModel):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="after")
+    def validate_fixed_pct_requires_size(self) -> "CreateSimulationRequest":
+        """Ensure fixed_pct sizing has an explicit position_size_pct."""
+        if self.sizing_mode == "fixed_pct" and self.position_size_pct is None:
+            msg = "sizing_mode='fixed_pct' requires position_size_pct"
+            raise ValueError(msg)
+        return self
+
 
 class CreateComparisonRequest(StrictBaseModel):
     """Request to create a multi-strategy comparison run.
@@ -447,6 +455,17 @@ class CreateComparisonRequest(StrictBaseModel):
         description="Maximum ATR-based trail percentage (ceiling, stop_type='atr').",
     )
 
+    # --- Layer 3: Percentage-Based Position Sizing ---
+    position_size_pct: float | None = Field(
+        default=None,
+        gt=0,
+        le=100,
+        description=(
+            "Position size as percentage of current equity (e.g., 33.0 = 33%). "
+            "Required when sizing_mode='fixed_pct'."
+        ),
+    )
+
     # --- Layer 3 (risk-based): Volatility-Adjusted Position Sizing ---
     sizing_mode: Literal["fixed", "fixed_pct", "risk_based"] = Field(
         default="fixed",
@@ -486,6 +505,14 @@ class CreateComparisonRequest(StrictBaseModel):
         """Ensure risk_based sizing is only used with ATR stops."""
         if self.sizing_mode == "risk_based" and self.stop_type != "atr":
             msg = "sizing_mode='risk_based' requires stop_type='atr'"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def validate_fixed_pct_requires_size(self) -> "CreateComparisonRequest":
+        """Ensure fixed_pct sizing has an explicit position_size_pct."""
+        if self.sizing_mode == "fixed_pct" and self.position_size_pct is None:
+            msg = "sizing_mode='fixed_pct' requires position_size_pct"
             raise ValueError(msg)
         return self
 
@@ -627,7 +654,12 @@ class SimulationResponse(StrictBaseModel):
     portfolio_strategy: str | None = None
     max_per_sector: int | None = None
     max_open_positions: int | None = None
-    sizing_mode: str | None = None
+    stop_type: Literal["fixed", "atr"] | None = None
+    atr_stop_multiplier: float | None = None
+    atr_stop_min_pct: float | None = None
+    atr_stop_max_pct: float | None = None
+    position_size_pct: float | None = None
+    sizing_mode: Literal["fixed", "fixed_pct", "risk_based"] | None = None
     risk_per_trade_pct: float | None = None
     win_streak_bonus_pct: float | None = None
     max_risk_pct: float | None = None

@@ -265,12 +265,20 @@ export const ArenaSetupForm = ({
   /**
    * Handle sizing mode change.
    * When risk_based is selected, ATR stops are required — auto-set stop_type to 'atr'.
+   *
+   * The atrAutoSetByRiskSizing ref tracks whether *we* flipped stop_type
+   * to 'atr' for the user. If the user had ATR selected independently
+   * before switching sizing modes, we must not later revert it to 'fixed'.
    */
   const handleSizingModeChange = (value: string) => {
     setSizingMode(value as 'fixed' | 'fixed_pct' | 'risk_based');
     if (value === 'risk_based') {
-      setStopType('atr');
-      atrAutoSetByRiskSizing.current = true;
+      // Only flip stop_type if it isn't already ATR — preserves the
+      // "user chose ATR manually" signal in the ref.
+      if (stopType !== 'atr') {
+        setStopType('atr');
+        atrAutoSetByRiskSizing.current = true;
+      }
     } else if (atrAutoSetByRiskSizing.current) {
       // Only reset to fixed if ATR was auto-set by risk_based — not if user chose ATR independently
       setStopType('fixed');
@@ -305,7 +313,6 @@ export const ArenaSetupForm = ({
     const parsedMaSweetSpotCenter =
       hasEnrichedScore && maSweetSpotCenter ? parseFloat(maSweetSpotCenter) : undefined;
 
-    // Build ATR stop fields — only included when stop_type is 'atr'
     const atrStopFields =
       stopType === 'atr'
         ? {
@@ -315,7 +322,7 @@ export const ArenaSetupForm = ({
           }
         : {};
 
-    // Build sizing fields based on current mode ('fixed' is the backend default — omit to keep payload clean)
+    // 'fixed' is the backend default — omit sizing fields entirely to keep the payload clean.
     let sizingFields: Partial<CreateSimulationRequest> = {};
     if (sizingMode === 'fixed_pct') {
       sizingFields = { sizing_mode: 'fixed_pct', position_size_pct: parseFloat(positionSizePct) };
@@ -328,11 +335,9 @@ export const ArenaSetupForm = ({
       };
     }
 
-    // Only include position_size in the payload when it's relevant (not risk-based or fixed_pct)
+    // position_size is meaningful only for the default 'fixed' mode.
     const positionSizeField =
-      !isRiskBasedSizing && !isFixedPctSizing
-        ? { position_size: parseFloat(positionSize) }
-        : {};
+      sizingMode === 'fixed' ? { position_size: parseFloat(positionSize) } : {};
 
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
@@ -548,8 +553,10 @@ export const ArenaSetupForm = ({
               </div>
             </div>
 
-            {/* Capital Settings */}
-            <div className="grid grid-cols-3 gap-4">
+            {/* Capital Settings — drop to 2 columns when risk-based hides the size cell */}
+            <div
+              className={`grid gap-4 ${isRiskBasedSizing ? 'grid-cols-2' : 'grid-cols-3'}`}
+            >
               <div>
                 <Label htmlFor="arena-capital">Capital ($)</Label>
                 <Input

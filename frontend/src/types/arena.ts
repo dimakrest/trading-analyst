@@ -14,7 +14,13 @@ export type SimulationStatus = 'pending' | 'running' | 'paused' | 'completed' | 
 export type PositionStatus = 'pending' | 'open' | 'closed';
 
 /** Why a position was closed */
-export type ExitReason = 'stop_hit' | 'simulation_end' | 'insufficient_capital' | 'take_profit' | 'max_hold';
+export type ExitReason =
+  | 'stop_hit'
+  | 'simulation_end'
+  | 'insufficient_capital'
+  | 'insufficient_data'
+  | 'take_profit'
+  | 'max_hold';
 
 /** Agent information from /api/v1/arena/agents */
 export interface AgentInfo {
@@ -49,6 +55,11 @@ export interface Simulation {
   max_per_sector: number | null;
   max_open_positions: number | null;
   ma_sweet_spot_center?: number | null;
+  stop_type?: 'fixed' | 'atr' | null;
+  atr_stop_multiplier?: number | null;
+  atr_stop_min_pct?: number | null;
+  atr_stop_max_pct?: number | null;
+  position_size_pct?: number | null;
   sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based' | null;
   risk_per_trade_pct?: number | null;
   win_streak_bonus_pct?: number | null;

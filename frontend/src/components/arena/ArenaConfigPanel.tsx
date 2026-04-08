@@ -196,6 +196,19 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
                 </span>
               }
             />
+            {simulation.sizing_mode === 'fixed_pct' && (
+              <ConfigItem
+                icon={<Layers className="h-3.5 w-3.5" />}
+                label="Position Size"
+                value={
+                  simulation.position_size_pct != null ? (
+                    <span className="text-text-primary">{simulation.position_size_pct}%</span>
+                  ) : (
+                    <span className="text-text-muted">—</span>
+                  )
+                }
+              />
+            )}
             {simulation.sizing_mode === 'risk_based' && (
               <>
                 <ConfigItem

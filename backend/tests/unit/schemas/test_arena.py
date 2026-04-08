@@ -89,12 +89,27 @@ class TestCreateSimulationSizingMode:
 
     @pytest.mark.unit
     def test_accepts_fixed_pct_sizing_mode(self) -> None:
-        """sizing_mode='fixed_pct' is valid with any stop_type."""
+        """sizing_mode='fixed_pct' is valid when position_size_pct is set."""
         req = CreateSimulationRequest(
-            **_sim_kwargs(sizing_mode="fixed_pct", stop_type="atr")
+            **_sim_kwargs(
+                sizing_mode="fixed_pct",
+                stop_type="atr",
+                position_size_pct=33.0,
+            )
         )
 
         assert req.sizing_mode == "fixed_pct"
+        assert req.position_size_pct == 33.0
+
+    @pytest.mark.unit
+    def test_rejects_fixed_pct_without_position_size_pct(self) -> None:
+        """sizing_mode='fixed_pct' requires position_size_pct."""
+        with pytest.raises(ValidationError) as exc_info:
+            CreateSimulationRequest(**_sim_kwargs(sizing_mode="fixed_pct"))
+
+        msg = str(exc_info.value)
+        assert "fixed_pct" in msg
+        assert "position_size_pct" in msg
 
     @pytest.mark.unit
     def test_rejects_unknown_stop_type(self) -> None:
@@ -152,3 +167,23 @@ class TestCreateComparisonSizingMode:
 
         assert req.sizing_mode == "fixed"
         assert req.stop_type == "fixed"
+
+    @pytest.mark.unit
+    def test_accepts_fixed_pct_sizing_mode(self) -> None:
+        """sizing_mode='fixed_pct' on comparison requires position_size_pct."""
+        req = CreateComparisonRequest(
+            **_cmp_kwargs(sizing_mode="fixed_pct", position_size_pct=33.0)
+        )
+
+        assert req.sizing_mode == "fixed_pct"
+        assert req.position_size_pct == 33.0
+
+    @pytest.mark.unit
+    def test_rejects_fixed_pct_without_position_size_pct(self) -> None:
+        """sizing_mode='fixed_pct' on comparison requires position_size_pct."""
+        with pytest.raises(ValidationError) as exc_info:
+            CreateComparisonRequest(**_cmp_kwargs(sizing_mode="fixed_pct"))
+
+        msg = str(exc_info.value)
+        assert "fixed_pct" in msg
+        assert "position_size_pct" in msg

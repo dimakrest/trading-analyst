@@ -56,8 +56,6 @@ class SimulationEngine:
         ...     print(f"Day {snapshot.day_number}: ${snapshot.total_equity}")
     """
 
-    # 33% of equity — legacy default for fixed_pct mode when position_size_pct is unset.
-    _DEFAULT_POSITION_SIZE_PCT = Decimal("33")
     # Below 1bp indicates missing or corrupt ATR data, not genuine low volatility.
     _MIN_ATR_PCT = 0.01
 
@@ -276,20 +274,20 @@ class SimulationEngine:
 
         # Position sizing config — read all sizing-related fields once
         position_size_pct: float | None = simulation.agent_config.get("position_size_pct")
-        # Resolve sizing_mode: explicit > legacy position_size_pct > fixed
+        # Resolve sizing_mode: explicit > legacy position_size_pct > fixed.
+        # Legacy simulations may have position_size_pct without sizing_mode;
+        # treat them as fixed_pct for backward compatibility.
         sizing_mode: str = simulation.agent_config.get("sizing_mode") or (
             "fixed_pct" if position_size_pct is not None else "fixed"
         )
-        risk_per_trade_pct: float = float(
-            simulation.agent_config.get("risk_per_trade_pct", 2.5)
+        risk_per_trade_pct: Decimal = Decimal(
+            str(simulation.agent_config.get("risk_per_trade_pct", 2.5))
         )
-        win_streak_bonus_pct: float = float(
-            simulation.agent_config.get("win_streak_bonus_pct", 0.3)
+        win_streak_bonus_pct: Decimal = Decimal(
+            str(simulation.agent_config.get("win_streak_bonus_pct", 0.3))
         )
-        max_risk_pct: float = float(simulation.agent_config.get("max_risk_pct", 4.0))
-        # ATR stop multiplier used in risk-based sizing formula
-        atr_stop_multiplier: float = float(
-            simulation.agent_config.get("atr_stop_multiplier", 2.0)
+        max_risk_pct: Decimal = Decimal(
+            str(simulation.agent_config.get("max_risk_pct", 4.0))
         )
 
         # Ensure price cache is loaded (handles resume case)
@@ -375,11 +373,25 @@ class SimulationEngine:
         # For risk_based mode the size is computed per-symbol at open time
         # because it depends on that symbol's ATR.
         if sizing_mode == "fixed_pct":
-            pct = Decimal(str(position_size_pct)) if position_size_pct is not None else self._DEFAULT_POSITION_SIZE_PCT
-            effective_position_size = current_equity * (pct / Decimal("100"))
+            # Schema validator guarantees position_size_pct is set when
+            # sizing_mode='fixed_pct' goes through the API. The fallback to
+            # simulation.position_size handles legacy/direct DB writes only.
+            if position_size_pct is not None:
+                effective_position_size = current_equity * (
+                    Decimal(str(position_size_pct)) / Decimal("100")
+                )
+            else:
+                effective_position_size = simulation.position_size
         else:
             # fixed or risk_based fallback default
             effective_position_size = simulation.position_size
+
+        # Snapshot the win-streak counter at the start of the day so all
+        # sizing decisions for "today" use the same value, regardless of
+        # the order in which symbols are processed within the loop.
+        # Without this snapshot, a winning close on symbol #1 would bleed
+        # into the same-day sizing of symbol #2.
+        streak_at_day_start = simulation.consecutive_wins
 
         # Build O(1) trading-day index lookup (used for max-hold-days checks).
         trading_days_idx: dict[date, int] = {d: i for i, d in enumerate(trading_days)}
@@ -416,34 +428,74 @@ class SimulationEngine:
             if pending:
                 # Compute per-symbol position size for risk_based mode.
                 # fixed/fixed_pct use the pre-computed effective_position_size.
+                #
+                # risk_skip_reason is set when risk-based sizing cannot honor
+                # its risk promise for this symbol — the pending position will
+                # be cancelled with INSUFFICIENT_DATA below rather than fall
+                # back to a different size that doesn't reflect user intent.
+                risk_skip_reason: str | None = None
                 if sizing_mode == "risk_based":
+                    # Schema validator guarantees stop_type='atr' (and therefore
+                    # atr_trailing_stop is non-None) when sizing_mode='risk_based'.
+                    assert atr_trailing_stop is not None, (
+                        "atr_trailing_stop must be set when sizing_mode='risk_based'"
+                    )
+
                     symbol_atr_pct = _get_atr_for_day(symbol)
                     if symbol_atr_pct is None or symbol_atr_pct < self._MIN_ATR_PCT:
-                        # No ATR data — degrade gracefully to fixed position_size
-                        symbol_effective_size = simulation.position_size
-                    else:
-                        stop_distance_per_share = (
-                            atr_stop_multiplier
-                            * symbol_atr_pct
-                            / 100
-                            * float(today_bar.open)
+                        # ATR data is missing/corrupt — we cannot compute the
+                        # promised risk %, so refuse the trade rather than open
+                        # a misleadingly-sized position. Logged in decisions[].
+                        risk_skip_reason = (
+                            f"Risk-based sizing requires ATR data; got "
+                            f"{symbol_atr_pct} (min {self._MIN_ATR_PCT}%)"
                         )
-                        streak_bonus = simulation.consecutive_wins * win_streak_bonus_pct
+                        symbol_effective_size = Decimal("0")
+                    else:
+                        # Use the SAME clamp the actual stop will use, so the
+                        # risk math and the stop placement can never diverge.
+                        clamped_pct = atr_trailing_stop.compute_clamped_pct(
+                            symbol_atr_pct
+                        )
+                        stop_distance_per_share = today_bar.open * (
+                            Decimal(str(clamped_pct)) / Decimal("100")
+                        )
+
+                        streak_bonus = (
+                            Decimal(streak_at_day_start) * win_streak_bonus_pct
+                        )
                         effective_risk = min(
                             risk_per_trade_pct + streak_bonus, max_risk_pct
                         )
-                        risk_amount = current_equity * Decimal(str(effective_risk / 100))
-                        calculated_risk_shares = int(
-                            float(risk_amount) / stop_distance_per_share
+                        risk_amount = current_equity * (
+                            effective_risk / Decimal("100")
                         )
-                        # Cap position size at current equity to prevent oversized positions
-                        # from very low ATR values (e.g., 0.02% ATR → 62x equity without cap)
+                        calculated_risk_shares = (
+                            int(risk_amount / stop_distance_per_share)
+                            if stop_distance_per_share > 0
+                            else 0
+                        )
                         raw_size = (
-                            Decimal(str(calculated_risk_shares)) * today_bar.open
+                            Decimal(calculated_risk_shares) * today_bar.open
                             if calculated_risk_shares > 0
                             else Decimal("0")
                         )
-                        symbol_effective_size = min(raw_size, current_equity)
+                        # Cap against actual buying power (cash), not total
+                        # equity. Capping at equity over-states the buying
+                        # power available and silently shifts the trade off
+                        # the user-configured risk% — we log when this fires.
+                        if raw_size > cash:
+                            logger.info(
+                                "Risk-based size capped by cash for %s on %s: "
+                                "raw=%s cash=%s (risk%% no longer honored)",
+                                symbol,
+                                current_date,
+                                raw_size,
+                                cash,
+                            )
+                            symbol_effective_size = cash
+                        else:
+                            symbol_effective_size = raw_size
                 else:
                     symbol_effective_size = effective_position_size
 
@@ -451,7 +503,12 @@ class SimulationEngine:
                 calculated_shares = int(symbol_effective_size / today_bar.open)
                 cost = calculated_shares * today_bar.open if calculated_shares > 0 else Decimal("0")
 
-                if calculated_shares < 1:
+                if risk_skip_reason is not None:
+                    # Risk-based sizing refused to size this trade.
+                    pending.status = PositionStatus.CLOSED.value
+                    pending.exit_reason = ExitReason.INSUFFICIENT_DATA.value
+                    pending.agent_reasoning = f"Position skipped: {risk_skip_reason}"
+                elif calculated_shares < 1:
                     # Price too high for position size - cancel pending
                     pending.status = PositionStatus.CLOSED.value
                     pending.exit_reason = ExitReason.INSUFFICIENT_CAPITAL.value
@@ -1215,29 +1272,43 @@ class SimulationEngine:
         exit_price: Decimal,
         exit_date: date,
         cash: Decimal,
+        update_streak: bool = True,
     ) -> Decimal:
         """Close a single position and update simulation counters.
 
         Sets all exit fields on the position, increments trade counters, and
-        updates the consecutive_wins streak. Returns the updated cash balance.
+        (optionally) updates the consecutive_wins streak. Returns the updated
+        cash balance.
 
         Args:
-            position: Open position to close.
+            position: Open position to close. Must have entry_price and shares
+                set (i.e. must have actually been opened).
             simulation: Parent simulation (counters updated in-place).
             exit_reason: Why the position was closed.
             exit_price: Price at which to exit.
             exit_date: Date of exit.
             cash: Current cash balance before this close.
+            update_streak: When True (default), update consecutive_wins. Set
+                to False from end-of-simulation force-closes so the streak
+                counter reflects only trader-driven closes.
 
         Returns:
             Updated cash balance after receiving position proceeds.
+
+        Raises:
+            ValueError: If position.entry_price or position.shares is None
+                (i.e. caller passed a position that was never opened).
         """
-        if not position.entry_price:
-            realized_pnl = Decimal("0")
-            return_pct = Decimal("0")
-        else:
-            realized_pnl = (exit_price - position.entry_price) * position.shares
-            return_pct = (exit_price - position.entry_price) / position.entry_price * 100
+        if position.entry_price is None or position.shares is None:
+            msg = (
+                f"Cannot close position {position.id}: entry_price or shares "
+                f"is None (entry_price={position.entry_price}, "
+                f"shares={position.shares})"
+            )
+            raise ValueError(msg)
+
+        realized_pnl = (exit_price - position.entry_price) * position.shares
+        return_pct = (exit_price - position.entry_price) / position.entry_price * 100
 
         position.status = PositionStatus.CLOSED.value
         position.exit_date = exit_date
@@ -1249,8 +1320,9 @@ class SimulationEngine:
         simulation.total_trades += 1
         if realized_pnl > 0:
             simulation.winning_trades += 1
-            simulation.consecutive_wins += 1
-        else:
+            if update_streak:
+                simulation.consecutive_wins += 1
+        elif update_streak:
             # Breakeven (pnl == 0) also resets streak — conservative by design.
             simulation.consecutive_wins = 0
 
@@ -1271,8 +1343,11 @@ class SimulationEngine:
         """
         open_positions = await self._get_open_positions(simulation.id)
 
-        # Use cash=Decimal("0"); proceeds are not tracked at end-of-simulation.
-        # consecutive_wins is also updated but unused after finalization.
+        # Pass cash=Decimal("0") because the returned cash balance is discarded
+        # at end-of-simulation; final equity is recomputed in _finalize_simulation.
+        # update_streak=False so the persisted consecutive_wins counter
+        # reflects only trader-driven closes — forced end-of-sim exits should
+        # not pollute analytics that read the field after finalization.
         for position in open_positions:
             bar = self._get_cached_bar_for_date(simulation.id, position.symbol, close_date)
             if not bar:
@@ -1291,6 +1366,7 @@ class SimulationEngine:
                 exit_price=bar.close,
                 exit_date=close_date,
                 cash=Decimal("0"),
+                update_streak=False,
             )
 
         return list(open_positions)
