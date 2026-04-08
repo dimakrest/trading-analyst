@@ -72,7 +72,7 @@ describe('RecommendPortfolioDialog', () => {
       expect(screen.getByText('60')).toBeInTheDocument();
     });
 
-    it('renders all four strategy options in the select', async () => {
+    it('renders all strategy options in the select', async () => {
       const user = userEvent.setup();
       renderDialog();
 
@@ -82,10 +82,16 @@ describe('RecommendPortfolioDialog', () => {
       const strategySelect = strategyTriggers[1];
       await user.click(strategySelect);
 
-      expect(screen.getByText('None (symbol order)')).toBeInTheDocument();
-      expect(screen.getAllByText('Score + Low ATR').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('Score + High ATR')).toBeInTheDocument();
-      expect(screen.getByText('Score + Moderate ATR')).toBeInTheDocument();
+      // Labels mirror constants/portfolio.ts PORTFOLIO_STRATEGIES.
+      // The default strategy is "Best Score — Calm" (score_sector_low_atr),
+      // so its label appears twice — once inside the SelectValue trigger
+      // and once as an option in the dropdown.
+      expect(screen.getByText('FIFO — Symbol Order')).toBeInTheDocument();
+      expect(screen.getAllByText('Best Score — Calm').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Best Score — Volatile')).toBeInTheDocument();
+      expect(screen.getByText('Best Score — Balanced')).toBeInTheDocument();
+      expect(screen.getByText('Multi-Factor — Calm')).toBeInTheDocument();
+      expect(screen.getByText('Multi-Factor — Volatile')).toBeInTheDocument();
     });
 
     it('renders max per sector input with default value of 2', () => {
