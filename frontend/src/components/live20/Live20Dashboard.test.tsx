@@ -53,6 +53,9 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 5,
     direction: 'LONG',
     atr: 3.45,
+    scoring_algorithm: null,
+    rsi2_value: null,
+    rsi2_score: null,
   },
   {
     id: 2,
@@ -79,6 +82,9 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 4,
     direction: 'NO_SETUP',
     atr: 5.80,
+    scoring_algorithm: null,
+    rsi2_value: null,
+    rsi2_score: null,
   },
   {
     id: 3,
@@ -105,6 +111,9 @@ const mockResults: Live20Result[] = [
     criteria_aligned: 4,
     direction: 'LONG',
     atr: 12.50,
+    scoring_algorithm: null,
+    rsi2_value: null,
+    rsi2_score: null,
   },
 ];
 
@@ -147,6 +156,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -188,6 +198,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       rerender(
@@ -219,6 +230,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       rerender(
@@ -253,6 +265,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -285,6 +298,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -315,6 +329,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: mockCancelAnalysis,
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -343,6 +358,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: true,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -373,6 +389,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -411,6 +428,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -441,6 +459,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -470,6 +489,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -501,6 +521,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -533,6 +554,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -558,6 +580,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -579,6 +602,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -604,6 +628,7 @@ describe('Live20Dashboard progressive results', () => {
           'INVALID': 'Symbol not found',
           'ERROR': 'Data fetch failed',
         },
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -628,6 +653,7 @@ describe('Live20Dashboard progressive results', () => {
         failedSymbols: {
           'INVALID': 'Symbol not found',
         },
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -656,6 +682,7 @@ describe('Live20Dashboard progressive results', () => {
           'SYM6': 'Error 6',
           'SYM7': 'Error 7',
         },
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -684,6 +711,7 @@ describe('Live20Dashboard progressive results', () => {
         failedSymbols: {
           'INVALID': 'Symbol not found',
         },
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -704,6 +732,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -728,6 +757,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -773,6 +803,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();
@@ -807,6 +838,7 @@ describe('Live20Dashboard progressive results', () => {
         cancelAnalysis: vi.fn(),
         isCancelling: false,
         failedSymbols: {},
+        completedRunId: null,
       });
 
       renderDashboard();

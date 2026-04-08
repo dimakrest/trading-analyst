@@ -48,10 +48,13 @@ export const CreateAgentDialog = ({
 }: CreateAgentDialogProps) => {
   const [name, setName] = useState('');
   const [scoringAlgorithm, setScoringAlgorithm] = useState<ScoringAlgorithm>('cci');
-  const [volumeScore, setVolumeScore] = useState(DEFAULT_SIGNAL_SCORES.volume_score);
-  const [candlePatternScore, setCandlePatternScore] = useState(DEFAULT_SIGNAL_SCORES.candle_pattern_score);
-  const [cciScore, setCciScore] = useState(DEFAULT_SIGNAL_SCORES.cci_score);
-  const [ma20DistanceScore, setMa20DistanceScore] = useState(DEFAULT_SIGNAL_SCORES.ma20_distance_score);
+  // DEFAULT_SIGNAL_SCORES is `as const`, so each property is a literal type
+  // (e.g. '25'). Without an explicit `<string>`, useState would infer
+  // useState<'25'> and any subsequent setter call from an <input> would fail.
+  const [volumeScore, setVolumeScore] = useState<string>(DEFAULT_SIGNAL_SCORES.volume_score);
+  const [candlePatternScore, setCandlePatternScore] = useState<string>(DEFAULT_SIGNAL_SCORES.candle_pattern_score);
+  const [cciScore, setCciScore] = useState<string>(DEFAULT_SIGNAL_SCORES.cci_score);
+  const [ma20DistanceScore, setMa20DistanceScore] = useState<string>(DEFAULT_SIGNAL_SCORES.ma20_distance_score);
   const [error, setError] = useState<string | null>(null);
 
   const parsedVolumeScore = Number.parseInt(volumeScore, 10);
