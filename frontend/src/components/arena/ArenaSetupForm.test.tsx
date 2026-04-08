@@ -169,8 +169,12 @@ describe('ArenaSetupForm', () => {
     expect(screen.getByRole('button', { name: /creating/i })).toBeDisabled();
   });
 
-  it('should show agent configuration section', () => {
+  it('should show agent configuration section', async () => {
+    const user = userEvent.setup();
     render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
+
+    // Agent configuration lives on the Agent tab (not the default Setup tab)
+    await user.click(screen.getByRole('tab', { name: /agent/i }));
 
     expect(screen.getByText(/agent configuration/i)).toBeInTheDocument();
     expect(screen.getByText(/live20 mean reversion/i)).toBeInTheDocument();
@@ -189,16 +193,40 @@ describe('ArenaSetupForm', () => {
   });
 
   describe('Minimum Buy Score', () => {
-    it('should have default value of 60', () => {
+    /**
+     * Helper: render the form, fill the Setup tab inputs (which would be
+     * unmounted on tab switch), then move to the Agent tab where the Min Buy
+     * Score input lives. Form state is preserved across tab switches because
+     * it lives in the parent component.
+     */
+    const renderAndOpenAgentTab = async ({ withValidSetup = false } = {}) => {
+      const user = userEvent.setup();
       render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
+
+      if (withValidSetup) {
+        const textarea = screen.getByRole('textbox', { name: /symbols/i });
+        fireEvent.change(textarea, { target: { value: 'AAPL' } });
+
+        const startDateInput = screen.getByLabelText(/start date/i);
+        const endDateInput = screen.getByLabelText(/end date/i);
+        fireEvent.change(startDateInput, { target: { value: '2024-01-01' } });
+        fireEvent.change(endDateInput, { target: { value: '2024-01-15' } });
+      }
+
+      await user.click(screen.getByRole('tab', { name: /agent/i }));
+      return user;
+    };
+
+    it('should have default value of 60', async () => {
+      await renderAndOpenAgentTab();
 
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
       expect(minBuyScoreInput).toHaveAttribute('id', 'arena-min-buy-score-input');
       expect(minBuyScoreInput.value).toBe('60');
     });
 
-    it('should update when changed', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
+    it('should update when changed', async () => {
+      await renderAndOpenAgentTab();
 
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
       fireEvent.change(minBuyScoreInput, { target: { value: '80' } });
@@ -207,22 +235,13 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should include min_buy_score in submission', async () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
+      await renderAndOpenAgentTab({ withValidSetup: true });
 
-      // Fill in form
-      const textarea = screen.getByRole('textbox', { name: /symbols/i });
-      fireEvent.change(textarea, { target: { value: 'AAPL' } });
-
-      const startDateInput = screen.getByLabelText(/start date/i);
-      const endDateInput = screen.getByLabelText(/end date/i);
-      fireEvent.change(startDateInput, { target: { value: '2024-01-01' } });
-      fireEvent.change(endDateInput, { target: { value: '2024-01-15' } });
-
-      // Change min buy score
+      // Change min buy score on the Agent tab
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
       fireEvent.change(minBuyScoreInput, { target: { value: '80' } });
 
-      // Submit
+      // Submit (button is rendered outside the Tabs and remains visible)
       const submitButton = screen.getByRole('button', { name: /start simulation/i });
       fireEvent.click(submitButton);
 
@@ -242,17 +261,8 @@ describe('ArenaSetupForm', () => {
       );
     });
 
-    it('should disable submit when value is below minimum (5)', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
-
-      // Fill valid data
-      const textarea = screen.getByRole('textbox', { name: /symbols/i });
-      fireEvent.change(textarea, { target: { value: 'AAPL' } });
-
-      const startDateInput = screen.getByLabelText(/start date/i);
-      const endDateInput = screen.getByLabelText(/end date/i);
-      fireEvent.change(startDateInput, { target: { value: '2024-01-01' } });
-      fireEvent.change(endDateInput, { target: { value: '2024-01-15' } });
+    it('should disable submit when value is below minimum (5)', async () => {
+      await renderAndOpenAgentTab({ withValidSetup: true });
 
       // Set invalid min buy score (below MIN of 5)
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
@@ -261,17 +271,8 @@ describe('ArenaSetupForm', () => {
       expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
     });
 
-    it('should disable submit when value is above 100', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
-
-      // Fill valid data
-      const textarea = screen.getByRole('textbox', { name: /symbols/i });
-      fireEvent.change(textarea, { target: { value: 'AAPL' } });
-
-      const startDateInput = screen.getByLabelText(/start date/i);
-      const endDateInput = screen.getByLabelText(/end date/i);
-      fireEvent.change(startDateInput, { target: { value: '2024-01-01' } });
-      fireEvent.change(endDateInput, { target: { value: '2024-01-15' } });
+    it('should disable submit when value is above 100', async () => {
+      await renderAndOpenAgentTab({ withValidSetup: true });
 
       // Set invalid min buy score
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
@@ -280,8 +281,8 @@ describe('ArenaSetupForm', () => {
       expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
     });
 
-    it('should show dynamic help text based on value', () => {
-      render(<ArenaSetupForm onSubmit={mockOnSubmit} onSubmitComparison={mockOnSubmitComparison} isLoading={false} />);
+    it('should show dynamic help text based on value', async () => {
+      await renderAndOpenAgentTab();
 
       const minBuyScoreInput = screen.getByDisplayValue('60') as HTMLInputElement;
 
@@ -419,8 +420,27 @@ describe('ArenaSetupForm', () => {
   });
 
   describe('Multi-Strategy Selection', () => {
-    /** Helper: render the form with valid symbols and dates so the submit button can be enabled */
-    const renderWithValidInputs = () => {
+    /**
+     * Strategy label matchers (mirroring constants/portfolio.ts). The em
+     * dashes are intentional — they pin the matcher to the strategy *label*
+     * (e.g. "Best Score — Volatile") and prevent accidental matches against
+     * the description text (e.g. "less volatile stocks" appears in the
+     * "Best Score — Calm" description, which would otherwise collide with a
+     * loose `/best score.*volatile/i` regex).
+     */
+    const STRATEGY_NAME = {
+      none: /fifo — symbol order/i,
+      lowAtr: /best score — calm/i,
+      highAtr: /best score — volatile/i,
+    };
+
+    /**
+     * Helper: render the form with valid symbols and dates, then switch to the
+     * Portfolio tab where the strategy cards live. Form state is preserved on
+     * tab switch because it's owned by the parent component.
+     */
+    const renderWithValidInputs = async () => {
+      const user = userEvent.setup();
       render(
         <ArenaSetupForm
           onSubmit={mockOnSubmit}
@@ -437,20 +457,21 @@ describe('ArenaSetupForm', () => {
       fireEvent.change(screen.getByLabelText(/end date/i), {
         target: { value: '2024-06-01' },
       });
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      return user;
     };
 
-    it('should show "Start Simulation" button text with 1 strategy selected (default)', () => {
-      renderWithValidInputs();
+    it('should show "Start Simulation" button text with 1 strategy selected (default)', async () => {
+      await renderWithValidInputs();
       // Default is ['none'] — 1 strategy
       expect(screen.getByRole('button', { name: /start simulation/i })).toBeEnabled();
     });
 
     it('should show "Start Comparison (2 strategies)" button text with 2 strategies selected', async () => {
-      const user = userEvent.setup();
-      renderWithValidInputs();
+      const user = await renderWithValidInputs();
 
-      // Select a second strategy (Score + Low ATR)
-      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+      // Select a second strategy (Best Score — Calm)
+      await user.click(screen.getByRole('button', { name: STRATEGY_NAME.lowAtr }));
 
       expect(
         screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
@@ -458,11 +479,10 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should show "Start Comparison (3 strategies)" button text with 3 strategies selected', async () => {
-      const user = userEvent.setup();
-      renderWithValidInputs();
+      const user = await renderWithValidInputs();
 
-      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
-      await user.click(screen.getByRole('button', { name: /score \+ high atr/i }));
+      await user.click(screen.getByRole('button', { name: STRATEGY_NAME.lowAtr }));
+      await user.click(screen.getByRole('button', { name: STRATEGY_NAME.highAtr }));
 
       expect(
         screen.getByRole('button', { name: /start comparison \(3 strategies\)/i })
@@ -470,11 +490,10 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should show disabled "Select a Strategy" button when 0 strategies selected', async () => {
-      const user = userEvent.setup();
-      renderWithValidInputs();
+      const user = await renderWithValidInputs();
 
       // Deselect the default 'none' strategy
-      await user.click(screen.getByRole('button', { name: /none \(symbol order\)/i }));
+      await user.click(screen.getByRole('button', { name: STRATEGY_NAME.none }));
 
       expect(
         screen.getByRole('button', { name: /select a strategy/i })
@@ -482,25 +501,23 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should revert to "Start Simulation" when deselecting from 2 strategies back to 1', async () => {
-      const user = userEvent.setup();
-      renderWithValidInputs();
+      const user = await renderWithValidInputs();
 
       // Add a second strategy
-      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+      await user.click(screen.getByRole('button', { name: STRATEGY_NAME.lowAtr }));
       expect(
         screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
       ).toBeEnabled();
 
       // Deselect the second strategy
-      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+      await user.click(screen.getByRole('button', { name: STRATEGY_NAME.lowAtr }));
       expect(screen.getByRole('button', { name: /start simulation/i })).toBeEnabled();
     });
 
     it('should toggle off a strategy when clicking an already-selected one', async () => {
-      const user = userEvent.setup();
-      renderWithValidInputs();
+      const user = await renderWithValidInputs();
 
-      const noneButton = screen.getByRole('button', { name: /none \(symbol order\)/i });
+      const noneButton = screen.getByRole('button', { name: STRATEGY_NAME.none });
       expect(noneButton).toHaveAttribute('aria-pressed', 'true');
 
       await user.click(noneButton);
@@ -508,28 +525,26 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should show portfolio constraint fields when any non-"none" strategy is selected', async () => {
-      const user = userEvent.setup();
-      renderWithValidInputs();
+      const user = await renderWithValidInputs();
 
       // Only 'none' selected by default — constraint fields should NOT appear
       expect(screen.queryByLabelText(/max per sector/i)).not.toBeInTheDocument();
 
       // Select a non-none strategy
-      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+      await user.click(screen.getByRole('button', { name: STRATEGY_NAME.lowAtr }));
 
       expect(screen.getByLabelText(/max per sector/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/max open positions/i)).toBeInTheDocument();
     });
 
     it('should NOT show portfolio constraint fields when only "none" is selected', async () => {
-      renderWithValidInputs();
+      await renderWithValidInputs();
       // Default is ['none']
       expect(screen.queryByLabelText(/max per sector/i)).not.toBeInTheDocument();
     });
 
     it('should call onSubmit (not onSubmitComparison) when exactly 1 strategy is selected', async () => {
-      const user = userEvent.setup();
-      renderWithValidInputs();
+      const user = await renderWithValidInputs();
 
       // Default: 1 strategy ('none') selected
       await user.click(screen.getByRole('button', { name: /start simulation/i }));
@@ -539,11 +554,10 @@ describe('ArenaSetupForm', () => {
     });
 
     it('should call onSubmitComparison (not onSubmit) when 2+ strategies are selected', async () => {
-      const user = userEvent.setup();
-      renderWithValidInputs();
+      const user = await renderWithValidInputs();
 
       // Add a second strategy
-      await user.click(screen.getByRole('button', { name: /score \+ low atr/i }));
+      await user.click(screen.getByRole('button', { name: STRATEGY_NAME.lowAtr }));
 
       await user.click(
         screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
@@ -558,7 +572,8 @@ describe('ArenaSetupForm', () => {
       );
     });
 
-    it('should initialize selectedStrategies from initialValues.portfolio_strategy', () => {
+    it('should initialize selectedStrategies from initialValues.portfolio_strategy', async () => {
+      const user = userEvent.setup();
       render(
         <ArenaSetupForm
           onSubmit={mockOnSubmit}
@@ -577,16 +592,203 @@ describe('ArenaSetupForm', () => {
         />
       );
 
-      const lowAtrButton = screen.getByRole('button', { name: /score \+ low atr/i });
+      // Strategy cards live on the Portfolio tab
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      const lowAtrButton = screen.getByRole('button', { name: STRATEGY_NAME.lowAtr });
       expect(lowAtrButton).toHaveAttribute('aria-pressed', 'true');
 
-      const noneButton = screen.getByRole('button', { name: /none \(symbol order\)/i });
+      const noneButton = screen.getByRole('button', { name: STRATEGY_NAME.none });
       expect(noneButton).toHaveAttribute('aria-pressed', 'false');
     });
   });
 
+  describe('Stop Type and Sizing Mode', () => {
+    /** Helper: render and fill the minimum valid inputs on the Setup tab */
+    const renderWithValidSetupInputs = () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+        />
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+        target: { value: 'AAPL' },
+      });
+      fireEvent.change(screen.getByLabelText(/start date/i), {
+        target: { value: '2024-01-01' },
+      });
+      fireEvent.change(screen.getByLabelText(/end date/i), {
+        target: { value: '2024-06-01' },
+      });
+    };
+
+    it('should show Stop Type and Sizing Mode selects on the Setup tab', () => {
+      renderWithValidSetupInputs();
+      expect(screen.getByRole('combobox', { name: /stop type/i })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: /sizing mode/i })).toBeInTheDocument();
+    });
+
+    it('should hide Position Size ($) and show ATR params when ATR stop is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // ATR stop params should not be visible by default
+      expect(screen.queryByLabelText(/atr multiplier/i)).not.toBeInTheDocument();
+
+      // Select ATR stop
+      await user.click(screen.getByRole('combobox', { name: /stop type/i }));
+      await user.click(screen.getByRole('option', { name: /atr-based/i }));
+
+      // ATR params should appear
+      expect(screen.getByLabelText(/atr multiplier/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/atr min/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/atr max/i)).toBeInTheDocument();
+    });
+
+    it('should hide Position Size ($) and show Position Size (%) when fixed_pct is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Fixed $ field should be visible by default
+      expect(screen.getByLabelText(/position size \(\$\)/i)).toBeInTheDocument();
+
+      // Select fixed_pct sizing
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /fixed % of equity/i }));
+
+      // Fixed $ should be hidden, fixed % should appear
+      expect(screen.queryByLabelText(/position size \(\$\)/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/position size \(%\)/i)).toBeInTheDocument();
+    });
+
+    it('should auto-set stop type to ATR and show risk params when risk_based sizing is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Select risk_based sizing
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /risk-based/i }));
+
+      // Position size fixed $ should be hidden
+      expect(screen.queryByLabelText(/position size \(\$\)/i)).not.toBeInTheDocument();
+
+      // Risk parameters should appear
+      expect(screen.getByLabelText(/risk per trade/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/win streak bonus/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/max risk cap/i)).toBeInTheDocument();
+
+      // ATR stop params should also be visible (auto-set)
+      expect(screen.getByLabelText(/atr multiplier/i)).toBeInTheDocument();
+    });
+
+    it('should disable Stop Type selector when risk_based sizing is active', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Select risk_based
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /risk-based/i }));
+
+      // Stop Type selector should be disabled (risk_based forces ATR)
+      expect(screen.getByRole('combobox', { name: /stop type/i })).toHaveAttribute(
+        'data-disabled'
+      );
+    });
+
+    it('should include stop_type in submission', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Select ATR stop
+      await user.click(screen.getByRole('combobox', { name: /stop type/i }));
+      await user.click(screen.getByRole('option', { name: /atr-based/i }));
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stop_type: 'atr',
+          atr_stop_multiplier: 2.0,
+          atr_stop_min_pct: 2.0,
+          atr_stop_max_pct: 10.0,
+        })
+      );
+    });
+
+    it('should include sizing_mode and risk fields in submission when risk_based is selected', async () => {
+      const user = userEvent.setup();
+      renderWithValidSetupInputs();
+
+      // Select risk_based sizing
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /risk-based/i }));
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sizing_mode: 'risk_based',
+          stop_type: 'atr',
+          risk_per_trade_pct: 2.5,
+          win_streak_bonus_pct: 0.3,
+          max_risk_pct: 4.0,
+        })
+      );
+    });
+
+    it('should hydrate sizing_mode from initialValues on replay', () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            sizing_mode: 'risk_based',
+          }}
+        />
+      );
+
+      // Risk parameters should be visible since sizing_mode is 'risk_based'
+      expect(screen.getByLabelText(/risk per trade/i)).toBeInTheDocument();
+    });
+
+    it('should default sizing_mode to fixed when initialValues.sizing_mode is null', () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            sizing_mode: null,
+          }}
+        />
+      );
+
+      // Fixed mode: Position Size ($) should be visible, risk params hidden
+      expect(screen.getByLabelText(/position size \(\$\)/i)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/risk per trade/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('initialValues (replay feature)', () => {
-    it('should populate form fields from initialValues', () => {
+    it('should populate form fields from initialValues', async () => {
+      const user = userEvent.setup();
       const initialValues = {
         symbols: ['AAPL', 'NVDA', 'TSLA'],
         start_date: '2025-01-01',
@@ -629,6 +831,9 @@ describe('ArenaSetupForm', () => {
       // Verify trailing stop
       const trailingStopInput = screen.getByLabelText(/trailing stop/i) as HTMLInputElement;
       expect(trailingStopInput.value).toBe('8');
+
+      // Min buy score lives on the Agent tab
+      await user.click(screen.getByRole('tab', { name: /agent/i }));
 
       // Verify min buy score
       const minBuyScoreInput = screen.getByDisplayValue('80') as HTMLInputElement;

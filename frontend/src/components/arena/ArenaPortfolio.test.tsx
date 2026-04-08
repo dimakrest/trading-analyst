@@ -34,6 +34,7 @@ const mockSimulation: Simulation = {
   profit_factor: null,
   sharpe_ratio: null,
   total_realized_pnl: null,
+  group_id: null,
   created_at: '2024-01-01T10:00:00Z',
 };
 

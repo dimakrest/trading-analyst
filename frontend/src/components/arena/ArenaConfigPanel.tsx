@@ -9,6 +9,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  Layers,
   LayoutGrid,
   Settings2,
   Target,
@@ -22,6 +23,13 @@ import type { Simulation } from '../../types/arena';
 
 /** Default number of symbols shown before expansion */
 const SYMBOLS_PREVIEW_COUNT = 8;
+
+/** Human-readable labels for sizing modes */
+const SIZING_MODE_LABEL: Record<string, string> = {
+  fixed: 'Fixed $',
+  fixed_pct: 'Fixed %',
+  risk_based: 'Risk-Based',
+};
 
 interface ArenaConfigPanelProps {
   /** Simulation configuration to display */
@@ -173,6 +181,71 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
                   }
                 />
               )}
+          </div>
+        )}
+
+        {/* Sizing Mode Row — only shown when a non-default (non-fixed) sizing mode is configured */}
+        {simulation.sizing_mode && simulation.sizing_mode !== 'fixed' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 pt-3 border-t border-border-subtle">
+            <ConfigItem
+              icon={<Layers className="h-3.5 w-3.5" />}
+              label="Sizing Mode"
+              value={
+                <span className="text-text-primary">
+                  {SIZING_MODE_LABEL[simulation.sizing_mode] ?? simulation.sizing_mode}
+                </span>
+              }
+            />
+            {simulation.sizing_mode === 'fixed_pct' && (
+              <ConfigItem
+                icon={<Layers className="h-3.5 w-3.5" />}
+                label="Position Size"
+                value={
+                  simulation.position_size_pct != null ? (
+                    <span className="text-text-primary">{simulation.position_size_pct}%</span>
+                  ) : (
+                    <span className="text-text-muted">—</span>
+                  )
+                }
+              />
+            )}
+            {simulation.sizing_mode === 'risk_based' && (
+              <>
+                <ConfigItem
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label="Risk Per Trade"
+                  value={
+                    simulation.risk_per_trade_pct != null ? (
+                      <span className="text-text-primary">{simulation.risk_per_trade_pct}%</span>
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )
+                  }
+                />
+                <ConfigItem
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label="Win Streak Bonus"
+                  value={
+                    simulation.win_streak_bonus_pct != null ? (
+                      <span className="text-text-primary">{simulation.win_streak_bonus_pct}%</span>
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )
+                  }
+                />
+                <ConfigItem
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label="Max Risk Cap"
+                  value={
+                    simulation.max_risk_pct != null ? (
+                      <span className="text-text-primary">{simulation.max_risk_pct}%</span>
+                    ) : (
+                      <span className="text-text-muted">—</span>
+                    )
+                  }
+                />
+              </>
+            )}
           </div>
         )}
 

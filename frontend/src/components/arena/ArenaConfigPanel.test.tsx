@@ -33,6 +33,13 @@ const createMockSimulation = (overrides: Partial<Simulation> = {}): Simulation =
   total_trades: 10,
   winning_trades: 7,
   max_drawdown_pct: '3.5',
+  avg_hold_days: null,
+  avg_win_pnl: null,
+  avg_loss_pnl: null,
+  profit_factor: null,
+  sharpe_ratio: null,
+  total_realized_pnl: null,
+  group_id: null,
   created_at: '2024-01-01T00:00:00Z',
   ...overrides,
 });

@@ -14,7 +14,13 @@ export type SimulationStatus = 'pending' | 'running' | 'paused' | 'completed' | 
 export type PositionStatus = 'pending' | 'open' | 'closed';
 
 /** Why a position was closed */
-export type ExitReason = 'stop_hit' | 'simulation_end' | 'insufficient_capital' | 'take_profit' | 'max_hold';
+export type ExitReason =
+  | 'stop_hit'
+  | 'simulation_end'
+  | 'insufficient_capital'
+  | 'insufficient_data'
+  | 'take_profit'
+  | 'max_hold';
 
 /** Agent information from /api/v1/arena/agents */
 export interface AgentInfo {
@@ -49,6 +55,15 @@ export interface Simulation {
   max_per_sector: number | null;
   max_open_positions: number | null;
   ma_sweet_spot_center?: number | null;
+  stop_type?: 'fixed' | 'atr' | null;
+  atr_stop_multiplier?: number | null;
+  atr_stop_min_pct?: number | null;
+  atr_stop_max_pct?: number | null;
+  position_size_pct?: number | null;
+  sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based' | null;
+  risk_per_trade_pct?: number | null;
+  win_streak_bonus_pct?: number | null;
+  max_risk_pct?: number | null;
   group_id: string | null;
   status: SimulationStatus;
   current_day: number;
@@ -145,6 +160,14 @@ export interface CreateSimulationRequest {
   position_size?: number;
   /** Agent type (default: 'live20') */
   agent_type?: string;
+  /** Trailing stop type: 'fixed' or 'atr' (default: 'fixed') */
+  stop_type?: 'fixed' | 'atr';
+  /** ATR stop multiplier (default: 2.0, used when stop_type='atr') */
+  atr_stop_multiplier?: number;
+  /** ATR stop minimum percentage floor (default: 2.0, used when stop_type='atr') */
+  atr_stop_min_pct?: number;
+  /** ATR stop maximum percentage ceiling (default: 10.0, used when stop_type='atr') */
+  atr_stop_max_pct?: number;
   /** Trailing stop percentage (default: 5.0) */
   trailing_stop_pct?: number;
   /** Minimum score to generate BUY signal (20-100, default: 60) */
@@ -161,6 +184,16 @@ export interface CreateSimulationRequest {
   max_open_positions?: number | null;
   /** MA20 sweet spot center percentage for enriched_score strategies */
   ma_sweet_spot_center?: number;
+  /** Position sizing mode: 'fixed', 'fixed_pct', or 'risk_based' (default: 'fixed') */
+  sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based';
+  /** Position size as percentage of equity (used when sizing_mode='fixed_pct') */
+  position_size_pct?: number;
+  /** Base risk per trade as % of equity (used when sizing_mode='risk_based') */
+  risk_per_trade_pct?: number;
+  /** Extra risk % per consecutive win (used when sizing_mode='risk_based') */
+  win_streak_bonus_pct?: number;
+  /** Maximum effective risk % per trade cap (used when sizing_mode='risk_based') */
+  max_risk_pct?: number;
 }
 
 /** Response from step endpoint */
@@ -188,6 +221,14 @@ export interface CreateComparisonRequest {
   initial_capital?: number;
   position_size?: number;
   agent_type?: string;
+  /** Trailing stop type: 'fixed' or 'atr' (default: 'fixed') */
+  stop_type?: 'fixed' | 'atr';
+  /** ATR stop multiplier (default: 2.0, used when stop_type='atr') */
+  atr_stop_multiplier?: number;
+  /** ATR stop minimum percentage floor (default: 2.0, used when stop_type='atr') */
+  atr_stop_min_pct?: number;
+  /** ATR stop maximum percentage ceiling (default: 10.0, used when stop_type='atr') */
+  atr_stop_max_pct?: number;
   trailing_stop_pct?: number;
   min_buy_score?: number;
   agent_config_id?: number;
@@ -195,6 +236,16 @@ export interface CreateComparisonRequest {
   portfolio_strategies: string[];
   max_per_sector?: number | null;
   max_open_positions?: number | null;
+  /** Position sizing mode: 'fixed', 'fixed_pct', or 'risk_based' (default: 'fixed') */
+  sizing_mode?: 'fixed' | 'fixed_pct' | 'risk_based';
+  /** Position size as percentage of equity (used when sizing_mode='fixed_pct') */
+  position_size_pct?: number;
+  /** Base risk per trade as % of equity (used when sizing_mode='risk_based') */
+  risk_per_trade_pct?: number;
+  /** Extra risk % per consecutive win (used when sizing_mode='risk_based') */
+  win_streak_bonus_pct?: number;
+  /** Maximum effective risk % per trade cap (used when sizing_mode='risk_based') */
+  max_risk_pct?: number;
 }
 
 /** Response from comparison creation / retrieval */

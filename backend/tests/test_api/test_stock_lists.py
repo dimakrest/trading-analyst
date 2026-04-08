@@ -335,11 +335,11 @@ class TestCreateStockList:
     async def test_create_list_too_many_symbols(self, async_client: AsyncClient):
         """Test creating a list with too many symbols fails.
 
-        Arrange: > 150 symbols
+        Arrange: > 200 symbols
         Act: POST /api/v1/stock-lists
         Assert: Verify 422 validation error
         """
-        payload = {"name": "Too Many", "symbols": [f"SYM{i}" for i in range(151)]}
+        payload = {"name": "Too Many", "symbols": [f"SYM{i}" for i in range(201)]}
 
         response = await async_client.post("/api/v1/stock-lists", json=payload)
 

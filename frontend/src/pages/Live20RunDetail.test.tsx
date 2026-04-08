@@ -29,6 +29,7 @@ const mockRunDetail: Live20RunDetailType = {
   input_symbols: ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'TSLA'],
   stock_list_id: null,
   stock_list_name: null,
+  scoring_algorithm: null,
   results: [
     {
       id: 1,
@@ -55,6 +56,9 @@ const mockRunDetail: Live20RunDetailType = {
       criteria_aligned: 5,
       direction: 'LONG',
       atr: 3.45,
+      scoring_algorithm: null,
+      rsi2_value: null,
+      rsi2_score: null,
     },
     {
       id: 2,
@@ -81,6 +85,9 @@ const mockRunDetail: Live20RunDetailType = {
       criteria_aligned: 4,
       direction: 'NO_SETUP',
       atr: 5.80,
+      scoring_algorithm: null,
+      rsi2_value: null,
+      rsi2_score: null,
     },
     {
       id: 3,
@@ -107,6 +114,9 @@ const mockRunDetail: Live20RunDetailType = {
       criteria_aligned: 4,
       direction: 'LONG',
       atr: 12.50,
+      scoring_algorithm: null,
+      rsi2_value: null,
+      rsi2_score: null,
     },
     {
       id: 4,
@@ -133,6 +143,9 @@ const mockRunDetail: Live20RunDetailType = {
       criteria_aligned: 1,
       direction: 'NO_SETUP',
       atr: null,
+      scoring_algorithm: null,
+      rsi2_value: null,
+      rsi2_score: null,
     },
     {
       id: 5,
@@ -159,6 +172,9 @@ const mockRunDetail: Live20RunDetailType = {
       criteria_aligned: 0,
       direction: 'NO_SETUP',
       atr: null,
+      scoring_algorithm: null,
+      rsi2_value: null,
+      rsi2_score: null,
     },
   ],
 };

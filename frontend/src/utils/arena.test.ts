@@ -24,6 +24,7 @@ const createPosition = (overrides: Partial<Position>): Position => ({
   return_pct: null,
   agent_reasoning: null,
   agent_score: null,
+  sector: null,
   ...overrides,
 });
 

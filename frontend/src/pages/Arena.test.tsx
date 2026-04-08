@@ -63,6 +63,7 @@ const mockSimulations: Simulation[] = [
     profit_factor: null,
     sharpe_ratio: null,
     total_realized_pnl: null,
+    group_id: null,
     created_at: '2024-01-01T10:00:00Z',
   },
 ];
@@ -98,6 +99,7 @@ const mockRunningSimulation: Simulation = {
   profit_factor: null,
   sharpe_ratio: null,
   total_realized_pnl: null,
+  group_id: null,
   created_at: '2024-02-01T10:00:00Z',
 };
 
@@ -247,6 +249,7 @@ describe('Arena', () => {
       profit_factor: null,
       sharpe_ratio: null,
       total_realized_pnl: null,
+      group_id: null,
       created_at: '2024-03-01T10:00:00Z',
     };
 

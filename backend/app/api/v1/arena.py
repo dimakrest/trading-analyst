@@ -96,6 +96,15 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     portfolio_strategy = agent_config.get("portfolio_strategy")
     max_per_sector = agent_config.get("max_per_sector")
     max_open_positions = agent_config.get("max_open_positions")
+    stop_type = agent_config.get("stop_type")
+    atr_stop_multiplier = agent_config.get("atr_stop_multiplier")
+    atr_stop_min_pct = agent_config.get("atr_stop_min_pct")
+    atr_stop_max_pct = agent_config.get("atr_stop_max_pct")
+    position_size_pct = agent_config.get("position_size_pct")
+    sizing_mode = agent_config.get("sizing_mode")
+    risk_per_trade_pct = agent_config.get("risk_per_trade_pct")
+    win_streak_bonus_pct = agent_config.get("win_streak_bonus_pct")
+    max_risk_pct = agent_config.get("max_risk_pct")
 
     return SimulationResponse(
         id=simulation.id,
@@ -118,6 +127,15 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         portfolio_strategy=portfolio_strategy,
         max_per_sector=max_per_sector,
         max_open_positions=max_open_positions,
+        stop_type=stop_type,
+        atr_stop_multiplier=atr_stop_multiplier,
+        atr_stop_min_pct=atr_stop_min_pct,
+        atr_stop_max_pct=atr_stop_max_pct,
+        position_size_pct=position_size_pct,
+        sizing_mode=sizing_mode,
+        risk_per_trade_pct=risk_per_trade_pct,
+        win_streak_bonus_pct=win_streak_bonus_pct,
+        max_risk_pct=max_risk_pct,
         group_id=simulation.group_id,
         status=simulation.status,
         current_day=simulation.current_day,
@@ -259,6 +277,11 @@ async def create_simulation(
         "max_hold_days_profit": request.max_hold_days_profit,
         # Layer 3: Percentage-based position sizing
         "position_size_pct": request.position_size_pct,
+        # Layer 3 (risk-based): Volatility-adjusted position sizing
+        "sizing_mode": request.sizing_mode,
+        "risk_per_trade_pct": request.risk_per_trade_pct,
+        "win_streak_bonus_pct": request.win_streak_bonus_pct,
+        "max_risk_pct": request.max_risk_pct,
         # Layer 8: Breakeven & profit ratcheting
         "breakeven_trigger_pct": request.breakeven_trigger_pct,
         "ratchet_trigger_pct": request.ratchet_trigger_pct,
@@ -678,6 +701,18 @@ async def create_comparison(
         "scoring_algorithm": scoring_algorithm,
         "max_per_sector": request.max_per_sector,
         "max_open_positions": request.max_open_positions,
+        # Layer 4: ATR-based trailing stops
+        "stop_type": request.stop_type,
+        "atr_stop_multiplier": request.atr_stop_multiplier,
+        "atr_stop_min_pct": request.atr_stop_min_pct,
+        "atr_stop_max_pct": request.atr_stop_max_pct,
+        # Layer 3: Percentage-based position sizing
+        "position_size_pct": request.position_size_pct,
+        # Layer 3 (risk-based): Volatility-adjusted position sizing
+        "sizing_mode": request.sizing_mode,
+        "risk_per_trade_pct": request.risk_per_trade_pct,
+        "win_streak_bonus_pct": request.win_streak_bonus_pct,
+        "max_risk_pct": request.max_risk_pct,
     }
     if request.agent_config_id is not None:
         base_agent_config["agent_config_id"] = request.agent_config_id

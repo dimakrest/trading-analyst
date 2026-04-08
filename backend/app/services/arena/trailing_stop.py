@@ -187,6 +187,29 @@ class AtrTrailingStop:
         self.min_pct = min_pct
         self.max_pct = max_pct
 
+    def compute_clamped_pct(self, atr_pct: float) -> float:
+        """Compute the trail percentage clamped to [min_pct, max_pct].
+
+        This is the single source of truth for the ATR → trail_pct
+        conversion. Both ``calculate_initial_stop`` (for actual stop
+        placement) and risk-based position sizing call this so the
+        sizing math and the stop placement can never diverge.
+
+        Args:
+            atr_pct: ATR as a percentage of price (e.g., 3.5 for 3.5%).
+
+        Returns:
+            Clamped trail percentage (e.g., 7.0 for 7%).
+
+        Raises:
+            ValueError: If atr_pct is not positive.
+        """
+        if atr_pct <= 0:
+            msg = f"atr_pct must be positive, got {atr_pct}"
+            raise ValueError(msg)
+        raw_pct = self.atr_multiplier * atr_pct
+        return max(self.min_pct, min(self.max_pct, raw_pct))
+
     def calculate_initial_stop(
         self, entry_price: Decimal, atr_pct: float
     ) -> tuple[Decimal, Decimal, Decimal]:
@@ -207,12 +230,7 @@ class AtrTrailingStop:
         Raises:
             ValueError: If atr_pct is not positive.
         """
-        if atr_pct <= 0:
-            msg = f"atr_pct must be positive, got {atr_pct}"
-            raise ValueError(msg)
-
-        raw_pct = self.atr_multiplier * atr_pct
-        clamped_pct = max(self.min_pct, min(self.max_pct, raw_pct))
+        clamped_pct = self.compute_clamped_pct(atr_pct)
         trail_pct_decimal = Decimal(str(round(clamped_pct, 4)))
 
         multiplier = _make_trail_multiplier(trail_pct_decimal)

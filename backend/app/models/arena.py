@@ -51,6 +51,7 @@ class ExitReason(str, Enum):
     STOP_HIT = "stop_hit"  # Trailing stop triggered
     SIMULATION_END = "simulation_end"  # Simulation ended, forced close
     INSUFFICIENT_CAPITAL = "insufficient_capital"  # Price > position size
+    INSUFFICIENT_DATA = "insufficient_data"  # Required ATR/lookback data missing
     TAKE_PROFIT = "take_profit"  # Take-profit target reached
     MAX_HOLD = "max_hold"  # Maximum holding period expired
 
@@ -182,6 +183,11 @@ class ArenaSimulation(Base):
     )
     total_realized_pnl: Mapped[Decimal | None] = mapped_column(
         Numeric(precision=12, scale=2), nullable=True, doc="Sum of all realized P&L"
+    )
+
+    # Win streak tracking (for risk-based sizing)
+    consecutive_wins: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, doc="Consecutive winning trades (resets on loss)"
     )
 
     # Error tracking

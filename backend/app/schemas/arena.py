@@ -134,7 +134,7 @@ class CreateSimulationRequest(StrictBaseModel):
     )
 
     # --- Layer 4: ATR-Based Trailing Stops ---
-    stop_type: str = Field(
+    stop_type: Literal["fixed", "atr"] = Field(
         default="fixed",
         description=(
             "Trailing stop type: 'fixed' uses a fixed trailing_stop_pct, "
@@ -206,6 +206,34 @@ class CreateSimulationRequest(StrictBaseModel):
             "Position size as percentage of current equity (e.g., 33.0 = 33%). "
             "Overrides fixed position_size when set. None = use fixed position_size."
         ),
+    )
+
+    # --- Layer 3 (risk-based): Volatility-Adjusted Position Sizing ---
+    sizing_mode: Literal["fixed", "fixed_pct", "risk_based"] = Field(
+        default="fixed",
+        description=(
+            "Position sizing mode: 'fixed' uses position_size, "
+            "'fixed_pct' uses position_size_pct % of equity, "
+            "'risk_based' sizes so each trade risks risk_per_trade_pct% of equity."
+        ),
+    )
+    risk_per_trade_pct: float = Field(
+        default=2.5,
+        gt=0,
+        le=10,
+        description="Base risk per trade as % of equity (sizing_mode='risk_based').",
+    )
+    win_streak_bonus_pct: float = Field(
+        default=0.3,
+        ge=0,
+        le=2,
+        description="Extra risk % per consecutive win (sizing_mode='risk_based').",
+    )
+    max_risk_pct: float = Field(
+        default=4.0,
+        gt=0,
+        le=10,
+        description="Maximum effective risk % per trade cap (sizing_mode='risk_based').",
     )
 
     # --- Layer 8: Breakeven & Profit Ratcheting ---
@@ -285,16 +313,6 @@ class CreateSimulationRequest(StrictBaseModel):
     _validate_date_range = field_validator("end_date")(_validate_date_range_value)
     _validate_agent_type = field_validator("agent_type")(_validate_agent_type_value)
 
-    @field_validator("stop_type")
-    @classmethod
-    def validate_stop_type(cls, v: str) -> str:
-        """Validate stop_type is a recognized value."""
-        allowed = {"fixed", "atr"}
-        if v not in allowed:
-            msg = f"Unknown stop_type: {v!r}. Allowed: {', '.join(sorted(allowed))}"
-            raise ValueError(msg)
-        return v
-
     @field_validator("portfolio_strategy")
     @classmethod
     def validate_portfolio_strategy(cls, v: str) -> str:
@@ -312,6 +330,22 @@ class CreateSimulationRequest(StrictBaseModel):
         """Ensure ratchet_trigger_pct and ratchet_trail_pct are both set or both None."""
         if (self.ratchet_trigger_pct is None) != (self.ratchet_trail_pct is None):
             msg = "ratchet_trigger_pct and ratchet_trail_pct must both be set or both be None"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def validate_sizing_stop_combination(self) -> "CreateSimulationRequest":
+        """Ensure risk_based sizing is only used with ATR stops."""
+        if self.sizing_mode == "risk_based" and self.stop_type != "atr":
+            msg = "sizing_mode='risk_based' requires stop_type='atr'"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def validate_fixed_pct_requires_size(self) -> "CreateSimulationRequest":
+        """Ensure fixed_pct sizing has an explicit position_size_pct."""
+        if self.sizing_mode == "fixed_pct" and self.position_size_pct is None:
+            msg = "sizing_mode='fixed_pct' requires position_size_pct"
             raise ValueError(msg)
         return self
 
@@ -395,11 +429,92 @@ class CreateComparisonRequest(StrictBaseModel):
         description="Max total open positions (None = unlimited)",
     )
 
+    # --- Layer 4: ATR-Based Trailing Stops ---
+    stop_type: Literal["fixed", "atr"] = Field(
+        default="fixed",
+        description=(
+            "Trailing stop type: 'fixed' uses a fixed trailing_stop_pct, "
+            "'atr' computes the trail distance as atr_stop_multiplier * ATR%."
+        ),
+    )
+    atr_stop_multiplier: float = Field(
+        default=2.0,
+        gt=0,
+        description="Multiplier applied to ATR% to compute trail distance (stop_type='atr').",
+    )
+    atr_stop_min_pct: float = Field(
+        default=2.0,
+        gt=0,
+        lt=100,
+        description="Minimum ATR-based trail percentage (floor, stop_type='atr').",
+    )
+    atr_stop_max_pct: float = Field(
+        default=10.0,
+        gt=0,
+        lt=100,
+        description="Maximum ATR-based trail percentage (ceiling, stop_type='atr').",
+    )
+
+    # --- Layer 3: Percentage-Based Position Sizing ---
+    position_size_pct: float | None = Field(
+        default=None,
+        gt=0,
+        le=100,
+        description=(
+            "Position size as percentage of current equity (e.g., 33.0 = 33%). "
+            "Required when sizing_mode='fixed_pct'."
+        ),
+    )
+
+    # --- Layer 3 (risk-based): Volatility-Adjusted Position Sizing ---
+    sizing_mode: Literal["fixed", "fixed_pct", "risk_based"] = Field(
+        default="fixed",
+        description=(
+            "Position sizing mode: 'fixed' uses position_size, "
+            "'fixed_pct' uses position_size_pct % of equity, "
+            "'risk_based' sizes so each trade risks risk_per_trade_pct% of equity."
+        ),
+    )
+    risk_per_trade_pct: float = Field(
+        default=2.5,
+        gt=0,
+        le=10,
+        description="Base risk per trade as % of equity (sizing_mode='risk_based').",
+    )
+    win_streak_bonus_pct: float = Field(
+        default=0.3,
+        ge=0,
+        le=2,
+        description="Extra risk % per consecutive win (sizing_mode='risk_based').",
+    )
+    max_risk_pct: float = Field(
+        default=4.0,
+        gt=0,
+        le=10,
+        description="Maximum effective risk % per trade cap (sizing_mode='risk_based').",
+    )
+
     # Shared validators — same standalone functions as CreateSimulationRequest
     _normalize_symbols = field_validator("symbols", mode="before")(_normalize_symbols_value)
     _validate_symbols_count = field_validator("symbols")(_validate_symbols_count_value)
     _validate_date_range = field_validator("end_date")(_validate_date_range_value)
     _validate_agent_type = field_validator("agent_type")(_validate_agent_type_value)
+
+    @model_validator(mode="after")
+    def validate_sizing_stop_combination(self) -> "CreateComparisonRequest":
+        """Ensure risk_based sizing is only used with ATR stops."""
+        if self.sizing_mode == "risk_based" and self.stop_type != "atr":
+            msg = "sizing_mode='risk_based' requires stop_type='atr'"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def validate_fixed_pct_requires_size(self) -> "CreateComparisonRequest":
+        """Ensure fixed_pct sizing has an explicit position_size_pct."""
+        if self.sizing_mode == "fixed_pct" and self.position_size_pct is None:
+            msg = "sizing_mode='fixed_pct' requires position_size_pct"
+            raise ValueError(msg)
+        return self
 
     @field_validator("portfolio_strategies")
     @classmethod
@@ -539,6 +654,15 @@ class SimulationResponse(StrictBaseModel):
     portfolio_strategy: str | None = None
     max_per_sector: int | None = None
     max_open_positions: int | None = None
+    stop_type: Literal["fixed", "atr"] | None = None
+    atr_stop_multiplier: float | None = None
+    atr_stop_min_pct: float | None = None
+    atr_stop_max_pct: float | None = None
+    position_size_pct: float | None = None
+    sizing_mode: Literal["fixed", "fixed_pct", "risk_based"] | None = None
+    risk_per_trade_pct: float | None = None
+    win_streak_bonus_pct: float | None = None
+    max_risk_pct: float | None = None
     group_id: str | None = None
     status: str
     current_day: int

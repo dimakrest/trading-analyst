@@ -49,6 +49,9 @@ const createMockResult = (id: number, stock: string, direction: 'LONG' | 'NO_SET
   criteria_aligned: 5,
   direction,
   atr: 2.35,  // ATR is always calculated, regardless of direction
+  scoring_algorithm: null,
+  rsi2_value: null,
+  rsi2_score: null,
 });
 
 const mockResults = [
@@ -68,6 +71,7 @@ const createMockRunDetail = (status: string, results: Live20Result[]): Live20Run
   input_symbols: ['AAPL', 'MSFT', 'NVDA'],
   stock_list_id: null,
   stock_list_name: null,
+  scoring_algorithm: null,
   results,
 });
 
