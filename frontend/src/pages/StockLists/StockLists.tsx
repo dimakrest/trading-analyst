@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import {
@@ -7,25 +7,11 @@ import {
   CreateListDialog,
   EditListDialog,
   DeleteListDialog,
+  ImportListDialog,
 } from '../../components/stockLists';
 import { useStockLists } from '../../hooks/useStockLists';
+import { extractErrorMessage } from '../../utils/errors';
 import type { StockList } from '../../services/stockListService';
-
-/**
- * Extract user-friendly error message from various error types
- */
-const extractErrorMessage = (err: unknown): string => {
-  if (err && typeof err === 'object') {
-    const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-    if (axiosErr.response?.data?.detail) {
-      return axiosErr.response.data.detail;
-    }
-    if (axiosErr.message) {
-      return axiosErr.message;
-    }
-  }
-  return 'An unexpected error occurred';
-};
 
 /**
  * Stock Lists management page
@@ -43,11 +29,13 @@ export const StockLists = () => {
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [editingList, setEditingList] = useState<StockList | null>(null);
   const [deletingList, setDeletingList] = useState<StockList | null>(null);
 
   // Submission states
   const [isCreating, setIsCreating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -62,6 +50,19 @@ export const StockLists = () => {
       throw err; // Re-throw to keep dialog open
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleImportList = async (data: { name: string; symbols: string[] }) => {
+    setIsImporting(true);
+    try {
+      await createList(data);
+      toast.success(`List "${data.name}" imported`);
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+      throw err; // Re-throw to keep dialog open
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -114,13 +115,23 @@ export const StockLists = () => {
             Organize your symbols into watchlists for quick access
           </p>
         </div>
-        <Button
-          onClick={() => setCreateDialogOpen(true)}
-          className="flex items-center gap-2"
-        >
-          <Plus className="w-[18px] h-[18px]" />
-          Create List
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setImportDialogOpen(true)}
+            className="flex items-center gap-2 border-default hover:bg-bg-tertiary"
+          >
+            <Upload className="w-[18px] h-[18px]" />
+            Import from TradingView
+          </Button>
+          <Button
+            onClick={() => setCreateDialogOpen(true)}
+            className="flex items-center gap-2"
+          >
+            <Plus className="w-[18px] h-[18px]" />
+            Create List
+          </Button>
+        </div>
       </div>
 
       {/* Lists Table */}
@@ -148,6 +159,14 @@ export const StockLists = () => {
         onOpenChange={(open) => !open && setEditingList(null)}
         onSubmit={handleUpdateList}
         isSubmitting={isUpdating}
+      />
+
+      {/* Import Dialog */}
+      <ImportListDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onSubmit={handleImportList}
+        isSubmitting={isImporting}
       />
 
       {/* Delete Dialog */}
