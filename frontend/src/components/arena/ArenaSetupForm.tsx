@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
 import { useAgentConfigs } from '../../hooks/useAgentConfigs';
+import { useEntryFilterState } from '../../hooks/useEntryFilterState';
 import { PORTFOLIO_STRATEGIES } from '../../constants/portfolio';
 import { cn } from '../../lib/utils';
 import type { CreateComparisonRequest, CreateSimulationRequest } from '../../types/arena';
@@ -203,10 +204,13 @@ export const ArenaSetupForm = ({
   const [winStreakBonusPct, setWinStreakBonusPct] = useState('0.3');
   const [maxRiskPct, setMaxRiskPct] = useState('4.0');
   // Entry filters
-  const [ibsMaxThreshold, setIbsMaxThreshold] = useState('');
-  const [ma50FilterEnabled, setMa50FilterEnabled] = useState(false);
-  const [circuitBreakerThreshold, setCircuitBreakerThreshold] = useState('');
-  const [circuitBreakerSymbol, setCircuitBreakerSymbol] = useState('SPY');
+  const entryFilters = useEntryFilterState();
+  const {
+    ibsMaxThreshold, setIbsMaxThreshold,
+    ma50FilterEnabled, setMa50FilterEnabled,
+    circuitBreakerThreshold, setCircuitBreakerThreshold,
+    circuitBreakerSymbol, setCircuitBreakerSymbol,
+  } = entryFilters;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   /** Tracks whether ATR stop was auto-set by switching to risk_based sizing */
   const atrAutoSetByRiskSizing = useRef(false);
@@ -281,18 +285,7 @@ export const ArenaSetupForm = ({
       if (initialValues.max_risk_pct != null) {
         setMaxRiskPct(initialValues.max_risk_pct.toString());
       }
-      if (initialValues.ibs_max_threshold != null) {
-        setIbsMaxThreshold(initialValues.ibs_max_threshold.toString());
-      }
-      if (initialValues.ma50_filter_enabled !== undefined) {
-        setMa50FilterEnabled(!!initialValues.ma50_filter_enabled);
-      }
-      if (initialValues.circuit_breaker_atr_threshold != null) {
-        setCircuitBreakerThreshold(initialValues.circuit_breaker_atr_threshold.toString());
-      }
-      if (initialValues.circuit_breaker_symbol) {
-        setCircuitBreakerSymbol(initialValues.circuit_breaker_symbol);
-      }
+      entryFilters.applyInitialValues(initialValues);
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -347,10 +340,7 @@ export const ArenaSetupForm = ({
     setRiskPerTradePct(String(p.risk_per_trade_pct));
     setMaxOpenPositions(String(p.max_open_positions));
     setMaxPerSector(String(p.max_per_sector));
-    setMa50FilterEnabled(p.ma50_filter_enabled);
-    setCircuitBreakerThreshold(String(p.circuit_breaker_atr_threshold));
-    setCircuitBreakerSymbol(p.circuit_breaker_symbol);
-    setIbsMaxThreshold(p.ibs_max_threshold !== undefined ? String(p.ibs_max_threshold) : '');
+    entryFilters.applyPresetFilters(p);
     // risk_based forces ATR; mark as auto-set
     atrAutoSetByRiskSizing.current = true;
   };
@@ -516,18 +506,9 @@ export const ArenaSetupForm = ({
   const isFixedPctSizing = sizingMode === 'fixed_pct';
   const isRiskBasedSizing = sizingMode === 'risk_based';
 
-  // IBS entry filter validation
-  const ibsParsed = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
-  const hasIbsError = ibsParsed !== null && !(ibsParsed > 0 && ibsParsed <= 1);
-
-  // Circuit breaker validation
-  const cbThresholdParsed = circuitBreakerThreshold === '' ? null : parseFloat(circuitBreakerThreshold);
-  const hasCbThresholdError =
-    cbThresholdParsed !== null && !(cbThresholdParsed > 0 && isFinite(cbThresholdParsed));
+  // Circuit breaker error message (depends on symbol value, stays in form)
   const cbSymbolHasDot = circuitBreakerSymbol.includes('.');
-  const hasCbSymbolError =
-    circuitBreakerThreshold !== '' &&
-    !/^[A-Z]{1,5}$/.test(circuitBreakerSymbol);
+  const { hasIbsError, hasCbThresholdError, hasCbSymbolError } = entryFilters;
   const cbSymbolErrorMessage = cbSymbolHasDot
     ? 'Dot-notation tickers like BRK.B are not supported'
     : 'Must be 1–5 uppercase letters (e.g. SPY)';

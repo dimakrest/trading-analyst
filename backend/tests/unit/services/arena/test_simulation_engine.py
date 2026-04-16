@@ -6936,3 +6936,494 @@ class TestSimulationEngineFilterInteractions:
         assert "ma50_filtered" not in aapl, (
             "IBS-filtered symbol should not have ma50_filtered -- MA50 never ran"
         )
+
+
+class TestSimulationEngineAllFeaturesIntegration:
+    """Engineered 20-day integration test exercising every Phase 1–5 branch.
+
+    Symbols: SYMA, SYMB, SYMC (trading) + SPY (circuit breaker).
+    Trading days: 2024-01-02 through 2024-01-29 (20 business days).
+
+    Event calendar:
+    - Days 0–3:  SPY has < 15 bars in 90-day window → CB data_unavailable (fail-open)
+    - Day 4:     SPY bar with large range → CB triggered; entries blocked
+    - Day 5:     SYMA bar with high IBS (0.95 > 0.7) → IBS filtered
+    - Day 6:     SYMB close (88) < MA50 (~100) → MA50 filtered; SYMA enters
+    - Day 7:     Opens SYMA; SYMC gaps down below stop → stop_hit exit
+    - Day 8:     SYMA high spikes to 115 → take_profit exit (ATR target 4% met)
+    - Days 9–15: CB clear + no BUY signals → unconditional CB evaluation proof
+    - Day 13:    SYMB signals BUY → enters day 14
+    - Day 19:    SYMB hold_days=5 >= max_hold_days=5 → max_hold exit
+    """
+
+    _TRADING_DAYS: list[date] = [
+        date(2024, 1, 2),   # 0
+        date(2024, 1, 3),   # 1
+        date(2024, 1, 4),   # 2
+        date(2024, 1, 5),   # 3  data_unavailable (< 15 SPY bars in window)
+        date(2024, 1, 8),   # 4  CB triggered (big SPY spike)
+        date(2024, 1, 9),   # 5  IBS filtered SYMA
+        date(2024, 1, 10),  # 6  MA50 filtered SYMB; SYMA enters PENDING
+        date(2024, 1, 11),  # 7  Opens SYMA; SYMC stop_hit
+        date(2024, 1, 12),  # 8  SYMA take_profit
+        date(2024, 1, 15),  # 9  CB clear, no BUYs
+        date(2024, 1, 16),  # 10 CB clear, no BUYs
+        date(2024, 1, 17),  # 11 CB clear, no BUYs
+        date(2024, 1, 18),  # 12 CB clear, no BUYs
+        date(2024, 1, 19),  # 13 CB clear, no BUYs (wait for SYMB signal on day 13... see below)
+        date(2024, 1, 22),  # 14 CB clear; SYMB was signaled day 13 → opens today
+        date(2024, 1, 23),  # 15 CB clear, no BUYs
+        date(2024, 1, 24),  # 16 SYMB open (hold day 2)
+        date(2024, 1, 25),  # 17 SYMB open (hold day 3)
+        date(2024, 1, 26),  # 18 SYMB open (hold day 4)
+        date(2024, 1, 29),  # 19 SYMB hold_days=5 → max_hold exit
+    ]
+
+    def _make_engine(self, db_session, rollback_session_factory) -> SimulationEngine:
+        return SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+    def _make_spy_bars_for_fixture(self) -> list[PriceBar]:
+        """SPY bars designed so that:
+        - Days 0–3 (Jan 2–5): 90-day window has < 15 bars → data_unavailable
+        - Day 4 (Jan 8): 90-day window has 17 bars including a range-29 spike → CB triggered
+        - Days 5–19: ATR decays below 2.5% → CB clear
+
+        Range=0.5 on normal bars → ATR% ≈ 0.5%.
+        Range=29 on Jan 8 (day 4) → Wilder ATR spikes to ≈ 2.54% (> 2.5% threshold).
+        Range=0.5 on Jan 9 (day 5) → ATR = (2.54*13+0.5)/14 ≈ 2.39% < 2.5% → clear.
+        """
+        bars: list[PriceBar] = []
+        # 9 bars from Dec 23–Dec 31 (all range=0.5): within the 90-day window of day 4
+        # but NOT enough (only 9+5=14) to make ATR computable on day 3.
+        start = date(2023, 12, 23)
+        d = start
+        while d <= date(2023, 12, 31):
+            bars.append(PriceBar(
+                date=d,
+                open=Decimal("100"),
+                high=Decimal("100.25"),
+                low=Decimal("99.75"),
+                close=Decimal("100"),
+                volume=50_000_000,
+            ))
+            d += timedelta(days=1)
+
+        # In-window SPY bars (Jan 1–Jan 29), one per calendar day
+        d = date(2024, 1, 1)
+        while d <= date(2024, 1, 29):
+            if d == date(2024, 1, 8):
+                # Day 4: large range spike → Wilder ATR jumps above 2.5% threshold
+                # TR = 29 > prior ATR ≈ 0.5 → new_ATR = (0.5*13+29)/14 ≈ 2.54%
+                bars.append(PriceBar(
+                    date=d,
+                    open=Decimal("100"),
+                    high=Decimal("114.5"),
+                    low=Decimal("85.5"),
+                    close=Decimal("100"),
+                    volume=50_000_000,
+                ))
+            else:
+                # Normal bars with range=0.5 → ATR% ≈ 0.5% (< 2.5% threshold)
+                bars.append(PriceBar(
+                    date=d,
+                    open=Decimal("100"),
+                    high=Decimal("100.25"),
+                    low=Decimal("99.75"),
+                    close=Decimal("100"),
+                    volume=50_000_000,
+                ))
+            d += timedelta(days=1)
+
+        return bars
+
+    def _make_symbol_bars_for_fixture(self, symbol: str) -> list[PriceBar]:
+        """Price bars for a trading symbol.
+
+        60 warm-up bars (Nov 3–Dec 31, 2023) at close=100, range=2 → ATR ≈ 2%.
+        This ensures MA50 ≈ 100 from day 0 and risk-based sizing computes trail_pct ≈ 4%.
+
+        Per-day overrides (in-window):
+        SYMC  day 0: normal → enters via BUY signal on day 0
+        SYMA  day 5: high=120/low=100/close=119 → IBS = 0.95 > 0.7 (IBS filtered)
+        SYMB  day 6: close=88 < MA50≈100 → MA50 filtered
+        SYMA  day 6: normal → passes IBS + MA50, enters PENDING
+        SYMC  day 7: open=90/high=91/low=88 → gaps below stop (98.88) → stop_hit
+        SYMA  day 8: high=115/low=112 → unrealized 12.7% ≥ ATR target 4% → take_profit
+        SYMB  day 13: normal (102) → enters PENDING; opens day 14
+        """
+        warmup_start = date(2023, 11, 3)
+        bars: list[PriceBar] = []
+
+        # 60 warm-up bars at close=100, range=2
+        d = warmup_start
+        count = 0
+        while count < 60:
+            bars.append(PriceBar(
+                date=d,
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal("100"),
+                volume=1_000_000,
+            ))
+            d += timedelta(days=1)
+            count += 1
+
+        # Per-day in-window bars
+        for idx, trading_date in enumerate(self._TRADING_DAYS):
+            if symbol == "SYMC" and idx == 7:
+                # Gap down below stop (stop ≈ 98.88 from 103*0.96); open=90 < stop → stop_hit exit
+                bars.append(PriceBar(
+                    date=trading_date,
+                    open=Decimal("90"),
+                    high=Decimal("91"),
+                    low=Decimal("88"),
+                    close=Decimal("90"),
+                    volume=1_000_000,
+                ))
+            elif symbol == "SYMA" and idx == 5:
+                # IBS = (119-100)/(120-100) = 19/20 = 0.95 > 0.7 → IBS filtered
+                bars.append(PriceBar(
+                    date=trading_date,
+                    open=Decimal("110"),
+                    high=Decimal("120"),
+                    low=Decimal("100"),
+                    close=Decimal("119"),
+                    volume=1_000_000,
+                ))
+            elif symbol == "SYMB" and idx == 6:
+                # close=88 < MA50≈100 → MA50 filtered
+                bars.append(PriceBar(
+                    date=trading_date,
+                    open=Decimal("88"),
+                    high=Decimal("89"),
+                    low=Decimal("87"),
+                    close=Decimal("88"),
+                    volume=1_000_000,
+                ))
+            elif symbol == "SYMA" and idx == 8:
+                # high=115: unrealized_return_pct_at_high = (115-102)/102*100 = 12.75%
+                # atr_target = take_profit_atr_mult * pos_atr_pct = 2.0 * 2.0 = 4.0%
+                # 12.75 >= 4.0 → take_profit fires; low=100 > stop≈97.92 → stop not triggered first
+                bars.append(PriceBar(
+                    date=trading_date,
+                    open=Decimal("103"),
+                    high=Decimal("115"),
+                    low=Decimal("100"),
+                    close=Decimal("114"),
+                    volume=1_000_000,
+                ))
+            else:
+                # Normal bar: close=102, above MA50≈100; IBS=(102-101)/(103-101)=0.5 < 0.7
+                bars.append(PriceBar(
+                    date=trading_date,
+                    open=Decimal("102"),
+                    high=Decimal("103"),
+                    low=Decimal("101"),
+                    close=Decimal("102"),
+                    volume=1_000_000,
+                ))
+
+        return bars
+
+    def _make_agent_mock(self) -> MagicMock:
+        """Agent mock returning BUY only on engineered days.
+
+        SYMC: day 2 only → enters PENDING day 2, opens day 3.
+              entry_idx=3; stop fires day 7 (hold_days=4 < max_hold_days=5 → stop wins).
+        SYMA: days 4 (CB blocks), 5 (IBS blocks), 6 (enters PENDING → opens day 7).
+        SYMB: days 4 (CB blocks), 6 (MA50 blocks), 13 (enters PENDING → opens day 14 → max_hold day 19).
+        All others: HOLD/NO_SIGNAL.
+        """
+        td = self._TRADING_DAYS
+        buy_schedule: dict[str, set[date]] = {
+            "SYMC": {td[2]},   # Jan 4 → opens Jan 5; hold_days on day7 = 7-3=4 < 5 → stop wins
+            "SYMA": {td[4], td[5], td[6]},
+            "SYMB": {td[4], td[6], td[13]},
+        }
+
+        async def _evaluate(symbol: str, price_history, current_date: date, has_position: bool) -> AgentDecision:
+            if symbol in buy_schedule and current_date in buy_schedule[symbol]:
+                return AgentDecision(symbol=symbol, action="BUY", score=80)
+            return AgentDecision(symbol=symbol, action="HOLD", score=0)
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 20
+        mock_agent.evaluate = AsyncMock(side_effect=_evaluate)
+        return mock_agent
+
+    async def _build_all_features_fixture(
+        self,
+        db_session,
+        rollback_session_factory,
+        sim_name: str = "AllFeatures Test",
+    ) -> tuple["ArenaSimulation", SimulationEngine]:
+        """Build a simulation and pre-seeded engine for the all-features test.
+
+        Returns the committed simulation and a ready engine with all caches
+        pre-populated — no DB round trips for price/sector data.
+        """
+        sim = ArenaSimulation(
+            name=sim_name,
+            symbols=["SYMA", "SYMB", "SYMC"],
+            start_date=date(2024, 1, 2),
+            end_date=date(2024, 1, 29),
+            initial_capital=Decimal("100000.00"),
+            position_size=Decimal("10000.00"),
+            agent_type="live20",
+            agent_config={
+                # ATR stop (Phase 1)
+                "stop_type": "atr",
+                "atr_stop_multiplier": 2.0,
+                # Take profit (Phase 2 / ATR TP)
+                "take_profit_atr_mult": 2.0,
+                # Max hold (Phase 3)
+                "max_hold_days": 5,
+                # Breakeven + ratchet (Phase 3)
+                "breakeven_trigger_pct": 3.0,
+                "ratchet_trigger_pct": 5.0,
+                "ratchet_trail_pct": 3.0,
+                # Risk-based sizing (Phase 4)
+                "sizing_mode": "risk_based",
+                "risk_per_trade_pct": 2.0,
+                "win_streak_bonus_pct": 0.3,
+                "max_risk_pct": 4.0,
+                # IBS filter (Phase 5)
+                "ibs_max_threshold": 0.7,
+                # MA50 filter (Phase 5)
+                "ma50_filter_enabled": True,
+                # Circuit breaker (Phase 5)
+                "circuit_breaker_atr_threshold": 2.5,
+                "circuit_breaker_symbol": "SPY",
+                # Portfolio constraints
+                "max_open_positions": 3,
+                "max_per_sector": 3,
+            },
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=20,
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        engine = self._make_engine(db_session, rollback_session_factory)
+
+        engine._trading_days_cache[sim.id] = list(self._TRADING_DAYS)
+        engine._price_cache[sim.id] = {
+            "SYMA": self._make_symbol_bars_for_fixture("SYMA"),
+            "SYMB": self._make_symbol_bars_for_fixture("SYMB"),
+            "SYMC": self._make_symbol_bars_for_fixture("SYMC"),
+            "SPY": self._make_spy_bars_for_fixture(),
+        }
+        engine._sector_cache[sim.id] = {
+            "SYMA": "Tech",
+            "SYMB": "Tech",
+            "SYMC": "Tech",
+        }
+
+        return sim, engine
+
+    @pytest.mark.unit
+    async def test_all_features_engineered_paths(
+        self, db_session, rollback_session_factory, caplog
+    ) -> None:
+        """Runs a 20-day engineered simulation and asserts every Phase 1–5 branch fired."""
+        import logging
+
+        sim, engine = await self._build_all_features_fixture(db_session, rollback_session_factory)
+        mock_agent = self._make_agent_mock()
+
+        with caplog.at_level(logging.WARNING, logger="app.services.arena.simulation_engine"):
+            with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+                await engine.run_to_completion(sim.id)
+
+        # --- Fetch all snapshots (ordered by day_number) ---
+        snap_result = await db_session.execute(
+            select(ArenaSnapshot)
+            .where(ArenaSnapshot.simulation_id == sim.id)
+            .order_by(ArenaSnapshot.day_number)
+        )
+        snapshots = snap_result.scalars().all()
+
+        # --- Fetch all closed positions ---
+        pos_result = await db_session.execute(
+            select(ArenaPosition)
+            .where(ArenaPosition.simulation_id == sim.id)
+            .where(ArenaPosition.status == PositionStatus.CLOSED.value)
+        )
+        closed_positions = pos_result.scalars().all()
+
+        # --- Snapshot count ---
+        assert len(snapshots) == 20, f"Expected 20 snapshots, got {len(snapshots)}"
+
+        # --- Accounting: cash + positions_value == total_equity for every snapshot ---
+        cent = Decimal("0.01")
+        for s in snapshots:
+            assert abs((s.cash + s.positions_value) - s.total_equity) < cent, (
+                f"Day {s.day_number}: cash({s.cash}) + pos_value({s.positions_value}) "
+                f"!= total_equity({s.total_equity})"
+            )
+
+        # --- Day 3: data_unavailable (< 15 SPY bars in 90-day window) ---
+        assert snapshots[3].circuit_breaker_state == "data_unavailable", (
+            f"Day 3 expected 'data_unavailable', got {snapshots[3].circuit_breaker_state!r}"
+        )
+        assert any(
+            "Circuit breaker skipped" in r.message for r in caplog.records
+        ), "WARNING must be logged when circuit breaker bypass due to missing ATR data"
+
+        # --- Day 4: CB triggered (SPY ATR% >= 2.5% threshold) ---
+        assert snapshots[4].circuit_breaker_state == "triggered", (
+            f"Day 4 expected 'triggered', got {snapshots[4].circuit_breaker_state!r}"
+        )
+        assert snapshots[4].circuit_breaker_atr_pct is not None
+        assert snapshots[4].circuit_breaker_atr_pct >= Decimal("2.5"), (
+            f"Day 4 ATR% expected >= 2.5, got {snapshots[4].circuit_breaker_atr_pct}"
+        )
+
+        # --- Day 4: IBS and MA50 filters never ran (buy_signals short-circuited by CB) ---
+        for sym, sym_dec in snapshots[4].decisions.items():
+            assert "ibs_filtered" not in sym_dec, (
+                f"Day 4 {sym}: ibs_filtered should not appear when CB short-circuits"
+            )
+            assert "ma50_filtered" not in sym_dec, (
+                f"Day 4 {sym}: ma50_filtered should not appear when CB short-circuits"
+            )
+
+        # --- Day 5: IBS filtered SYMA; MA50 annotation absent ---
+        syma_day5 = snapshots[5].decisions.get("SYMA", {})
+        assert syma_day5.get("ibs_filtered") is True, (
+            f"Day 5 SYMA: expected ibs_filtered=True, got {syma_day5}"
+        )
+        assert "ma50_filtered" not in syma_day5, (
+            "Day 5 SYMA: ma50_filtered must be absent (IBS caught it first)"
+        )
+
+        # --- Day 6: MA50 filtered SYMB; IBS annotation absent ---
+        symb_day6 = snapshots[6].decisions.get("SYMB", {})
+        assert symb_day6.get("ma50_filtered") is True, (
+            f"Day 6 SYMB: expected ma50_filtered=True, got {symb_day6}"
+        )
+        assert "ibs_filtered" not in symb_day6, (
+            "Day 6 SYMB: ibs_filtered must be absent (MA50 was the filter, IBS passed)"
+        )
+
+        # --- exit_reason coverage ---
+        exit_reasons = {p.exit_reason for p in closed_positions}
+        assert ExitReason.STOP_HIT.value in exit_reasons, (
+            f"Expected at least one stop_hit exit; got reasons: {exit_reasons}"
+        )
+        assert ExitReason.TAKE_PROFIT.value in exit_reasons, (
+            f"Expected at least one take_profit exit; got reasons: {exit_reasons}"
+        )
+        assert ExitReason.MAX_HOLD.value in exit_reasons, (
+            f"Expected at least one max_hold exit; got reasons: {exit_reasons}"
+        )
+
+        # --- Days 9–15: CB clear with ATR% populated (unconditional CB evaluation proof) ---
+        for day_idx in range(9, 16):
+            snap = snapshots[day_idx]
+            assert snap.circuit_breaker_state == "clear", (
+                f"Day {day_idx}: expected 'clear', got {snap.circuit_breaker_state!r}"
+            )
+            assert snap.circuit_breaker_atr_pct is not None, (
+                f"Day {day_idx}: circuit_breaker_atr_pct should be populated even with no BUY signals"
+            )
+
+    @pytest.mark.unit
+    async def test_all_features_deterministic(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Running the same engineered config twice produces identical snapshots and positions.
+
+        Regression guard: catches accidental introduction of non-determinism
+        (e.g., set() iteration, random, wall-clock time).
+        """
+        sim1, engine1 = await self._build_all_features_fixture(
+            db_session, rollback_session_factory, sim_name="Determinism Test 1"
+        )
+        sim2, engine2 = await self._build_all_features_fixture(
+            db_session, rollback_session_factory, sim_name="Determinism Test 2"
+        )
+
+        mock_agent1 = self._make_agent_mock()
+        mock_agent2 = self._make_agent_mock()
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent1):
+            await engine1.run_to_completion(sim1.id)
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent2):
+            await engine2.run_to_completion(sim2.id)
+
+        # Fetch snapshots
+        snap1_result = await db_session.execute(
+            select(ArenaSnapshot)
+            .where(ArenaSnapshot.simulation_id == sim1.id)
+            .order_by(ArenaSnapshot.day_number)
+        )
+        snaps1 = snap1_result.scalars().all()
+
+        snap2_result = await db_session.execute(
+            select(ArenaSnapshot)
+            .where(ArenaSnapshot.simulation_id == sim2.id)
+            .order_by(ArenaSnapshot.day_number)
+        )
+        snaps2 = snap2_result.scalars().all()
+
+        assert len(snaps1) == len(snaps2), "Snapshot count mismatch between runs"
+
+        for s1, s2 in zip(snaps1, snaps2):
+            assert (
+                s1.day_number,
+                s1.snapshot_date,
+                s1.total_equity,
+                s1.circuit_breaker_state,
+                s1.circuit_breaker_atr_pct,
+                s1.decisions,
+            ) == (
+                s2.day_number,
+                s2.snapshot_date,
+                s2.total_equity,
+                s2.circuit_breaker_state,
+                s2.circuit_breaker_atr_pct,
+                s2.decisions,
+            ), f"Snapshot mismatch on day {s1.day_number}"
+
+        # Fetch closed positions
+        pos1_result = await db_session.execute(
+            select(ArenaPosition)
+            .where(ArenaPosition.simulation_id == sim1.id)
+            .where(ArenaPosition.status == PositionStatus.CLOSED.value)
+            .order_by(ArenaPosition.symbol, ArenaPosition.signal_date)
+        )
+        pos1 = pos1_result.scalars().all()
+
+        pos2_result = await db_session.execute(
+            select(ArenaPosition)
+            .where(ArenaPosition.simulation_id == sim2.id)
+            .where(ArenaPosition.status == PositionStatus.CLOSED.value)
+            .order_by(ArenaPosition.symbol, ArenaPosition.signal_date)
+        )
+        pos2 = pos2_result.scalars().all()
+
+        assert len(pos1) == len(pos2), "Closed position count mismatch between runs"
+
+        for p1, p2 in zip(pos1, pos2):
+            assert (
+                p1.symbol,
+                p1.entry_date,
+                p1.entry_price,
+                p1.exit_date,
+                p1.exit_price,
+                p1.exit_reason,
+                p1.shares,
+            ) == (
+                p2.symbol,
+                p2.entry_date,
+                p2.entry_price,
+                p2.exit_date,
+                p2.exit_price,
+                p2.exit_reason,
+                p2.shares,
+            ), f"Position mismatch for {p1.symbol} entered {p1.entry_date}"

@@ -5,7 +5,7 @@ Depends on: Phase 4 (#51) -- comparison route wiring and strategy presets refere
 
 ## Status
 
-Implemented (2026-04-16). Backend (5a-5h), frontend (F1-F5), tests, and migration `f5a6b7c8d9e0` all shipped. F6 (custom hook extraction) deferred as optional. ALL-features integration test deferred as separate follow-up.
+Implemented (2026-04-16). Backend (5a-5h), frontend (F1-F6), tests, and migration `f5a6b7c8d9e0` all shipped. Follow-up (2026-04-16): ALL-features engineered integration test (`TestSimulationEngineAllFeaturesIntegration`) and F6 `useEntryFilterState` hook extraction both added.
 
 ## What
 
