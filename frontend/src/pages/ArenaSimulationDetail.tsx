@@ -289,6 +289,7 @@ export const ArenaSimulationDetail = () => {
           snapshot={currentSnapshot}
           snapshots={snapshots}
           onSelectSnapshot={setCurrentSnapshot}
+          circuitBreakerSymbol={detail.simulation.circuit_breaker_symbol ?? undefined}
         />
       </div>
 

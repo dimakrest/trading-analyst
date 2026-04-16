@@ -65,6 +65,9 @@ export interface Simulation {
   win_streak_bonus_pct?: number | null;
   max_risk_pct?: number | null;
   ibs_max_threshold?: number | null;
+  ma50_filter_enabled?: boolean;
+  circuit_breaker_atr_threshold?: number | null;
+  circuit_breaker_symbol?: string;
   group_id: string | null;
   status: SimulationStatus;
   current_day: number;
@@ -124,7 +127,12 @@ export interface DecisionEntry extends AgentDecision {
   portfolio_selected?: boolean;
   ibs_filtered?: boolean;
   ibs_value?: number;
+  ma50_filtered?: boolean;
+  circuit_breaker_filtered?: boolean;
 }
+
+/** Market ATR% circuit breaker state for a snapshot */
+export type CircuitBreakerState = 'disabled' | 'clear' | 'triggered' | 'data_unavailable';
 
 /** Daily snapshot of portfolio state */
 export interface Snapshot {
@@ -140,6 +148,9 @@ export interface Snapshot {
   open_position_count: number;
   /** Agent decisions keyed by symbol */
   decisions: Record<string, DecisionEntry>;
+  circuit_breaker_state: CircuitBreakerState;
+  circuit_breaker_atr_pct?: string | null;
+  regime_state?: string | null;
 }
 
 /** Full simulation detail with positions and snapshots */
@@ -205,6 +216,12 @@ export interface CreateSimulationRequest {
   max_risk_pct?: number;
   /** IBS max threshold for entry filter (0, 1]; omit or null = disabled */
   ibs_max_threshold?: number;
+  /** Only buy stocks above their 50-day moving average when true */
+  ma50_filter_enabled?: boolean;
+  /** Market ATR% threshold that blocks all entries when exceeded; omit = disabled */
+  circuit_breaker_atr_threshold?: number;
+  /** Market symbol used to evaluate the circuit breaker (default: 'SPY') */
+  circuit_breaker_symbol?: string;
 }
 
 /** Response from step endpoint */
@@ -259,6 +276,12 @@ export interface CreateComparisonRequest {
   max_risk_pct?: number;
   /** IBS max threshold for entry filter (0, 1]; omit or null = disabled */
   ibs_max_threshold?: number;
+  /** Only buy stocks above their 50-day moving average when true */
+  ma50_filter_enabled?: boolean;
+  /** Market ATR% threshold that blocks all entries when exceeded; omit = disabled */
+  circuit_breaker_atr_threshold?: number;
+  /** Market symbol used to evaluate the circuit breaker (default: 'SPY') */
+  circuit_breaker_symbol?: string;
 }
 
 /** Response from comparison creation / retrieval */

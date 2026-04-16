@@ -1836,3 +1836,263 @@ class TestStockListIntegration:
         data = response.json()
         assert data["stock_list_id"] is None
         assert data["stock_list_name"] == "Manual List"
+
+
+class TestPhase5Fields:
+    """Tests for Phase 5 MA50 filter and circuit breaker fields (API-level)."""
+
+    @pytest.mark.asyncio
+    async def test_create_simulation_with_phase5_fields_accepted(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """POST with ma50_filter_enabled, circuit_breaker_atr_threshold, circuit_breaker_symbol accepted."""
+        request_data = {
+            "symbols": ["AAPL"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-01",
+            "ma50_filter_enabled": True,
+            "circuit_breaker_atr_threshold": 2.8,
+            "circuit_breaker_symbol": "SPY",
+        }
+
+        response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json=request_data,
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["ma50_filter_enabled"] is True
+        assert data["circuit_breaker_atr_threshold"] == 2.8
+        assert data["circuit_breaker_symbol"] == "SPY"
+
+    @pytest.mark.asyncio
+    async def test_create_simulation_phase5_defaults(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """Phase 5 fields have correct defaults when not specified."""
+        request_data = {
+            "symbols": ["AAPL"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-01",
+        }
+
+        response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json=request_data,
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["ma50_filter_enabled"] is False
+        assert data["circuit_breaker_atr_threshold"] is None
+        assert data["circuit_breaker_symbol"] == "SPY"
+
+    @pytest.mark.asyncio
+    async def test_invalid_circuit_breaker_symbol_pattern_rejected(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """Invalid circuit_breaker_symbol pattern (e.g., 'BRK.B') is rejected with 422."""
+        request_data = {
+            "symbols": ["AAPL"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-01",
+            "circuit_breaker_atr_threshold": 2.8,
+            "circuit_breaker_symbol": "BRK.B",  # dot-notation not supported
+        }
+
+        response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json=request_data,
+        )
+
+        assert response.status_code == 422, (
+            "Dot-notation ticker BRK.B should fail pattern validation"
+        )
+
+    @pytest.mark.asyncio
+    async def test_invalid_circuit_breaker_symbol_lowercase_rejected(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """Lowercase circuit_breaker_symbol is rejected with 422."""
+        request_data = {
+            "symbols": ["AAPL"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-01",
+            "circuit_breaker_symbol": "spy",  # lowercase not matching ^[A-Z]{1,5}$
+        }
+
+        response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json=request_data,
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_get_simulation_returns_phase5_fields_in_simulation_response(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """GET /simulations/{id} returns Phase 5 fields in simulation response."""
+        sim = ArenaSimulation(
+            name="Phase 5 Test Sim",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 6, 1),
+            initial_capital=Decimal("10000"),
+            position_size=Decimal("1000"),
+            agent_type="live20",
+            agent_config={
+                "trailing_stop_pct": 5.0,
+                "ma50_filter_enabled": True,
+                "circuit_breaker_atr_threshold": 2.8,
+                "circuit_breaker_symbol": "SPY",
+            },
+            status=SimulationStatus.COMPLETED.value,
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        response = await async_client.get(f"/api/v1/arena/simulations/{sim.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        sim_data = data["simulation"]
+        assert sim_data["ma50_filter_enabled"] is True
+        assert sim_data["circuit_breaker_atr_threshold"] == 2.8
+        assert sim_data["circuit_breaker_symbol"] == "SPY"
+
+    @pytest.mark.asyncio
+    async def test_get_simulation_returns_phase5_fields_in_snapshot_response(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """GET /simulations/{id} returns Phase 5 fields in snapshot response."""
+        sim = ArenaSimulation(
+            name="Phase 5 Snapshot Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 6, 1),
+            initial_capital=Decimal("10000"),
+            position_size=Decimal("1000"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0},
+            status=SimulationStatus.COMPLETED.value,
+        )
+        db_session.add(sim)
+        await db_session.flush()  # Get sim.id without closing the transaction
+
+        snap = ArenaSnapshot(
+            simulation_id=sim.id,
+            snapshot_date=date(2024, 1, 2),
+            day_number=0,
+            cash=Decimal("10000"),
+            positions_value=Decimal("0"),
+            total_equity=Decimal("10000"),
+            daily_pnl=Decimal("0"),
+            daily_return_pct=Decimal("0"),
+            cumulative_return_pct=Decimal("0"),
+            open_position_count=0,
+            decisions={},
+            circuit_breaker_state="clear",
+            circuit_breaker_atr_pct=Decimal("2.1234"),
+            regime_state="bull",
+        )
+        db_session.add(snap)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        response = await async_client.get(f"/api/v1/arena/simulations/{sim.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        snapshots = data["snapshots"]
+        assert len(snapshots) == 1
+        snap_data = snapshots[0]
+        assert snap_data["circuit_breaker_state"] == "clear"
+        assert snap_data["circuit_breaker_atr_pct"] == "2.1234"  # Decimal serializes as string
+        assert snap_data["regime_state"] == "bull"
+
+    @pytest.mark.asyncio
+    async def test_pre_existing_snapshot_compatibility_after_migration(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """Pre-existing snapshots (simulating post-migration DB defaults) return 200 with correct defaults."""
+        sim = ArenaSimulation(
+            name="Pre-Migration Compat Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 6, 1),
+            initial_capital=Decimal("10000"),
+            position_size=Decimal("1000"),
+            agent_type="live20",
+            agent_config={},
+            status=SimulationStatus.COMPLETED.value,
+        )
+        db_session.add(sim)
+        await db_session.flush()  # Get sim.id without closing the transaction
+
+        # Simulate a "pre-migration" snapshot: only set the required fields.
+        # The DB server_default handles circuit_breaker_state='disabled';
+        # In tests we set it explicitly to match what the server_default produces.
+        snap = ArenaSnapshot(
+            simulation_id=sim.id,
+            snapshot_date=date(2024, 1, 2),
+            day_number=0,
+            cash=Decimal("10000"),
+            positions_value=Decimal("0"),
+            total_equity=Decimal("10000"),
+            daily_pnl=Decimal("0"),
+            daily_return_pct=Decimal("0"),
+            cumulative_return_pct=Decimal("0"),
+            open_position_count=0,
+            decisions={},
+            # circuit_breaker_state uses server_default in real DB; here we set explicitly
+            circuit_breaker_state="disabled",
+            circuit_breaker_atr_pct=None,
+            regime_state=None,
+        )
+        db_session.add(snap)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        response = await async_client.get(f"/api/v1/arena/simulations/{sim.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        snap_data = data["snapshots"][0]
+        assert snap_data["circuit_breaker_state"] == "disabled"
+        assert snap_data["circuit_breaker_atr_pct"] is None
+        assert snap_data["regime_state"] is None
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_symbol_empty_string_rejected(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """Empty circuit_breaker_symbol is rejected with 422."""
+        request_data = {
+            "symbols": ["AAPL"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-01",
+            "circuit_breaker_symbol": "",
+        }
+
+        response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json=request_data,
+        )
+
+        assert response.status_code == 422

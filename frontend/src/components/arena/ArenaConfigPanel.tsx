@@ -250,15 +250,40 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
           </div>
         )}
 
-        {simulation.ibs_max_threshold != null && (
+        {(simulation.ibs_max_threshold != null ||
+          simulation.ma50_filter_enabled === true ||
+          simulation.circuit_breaker_atr_threshold != null) && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 pt-3 border-t border-border-subtle">
-            <ConfigItem
-              icon={<Filter className="h-3.5 w-3.5" />}
-              label="IBS Threshold"
-              value={
-                <span className="text-text-primary">{simulation.ibs_max_threshold}</span>
-              }
-            />
+            {simulation.ibs_max_threshold != null && (
+              <ConfigItem
+                icon={<Filter className="h-3.5 w-3.5" />}
+                label="IBS Threshold"
+                value={
+                  <span className="text-text-primary">{simulation.ibs_max_threshold}</span>
+                }
+              />
+            )}
+            {simulation.ma50_filter_enabled === true && (
+              <ConfigItem
+                icon={<Filter className="h-3.5 w-3.5" />}
+                label="MA50 Filter"
+                value={<span className="text-text-primary">On</span>}
+              />
+            )}
+            {simulation.circuit_breaker_atr_threshold != null && (
+              <ConfigItem
+                icon={<Filter className="h-3.5 w-3.5" />}
+                label="Market ATR% Threshold"
+                value={
+                  <span className="text-text-primary">
+                    {simulation.circuit_breaker_atr_threshold}%
+                    {simulation.circuit_breaker_symbol
+                      ? ` (${simulation.circuit_breaker_symbol})`
+                      : ''}
+                  </span>
+                }
+              />
+            )}
           </div>
         )}
 

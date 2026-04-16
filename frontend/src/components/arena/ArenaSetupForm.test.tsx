@@ -888,6 +888,249 @@ describe('ArenaSetupForm', () => {
     });
   });
 
+  describe('Phase 5: MA50 + Circuit Breaker Entry Filters', () => {
+    /**
+     * Helper: render with valid setup inputs, open Portfolio tab, open Entry Filters.
+     */
+    const renderWithPortfolioAndEntryFilters = async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+        />
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+        target: { value: 'AAPL' },
+      });
+      fireEvent.change(screen.getByLabelText(/start date/i), {
+        target: { value: '2024-01-01' },
+      });
+      fireEvent.change(screen.getByLabelText(/end date/i), {
+        target: { value: '2024-06-01' },
+      });
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+      return user;
+    };
+
+    it('MA50 toggle starts as Off', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const toggle = screen.getByTestId('ma50-filter-toggle');
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      expect(toggle).toHaveTextContent('MA50 Filter: Off');
+    });
+
+    it('MA50 toggle state updates correctly when clicked', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      const toggle = screen.getByTestId('ma50-filter-toggle');
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      expect(toggle).toHaveTextContent('MA50 Filter: On');
+    });
+
+    it('MA50 enabled is included in submit payload when toggled on', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      await user.click(screen.getByTestId('ma50-filter-toggle'));
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ ma50_filter_enabled: true })
+      );
+    });
+
+    it('MA50 false is included in submit payload when not toggled', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ ma50_filter_enabled: false })
+      );
+    });
+
+    it('circuit breaker symbol field hidden when threshold is empty', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      expect(screen.queryByLabelText(/market symbol/i)).not.toBeInTheDocument();
+    });
+
+    it('circuit breaker symbol field appears when threshold is set', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      expect(screen.getByLabelText(/market symbol/i)).toBeInTheDocument();
+    });
+
+    it('circuit breaker symbol auto-uppercases input', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      const symbolInput = screen.getByLabelText(/market symbol/i) as HTMLInputElement;
+      fireEvent.change(symbolInput, { target: { value: 'qqq' } });
+      expect(symbolInput.value).toBe('QQQ');
+    });
+
+    it('BRK.B dot-notation shows inline error', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      const symbolInput = screen.getByLabelText(/market symbol/i);
+      fireEvent.change(symbolInput, { target: { value: 'BRK.B' } });
+      expect(screen.getByText(/dot-notation tickers like BRK\.B are not supported/i)).toBeInTheDocument();
+    });
+
+    it('invalid CB symbol format blocks submit', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      const symbolInput = screen.getByLabelText(/market symbol/i);
+      fireEvent.change(symbolInput, { target: { value: 'BRK.B' } });
+      expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
+    });
+
+    it('circuit breaker fields included in submit payload when set', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          circuit_breaker_atr_threshold: 2.8,
+          circuit_breaker_symbol: 'SPY',
+        })
+      );
+    });
+
+    it('replay: initialValues with MA50/CB fields pre-populates form correctly', async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            ma50_filter_enabled: true,
+            circuit_breaker_atr_threshold: 2.8,
+            circuit_breaker_symbol: 'QQQ',
+          }}
+        />
+      );
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+
+      const toggle = screen.getByTestId('ma50-filter-toggle');
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+      const cbInput = screen.getByLabelText(/market atr% threshold/i) as HTMLInputElement;
+      expect(cbInput.value).toBe('2.8');
+
+      const symbolInput = screen.getByLabelText(/market symbol/i) as HTMLInputElement;
+      expect(symbolInput.value).toBe('QQQ');
+    });
+  });
+
+  describe('Phase 5: Strategy Presets', () => {
+    const renderWithSetupInputs = () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+        />
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+        target: { value: 'AAPL' },
+      });
+      fireEvent.change(screen.getByLabelText(/start date/i), {
+        target: { value: '2024-01-01' },
+      });
+      fireEvent.change(screen.getByLabelText(/end date/i), {
+        target: { value: '2024-06-01' },
+      });
+    };
+
+    it('Load Aggressive button is rendered', () => {
+      renderWithSetupInputs();
+      expect(screen.getByRole('button', { name: /load aggressive/i })).toBeInTheDocument();
+    });
+
+    it('Load Conservative button is rendered', () => {
+      renderWithSetupInputs();
+      expect(screen.getByRole('button', { name: /load conservative/i })).toBeInTheDocument();
+    });
+
+    it('aggressive preset populates stop, sizing, and filter fields', async () => {
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+
+      // Navigate to portfolio tab and open entry filters to verify
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+
+      const toggle = screen.getByTestId('ma50-filter-toggle');
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+      const cbInput = screen.getByLabelText(/market atr% threshold/i) as HTMLInputElement;
+      expect(cbInput.value).toBe('2.8');
+    });
+
+    it('conservative preset populates ibs threshold', async () => {
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /load conservative/i }));
+
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+
+      const ibsInput = screen.getByLabelText(/ibs threshold/i) as HTMLInputElement;
+      expect(ibsInput.value).toBe('0.55');
+    });
+
+    it('aggressive preset clears ibs threshold', async () => {
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      // First set IBS to something
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+      fireEvent.change(screen.getByLabelText(/ibs threshold/i), { target: { value: '0.55' } });
+
+      // Apply aggressive preset
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+
+      const ibsInput = screen.getByLabelText(/ibs threshold/i) as HTMLInputElement;
+      expect(ibsInput.value).toBe('');
+    });
+
+    it('preset preserves selectedStrategies in comparison mode', async () => {
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      // Select multiple strategies to enter comparison mode
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /best score — calm/i }));
+      expect(
+        screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
+      ).toBeEnabled();
+
+      // Apply preset — should NOT change selectedStrategies
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+
+      // Still in comparison mode (2 strategies still selected)
+      expect(
+        screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
+      ).toBeEnabled();
+    });
+  });
+
   describe('initialValues (replay feature)', () => {
     it('should populate form fields from initialValues', async () => {
       const user = userEvent.setup();

@@ -106,6 +106,9 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     win_streak_bonus_pct = agent_config.get("win_streak_bonus_pct")
     max_risk_pct = agent_config.get("max_risk_pct")
     ibs_max_threshold = agent_config.get("ibs_max_threshold")
+    ma50_filter_enabled = agent_config.get("ma50_filter_enabled", False)
+    circuit_breaker_atr_threshold = agent_config.get("circuit_breaker_atr_threshold")
+    circuit_breaker_symbol = agent_config.get("circuit_breaker_symbol", "SPY")
 
     return SimulationResponse(
         id=simulation.id,
@@ -138,6 +141,9 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         win_streak_bonus_pct=win_streak_bonus_pct,
         max_risk_pct=max_risk_pct,
         ibs_max_threshold=ibs_max_threshold,
+        ma50_filter_enabled=ma50_filter_enabled,
+        circuit_breaker_atr_threshold=circuit_breaker_atr_threshold,
+        circuit_breaker_symbol=circuit_breaker_symbol,
         group_id=simulation.group_id,
         status=simulation.status,
         current_day=simulation.current_day,
@@ -298,6 +304,9 @@ async def create_simulation(
         "ma_sweet_spot_center": request.ma_sweet_spot_center,
         # Layer 10: Entry filters
         "ibs_max_threshold": request.ibs_max_threshold,
+        "ma50_filter_enabled": request.ma50_filter_enabled,
+        "circuit_breaker_atr_threshold": request.circuit_breaker_atr_threshold,
+        "circuit_breaker_symbol": request.circuit_breaker_symbol,
     }
     if request.agent_config_id is not None:
         agent_config["agent_config_id"] = request.agent_config_id
@@ -463,6 +472,9 @@ async def get_simulation(
             cumulative_return_pct=snap.cumulative_return_pct,
             open_position_count=snap.open_position_count,
             decisions=snap.decisions,
+            circuit_breaker_state=snap.circuit_breaker_state,
+            circuit_breaker_atr_pct=snap.circuit_breaker_atr_pct,
+            regime_state=snap.regime_state,
         )
         for snap in simulation.snapshots
     ]
@@ -719,6 +731,9 @@ async def create_comparison(
         "max_risk_pct": request.max_risk_pct,
         # Layer 10: Entry filters
         "ibs_max_threshold": request.ibs_max_threshold,
+        "ma50_filter_enabled": request.ma50_filter_enabled,
+        "circuit_breaker_atr_threshold": request.circuit_breaker_atr_threshold,
+        "circuit_breaker_symbol": request.circuit_breaker_symbol,
     }
     if request.agent_config_id is not None:
         base_agent_config["agent_config_id"] = request.agent_config_id

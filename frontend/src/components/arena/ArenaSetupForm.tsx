@@ -57,6 +57,9 @@ interface ArenaSetupFormProps {
     win_streak_bonus_pct?: number | null;
     max_risk_pct?: number | null;
     ibs_max_threshold?: number | null;
+    ma50_filter_enabled?: boolean;
+    circuit_breaker_atr_threshold?: number | null;
+    circuit_breaker_symbol?: string;
   };
 }
 
@@ -110,6 +113,35 @@ const getMinBuyScoreHelpText = (score: number): string => {
   }
   return 'Trend must be bearish. This threshold is permissive and may increase trade frequency.';
 };
+
+/** Strategy presets for one-click setup. Populate stop, sizing, constraints, and filter fields.
+ * Do NOT modify selectedStrategies, symbols, dates, or capital. */
+const STRATEGY_PRESETS = {
+  aggressive: {
+    stop_type: 'atr' as const,
+    atr_stop_multiplier: 2.0,
+    sizing_mode: 'risk_based' as const,
+    risk_per_trade_pct: 2.5,
+    max_open_positions: 10,
+    max_per_sector: 3,
+    ibs_max_threshold: undefined as number | undefined,
+    ma50_filter_enabled: true,
+    circuit_breaker_atr_threshold: 2.8,
+    circuit_breaker_symbol: 'SPY',
+  },
+  conservative: {
+    stop_type: 'atr' as const,
+    atr_stop_multiplier: 2.5,
+    sizing_mode: 'risk_based' as const,
+    risk_per_trade_pct: 2.5,
+    max_open_positions: 10,
+    max_per_sector: 3,
+    ibs_max_threshold: 0.55,
+    ma50_filter_enabled: true,
+    circuit_breaker_atr_threshold: 2.8,
+    circuit_breaker_symbol: 'SPY',
+  },
+} as const;
 
 /** Map volatility value to a Tailwind bg color class for the indicator dot */
 const volatilityDotClass: Record<string, string> = {
@@ -172,6 +204,9 @@ export const ArenaSetupForm = ({
   const [maxRiskPct, setMaxRiskPct] = useState('4.0');
   // Entry filters
   const [ibsMaxThreshold, setIbsMaxThreshold] = useState('');
+  const [ma50FilterEnabled, setMa50FilterEnabled] = useState(false);
+  const [circuitBreakerThreshold, setCircuitBreakerThreshold] = useState('');
+  const [circuitBreakerSymbol, setCircuitBreakerSymbol] = useState('SPY');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   /** Tracks whether ATR stop was auto-set by switching to risk_based sizing */
   const atrAutoSetByRiskSizing = useRef(false);
@@ -249,6 +284,15 @@ export const ArenaSetupForm = ({
       if (initialValues.ibs_max_threshold != null) {
         setIbsMaxThreshold(initialValues.ibs_max_threshold.toString());
       }
+      if (initialValues.ma50_filter_enabled !== undefined) {
+        setMa50FilterEnabled(!!initialValues.ma50_filter_enabled);
+      }
+      if (initialValues.circuit_breaker_atr_threshold != null) {
+        setCircuitBreakerThreshold(initialValues.circuit_breaker_atr_threshold.toString());
+      }
+      if (initialValues.circuit_breaker_symbol) {
+        setCircuitBreakerSymbol(initialValues.circuit_breaker_symbol);
+      }
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -291,6 +335,24 @@ export const ArenaSetupForm = ({
       setStopType('fixed');
       atrAutoSetByRiskSizing.current = false;
     }
+  };
+
+  /** Apply a strategy preset. Populates stop, sizing, constraints, and filter fields.
+   * Does NOT modify selectedStrategies, symbols, dates, or capital. */
+  const applyPreset = (preset: keyof typeof STRATEGY_PRESETS) => {
+    const p = STRATEGY_PRESETS[preset];
+    setStopType(p.stop_type);
+    setAtrStopMultiplier(String(p.atr_stop_multiplier));
+    setSizingMode(p.sizing_mode);
+    setRiskPerTradePct(String(p.risk_per_trade_pct));
+    setMaxOpenPositions(String(p.max_open_positions));
+    setMaxPerSector(String(p.max_per_sector));
+    setMa50FilterEnabled(p.ma50_filter_enabled);
+    setCircuitBreakerThreshold(String(p.circuit_breaker_atr_threshold));
+    setCircuitBreakerSymbol(p.circuit_breaker_symbol);
+    setIbsMaxThreshold(p.ibs_max_threshold !== undefined ? String(p.ibs_max_threshold) : '');
+    // risk_based forces ATR; mark as auto-set
+    atrAutoSetByRiskSizing.current = true;
   };
 
   /** Toggle a portfolio strategy on or off */
@@ -350,10 +412,18 @@ export const ArenaSetupForm = ({
     // check here in case handleSubmit is ever reached with a stale/invalid value
     // (hasIbsError/canSubmit already gates the button path).
     const ibsSubmit = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
-    const entryFilterFields: Partial<CreateSimulationRequest> =
-      ibsSubmit !== null && ibsSubmit > 0 && ibsSubmit <= 1
+    const cbThresholdSubmit =
+      circuitBreakerThreshold !== '' ? parseFloat(circuitBreakerThreshold) : undefined;
+
+    const entryFilterFields: Partial<CreateSimulationRequest> = {
+      ...(ibsSubmit !== null && ibsSubmit > 0 && ibsSubmit <= 1
         ? { ibs_max_threshold: ibsSubmit }
-        : {};
+        : {}),
+      ma50_filter_enabled: ma50FilterEnabled,
+      ...(cbThresholdSubmit !== undefined
+        ? { circuit_breaker_atr_threshold: cbThresholdSubmit, circuit_breaker_symbol: circuitBreakerSymbol }
+        : {}),
+    };
 
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
@@ -421,6 +491,9 @@ export const ArenaSetupForm = ({
     winStreakBonusPct,
     maxRiskPct,
     ibsMaxThreshold,
+    ma50FilterEnabled,
+    circuitBreakerThreshold,
+    circuitBreakerSymbol,
     onSubmit,
     onSubmitComparison,
   ]);
@@ -447,6 +520,18 @@ export const ArenaSetupForm = ({
   const ibsParsed = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
   const hasIbsError = ibsParsed !== null && !(ibsParsed > 0 && ibsParsed <= 1);
 
+  // Circuit breaker validation
+  const cbThresholdParsed = circuitBreakerThreshold === '' ? null : parseFloat(circuitBreakerThreshold);
+  const hasCbThresholdError =
+    cbThresholdParsed !== null && !(cbThresholdParsed > 0 && isFinite(cbThresholdParsed));
+  const cbSymbolHasDot = circuitBreakerSymbol.includes('.');
+  const hasCbSymbolError =
+    circuitBreakerThreshold !== '' &&
+    !/^[A-Z]{1,5}$/.test(circuitBreakerSymbol);
+  const cbSymbolErrorMessage = cbSymbolHasDot
+    ? 'Dot-notation tickers like BRK.B are not supported'
+    : 'Must be 1–5 uppercase letters (e.g. SPY)';
+
   const hasValidPositionSize =
     isRiskBasedSizing || isFixedPctSizing || parseFloat(positionSize) > 0;
 
@@ -471,6 +556,8 @@ export const ArenaSetupForm = ({
     hasValidMinBuyScore &&
     hasStrategySelected &&
     !hasIbsError &&
+    !hasCbThresholdError &&
+    !hasCbSymbolError &&
     !isLoading;
 
   let submitButtonLabel = 'Start Simulation';
@@ -485,7 +572,29 @@ export const ArenaSetupForm = ({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Setup Simulation</CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Setup Simulation</CardTitle>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => applyPreset('aggressive')}
+              disabled={isLoading}
+              className="text-xs font-medium px-2.5 py-1 rounded border border-border bg-background hover:bg-accent/10 hover:border-muted-foreground/50 transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50"
+              aria-label="Load Aggressive preset"
+            >
+              Load Aggressive
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset('conservative')}
+              disabled={isLoading}
+              className="text-xs font-medium px-2.5 py-1 rounded border border-border bg-background hover:bg-accent/10 hover:border-muted-foreground/50 transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50"
+              aria-label="Load Conservative preset"
+            >
+              Load Conservative
+            </button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <Tabs defaultValue="setup">
@@ -1063,29 +1172,106 @@ export const ArenaSetupForm = ({
               </button>
 
               {entryFiltersOpen && (
-                <div id="arena-entry-filters-panel" className="pt-3 grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="arena-ibs-threshold">IBS Threshold</Label>
-                    <Input
-                      id="arena-ibs-threshold"
-                      type="number"
-                      min="0.01"
-                      max="1"
-                      step="0.05"
-                      placeholder="Disabled"
-                      value={ibsMaxThreshold}
-                      onChange={(e) => setIbsMaxThreshold(e.target.value)}
-                      className="mt-1"
-                      disabled={isLoading}
-                    />
-                    {hasIbsError && (
-                      <p className="text-xs text-destructive">
-                        Must be greater than 0 and at most 1
+                <div id="arena-entry-filters-panel" className="pt-3 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="arena-ibs-threshold">IBS Threshold</Label>
+                      <Input
+                        id="arena-ibs-threshold"
+                        type="number"
+                        min="0.01"
+                        max="1"
+                        step="0.05"
+                        placeholder="Disabled"
+                        value={ibsMaxThreshold}
+                        onChange={(e) => setIbsMaxThreshold(e.target.value)}
+                        className="mt-1"
+                        disabled={isLoading}
+                      />
+                      {hasIbsError && (
+                        <p className="text-xs text-destructive">
+                          Must be greater than 0 and at most 1
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Filter entries when close is near daily high. Typical: 0.55. Empty = disabled.
                       </p>
-                    )}
+                    </div>
+                  </div>
+
+                  {/* MA50 Filter toggle */}
+                  <div className="space-y-2">
+                    <Label>MA50 Filter</Label>
+                    <button
+                      type="button"
+                      onClick={() => setMa50FilterEnabled((prev) => !prev)}
+                      disabled={isLoading}
+                      aria-pressed={ma50FilterEnabled}
+                      className={cn(
+                        'px-3 py-1.5 text-sm rounded border transition-all duration-150',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                        'disabled:pointer-events-none disabled:opacity-50',
+                        ma50FilterEnabled
+                          ? 'border-primary bg-primary/10 text-primary font-medium'
+                          : 'border-border bg-background text-muted-foreground hover:border-muted-foreground/50',
+                      )}
+                      data-testid="ma50-filter-toggle"
+                    >
+                      MA50 Filter: {ma50FilterEnabled ? 'On' : 'Off'}
+                    </button>
                     <p className="text-xs text-muted-foreground">
-                      Filter entries when close is near daily high. Typical: 0.55. Empty = disabled.
+                      Only buy stocks trading above their 50-day moving average. Inactive for symbols with &lt;50 bars of history.
                     </p>
+                  </div>
+
+                  {/* Circuit Breaker */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="arena-cb-threshold">Market ATR% Threshold</Label>
+                      <Input
+                        id="arena-cb-threshold"
+                        type="number"
+                        min="0.01"
+                        step="0.1"
+                        placeholder="Disabled"
+                        value={circuitBreakerThreshold}
+                        onChange={(e) => setCircuitBreakerThreshold(e.target.value)}
+                        className="mt-1"
+                        disabled={isLoading}
+                      />
+                      {hasCbThresholdError && (
+                        <p className="text-xs text-destructive">
+                          Must be a positive number
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Block all entries when market ATR% &ge; threshold. e.g. 2.8 for 2.8%. Empty = disabled.
+                      </p>
+                    </div>
+
+                    {circuitBreakerThreshold !== '' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="arena-cb-symbol">Market Symbol</Label>
+                        <Input
+                          id="arena-cb-symbol"
+                          type="text"
+                          placeholder="SPY"
+                          value={circuitBreakerSymbol}
+                          onChange={(e) => setCircuitBreakerSymbol(e.target.value.toUpperCase())}
+                          className="mt-1"
+                          disabled={isLoading}
+                          maxLength={5}
+                        />
+                        {hasCbSymbolError && (
+                          <p className="text-xs text-destructive">
+                            {cbSymbolErrorMessage}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Ticker used to measure market volatility. Default: SPY.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
