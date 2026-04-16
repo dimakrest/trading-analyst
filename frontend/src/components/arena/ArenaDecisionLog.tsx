@@ -118,13 +118,25 @@ export const ArenaDecisionLog = ({
               >
                 <div className="flex items-center justify-between mb-1">
                   <Badge variant="outline">{symbol}</Badge>
-                  <Badge className={getActionBadgeClass(decision.action)}>
-                    {decision.action}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    {decision.ibs_filtered && (
+                      <Badge className="bg-amber-500/15 text-amber-600 border border-amber-500/30 text-[10px]">
+                        IBS FILTERED
+                      </Badge>
+                    )}
+                    <Badge className={getActionBadgeClass(decision.action)}>
+                      {decision.action}
+                    </Badge>
+                  </div>
                 </div>
                 {decision.score !== null && (
                   <p className="text-sm">
                     Score: <span className="font-mono font-medium">{decision.score}/100</span>
+                  </p>
+                )}
+                {decision.ibs_value !== undefined && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    IBS: <span className="font-mono">{decision.ibs_value}</span>
                   </p>
                 )}
                 {decision.reasoning && (

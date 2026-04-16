@@ -105,6 +105,7 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     risk_per_trade_pct = agent_config.get("risk_per_trade_pct")
     win_streak_bonus_pct = agent_config.get("win_streak_bonus_pct")
     max_risk_pct = agent_config.get("max_risk_pct")
+    ibs_max_threshold = agent_config.get("ibs_max_threshold")
 
     return SimulationResponse(
         id=simulation.id,
@@ -136,6 +137,7 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         risk_per_trade_pct=risk_per_trade_pct,
         win_streak_bonus_pct=win_streak_bonus_pct,
         max_risk_pct=max_risk_pct,
+        ibs_max_threshold=ibs_max_threshold,
         group_id=simulation.group_id,
         status=simulation.status,
         current_day=simulation.current_day,
@@ -294,6 +296,8 @@ async def create_simulation(
         "regime_bear_max_positions": request.regime_bear_max_positions,
         # Layer 9: Portfolio selector tuning
         "ma_sweet_spot_center": request.ma_sweet_spot_center,
+        # Layer 10: Entry filters
+        "ibs_max_threshold": request.ibs_max_threshold,
     }
     if request.agent_config_id is not None:
         agent_config["agent_config_id"] = request.agent_config_id
@@ -713,6 +717,8 @@ async def create_comparison(
         "risk_per_trade_pct": request.risk_per_trade_pct,
         "win_streak_bonus_pct": request.win_streak_bonus_pct,
         "max_risk_pct": request.max_risk_pct,
+        # Layer 10: Entry filters
+        "ibs_max_threshold": request.ibs_max_threshold,
     }
     if request.agent_config_id is not None:
         base_agent_config["agent_config_id"] = request.agent_config_id

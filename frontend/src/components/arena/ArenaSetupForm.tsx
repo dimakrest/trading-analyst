@@ -56,6 +56,7 @@ interface ArenaSetupFormProps {
     risk_per_trade_pct?: number | null;
     win_streak_bonus_pct?: number | null;
     max_risk_pct?: number | null;
+    ibs_max_threshold?: number | null;
   };
 }
 
@@ -157,6 +158,7 @@ export const ArenaSetupForm = ({
   const [maxOpenPositions, setMaxOpenPositions] = useState('');
   const [maSweetSpotCenter, setMaSweetSpotCenter] = useState('8.5');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [entryFiltersOpen, setEntryFiltersOpen] = useState(false);
   // Stop type and ATR parameters
   const [stopType, setStopType] = useState<'fixed' | 'atr'>('fixed');
   const [atrStopMultiplier, setAtrStopMultiplier] = useState('2.0');
@@ -168,6 +170,8 @@ export const ArenaSetupForm = ({
   const [riskPerTradePct, setRiskPerTradePct] = useState('2.5');
   const [winStreakBonusPct, setWinStreakBonusPct] = useState('0.3');
   const [maxRiskPct, setMaxRiskPct] = useState('4.0');
+  // Entry filters
+  const [ibsMaxThreshold, setIbsMaxThreshold] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   /** Tracks whether ATR stop was auto-set by switching to risk_based sizing */
   const atrAutoSetByRiskSizing = useRef(false);
@@ -241,6 +245,9 @@ export const ArenaSetupForm = ({
       }
       if (initialValues.max_risk_pct != null) {
         setMaxRiskPct(initialValues.max_risk_pct.toString());
+      }
+      if (initialValues.ibs_max_threshold != null) {
+        setIbsMaxThreshold(initialValues.ibs_max_threshold.toString());
       }
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
@@ -339,6 +346,14 @@ export const ArenaSetupForm = ({
     const positionSizeField =
       sizingMode === 'fixed' ? { position_size: parseFloat(positionSize) } : {};
 
+    // IBS entry filter — only sent when value is explicitly in (0, 1].
+    // Empty string = omit entirely (disabled). Value of 0 is blocked by hasIbsError.
+    const ibsParsedSubmit = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
+    const entryFilterFields: Partial<CreateSimulationRequest> = {};
+    if (ibsParsedSubmit !== null && ibsParsedSubmit > 0 && ibsParsedSubmit <= 1) {
+      entryFilterFields.ibs_max_threshold = ibsParsedSubmit;
+    }
+
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
         symbols: symbolList,
@@ -357,6 +372,7 @@ export const ArenaSetupForm = ({
         max_per_sector: parsedMaxPerSector,
         max_open_positions: parsedMaxOpenPositions,
         ...sizingFields,
+        ...entryFilterFields,
       });
     } else {
       await onSubmit({
@@ -377,6 +393,7 @@ export const ArenaSetupForm = ({
         max_open_positions: parsedMaxOpenPositions,
         ma_sweet_spot_center: parsedMaSweetSpotCenter,
         ...sizingFields,
+        ...entryFilterFields,
       });
     }
   }, [
@@ -402,6 +419,7 @@ export const ArenaSetupForm = ({
     riskPerTradePct,
     winStreakBonusPct,
     maxRiskPct,
+    ibsMaxThreshold,
     onSubmit,
     onSubmitComparison,
   ]);
@@ -423,6 +441,10 @@ export const ArenaSetupForm = ({
   const isAtrStop = stopType === 'atr';
   const isFixedPctSizing = sizingMode === 'fixed_pct';
   const isRiskBasedSizing = sizingMode === 'risk_based';
+
+  // IBS entry filter validation
+  const ibsParsed = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
+  const hasIbsError = ibsParsed !== null && !(ibsParsed > 0 && ibsParsed <= 1);
 
   const hasValidPositionSize =
     isRiskBasedSizing || isFixedPctSizing || parseFloat(positionSize) > 0;
@@ -447,6 +469,7 @@ export const ArenaSetupForm = ({
     hasValidTrailingStop &&
     hasValidMinBuyScore &&
     hasStrategySelected &&
+    !hasIbsError &&
     !isLoading;
 
   let submitButtonLabel = 'Start Simulation';
@@ -1020,6 +1043,52 @@ export const ArenaSetupForm = ({
                 )}
               </div>
             )}
+
+            {/* Entry Filters — collapsible, always shown (applies to all strategies) */}
+            <div className="border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={() => setEntryFiltersOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors duration-150 py-1"
+                aria-expanded={entryFiltersOpen}
+              >
+                <ChevronRight
+                  className={cn(
+                    'h-3.5 w-3.5 transition-transform duration-200',
+                    entryFiltersOpen && 'rotate-90',
+                  )}
+                />
+                Entry Filters
+              </button>
+
+              {entryFiltersOpen && (
+                <div className="pt-3 grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="arena-ibs-threshold">IBS Threshold</Label>
+                    <Input
+                      id="arena-ibs-threshold"
+                      type="number"
+                      min="0.01"
+                      max="1"
+                      step="0.05"
+                      placeholder="Disabled"
+                      value={ibsMaxThreshold}
+                      onChange={(e) => setIbsMaxThreshold(e.target.value)}
+                      className="mt-1"
+                      disabled={isLoading}
+                    />
+                    {hasIbsError && (
+                      <p className="text-xs text-destructive">
+                        Must be greater than 0 and at most 1
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Filter entries when close is near daily high. Typical: 0.55. Empty = disabled.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </TabsContent>
         </Tabs>
 

@@ -786,6 +786,93 @@ describe('ArenaSetupForm', () => {
     });
   });
 
+  describe('IBS Entry Filter', () => {
+    /**
+     * Helper: render with valid symbols/dates and navigate to the Portfolio tab,
+     * then open the Entry Filters collapsible to expose the IBS input.
+     */
+    const renderWithPortfolioAndEntryFilters = async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+        />
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+        target: { value: 'AAPL' },
+      });
+      fireEvent.change(screen.getByLabelText(/start date/i), {
+        target: { value: '2024-01-01' },
+      });
+      fireEvent.change(screen.getByLabelText(/end date/i), {
+        target: { value: '2024-06-01' },
+      });
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      // Open the Entry Filters collapsible
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+      return user;
+    };
+
+    it('IBS field renders inside Entry Filters collapsible in Portfolio tab', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      expect(screen.getByLabelText(/ibs threshold/i)).toBeInTheDocument();
+    });
+
+    it('IBS omitted from payload when input is empty', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      // IBS field is empty (default) — submit
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.not.objectContaining({ ibs_max_threshold: expect.anything() })
+      );
+    });
+
+    it('IBS value > 0 included in payload', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      const ibsInput = screen.getByLabelText(/ibs threshold/i);
+      fireEvent.change(ibsInput, { target: { value: '0.55' } });
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ ibs_max_threshold: 0.55 })
+      );
+    });
+
+    it('IBS=0 shows inline error and form does not submit', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const ibsInput = screen.getByLabelText(/ibs threshold/i);
+      fireEvent.change(ibsInput, { target: { value: '0' } });
+      expect(screen.getByText(/must be greater than 0 and at most 1/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
+    });
+
+    it('replay: initialValues.ibs_max_threshold pre-populates IBS field', async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            ibs_max_threshold: 0.55,
+          }}
+        />
+      );
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+      const ibsInput = screen.getByLabelText(/ibs threshold/i) as HTMLInputElement;
+      expect(ibsInput.value).toBe('0.55');
+    });
+  });
+
   describe('initialValues (replay feature)', () => {
     it('should populate form fields from initialValues', async () => {
       const user = userEvent.setup();

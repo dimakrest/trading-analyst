@@ -717,6 +717,28 @@ class SimulationEngine:
             if decision.action == "BUY" and not has_position:
                 buy_signals.append((symbol, decision))
 
+        # --- Layer 10: Entry Filters ---
+        # Prune BUY signals by Internal Bar Strength before portfolio selection.
+        # IBS = (close - low) / (high - low); signals with IBS >= threshold are
+        # filtered out (stock already near daily high). Zero-range days use
+        # neutral IBS=0.5.
+        ibs_max = simulation.agent_config.get("ibs_max_threshold")
+        if ibs_max is not None:
+            filtered_buy_signals = []
+            for symbol, decision in buy_signals:
+                today_bar = self._get_cached_bar_for_date(simulation_id, symbol, current_date)
+                if today_bar and today_bar.high != today_bar.low:
+                    ibs = float((today_bar.close - today_bar.low) / (today_bar.high - today_bar.low))
+                else:
+                    ibs = 0.5
+                if ibs < ibs_max:
+                    filtered_buy_signals.append((symbol, decision))
+                else:
+                    decisions[symbol]["ibs_filtered"] = True
+                    decisions[symbol]["ibs_value"] = round(ibs, 4)
+                    decisions[symbol]["portfolio_selected"] = False
+            buy_signals = filtered_buy_signals
+
         # --- Portfolio Selection ---
         # Read strategy configuration from agent_config (defaults preserve original behavior)
         strategy_name = simulation.agent_config.get("portfolio_strategy", "none")

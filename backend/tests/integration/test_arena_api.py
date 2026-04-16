@@ -418,3 +418,68 @@ async def test_get_simulation_calls_batch_prefetch_sectors_and_returns_backfille
         assert "NVDA" in symbols_arg
     finally:
         app.dependency_overrides.pop(get_data_service, None)
+
+
+# ---------------------------------------------------------------------------
+# IBS Entry Filter — Schema Validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_simulation_with_ibs_max_threshold_accepted_and_returned(
+    async_client: AsyncClient,
+) -> None:
+    """POST with ibs_max_threshold=0.55 accepted; GET returns it in the response."""
+    payload = {
+        **VALID_SIMULATION_PAYLOAD,
+        "ibs_max_threshold": 0.55,
+    }
+    response = await async_client.post("/api/v1/arena/simulations", json=payload)
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["ibs_max_threshold"] == 0.55
+
+
+@pytest.mark.asyncio
+async def test_create_simulation_ibs_max_threshold_zero_returns_422(
+    async_client: AsyncClient,
+) -> None:
+    """POST with ibs_max_threshold=0 rejected with 422 (gt=0 constraint)."""
+    payload = {
+        **VALID_SIMULATION_PAYLOAD,
+        "ibs_max_threshold": 0,
+    }
+    response = await async_client.post("/api/v1/arena/simulations", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_simulation_ibs_max_threshold_negative_returns_422(
+    async_client: AsyncClient,
+) -> None:
+    """POST with ibs_max_threshold=-0.01 rejected with 422 (gt=0 constraint)."""
+    payload = {
+        **VALID_SIMULATION_PAYLOAD,
+        "ibs_max_threshold": -0.01,
+    }
+    response = await async_client.post("/api/v1/arena/simulations", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_simulation_ibs_max_threshold_upper_bound_accepted(
+    async_client: AsyncClient,
+) -> None:
+    """POST with ibs_max_threshold=1.0 accepted (le=1, upper bound inclusive)."""
+    payload = {
+        **VALID_SIMULATION_PAYLOAD,
+        "ibs_max_threshold": 1.0,
+    }
+    response = await async_client.post("/api/v1/arena/simulations", json=payload)
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["ibs_max_threshold"] == 1.0
