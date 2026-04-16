@@ -250,7 +250,6 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
           </div>
         )}
 
-        {/* Entry Filters Row — only shown when IBS threshold is configured */}
         {simulation.ibs_max_threshold != null && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 pt-3 border-t border-border-subtle">
             <ConfigItem

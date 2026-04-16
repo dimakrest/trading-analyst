@@ -346,13 +346,14 @@ export const ArenaSetupForm = ({
     const positionSizeField =
       sizingMode === 'fixed' ? { position_size: parseFloat(positionSize) } : {};
 
-    // IBS entry filter — only sent when value is explicitly in (0, 1].
-    // Empty string = omit entirely (disabled). Value of 0 is blocked by hasIbsError.
-    const ibsParsedSubmit = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
-    const entryFilterFields: Partial<CreateSimulationRequest> = {};
-    if (ibsParsedSubmit !== null && ibsParsedSubmit > 0 && ibsParsedSubmit <= 1) {
-      entryFilterFields.ibs_max_threshold = ibsParsedSubmit;
-    }
+    // IBS entry filter: empty input = omit (disabled). Defense-in-depth range
+    // check here in case handleSubmit is ever reached with a stale/invalid value
+    // (hasIbsError/canSubmit already gates the button path).
+    const ibsSubmit = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
+    const entryFilterFields: Partial<CreateSimulationRequest> =
+      ibsSubmit !== null && ibsSubmit > 0 && ibsSubmit <= 1
+        ? { ibs_max_threshold: ibsSubmit }
+        : {};
 
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
@@ -1044,13 +1045,13 @@ export const ArenaSetupForm = ({
               </div>
             )}
 
-            {/* Entry Filters — collapsible, always shown (applies to all strategies) */}
             <div className="border-t border-border pt-4">
               <button
                 type="button"
                 onClick={() => setEntryFiltersOpen((prev) => !prev)}
                 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors duration-150 py-1"
                 aria-expanded={entryFiltersOpen}
+                aria-controls="arena-entry-filters-panel"
               >
                 <ChevronRight
                   className={cn(
@@ -1062,7 +1063,7 @@ export const ArenaSetupForm = ({
               </button>
 
               {entryFiltersOpen && (
-                <div className="pt-3 grid grid-cols-2 gap-4">
+                <div id="arena-entry-filters-panel" className="pt-3 grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="arena-ibs-threshold">IBS Threshold</Label>
                     <Input

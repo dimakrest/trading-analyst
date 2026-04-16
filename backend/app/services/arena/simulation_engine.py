@@ -399,7 +399,7 @@ class SimulationEngine:
         # Process each symbol
         decisions: dict[str, dict] = {}
         # Collect BUY signals for portfolio selection (processed after symbol loop)
-        buy_signals: list[tuple[str, AgentDecision]] = []
+        buy_signals: list[tuple[str, AgentDecision, PriceBar]] = []
 
         for symbol in simulation.symbols:
             # Get price history up to current date
@@ -713,9 +713,10 @@ class SimulationEngine:
                 "reasoning": decision.reasoning,
             }
 
-            # Collect BUY signals for portfolio selection (don't create PENDING yet)
+            # Collect BUY signals for portfolio selection (don't create PENDING yet).
+            # today_bar rides along so Layer 10 filters don't re-scan the price cache.
             if decision.action == "BUY" and not has_position:
-                buy_signals.append((symbol, decision))
+                buy_signals.append((symbol, decision, today_bar))
 
         # --- Layer 10: Entry Filters ---
         # Prune BUY signals by Internal Bar Strength before portfolio selection.
@@ -724,15 +725,16 @@ class SimulationEngine:
         # neutral IBS=0.5.
         ibs_max = simulation.agent_config.get("ibs_max_threshold")
         if ibs_max is not None:
-            filtered_buy_signals = []
-            for symbol, decision in buy_signals:
-                today_bar = self._get_cached_bar_for_date(simulation_id, symbol, current_date)
-                if today_bar and today_bar.high != today_bar.low:
-                    ibs = float((today_bar.close - today_bar.low) / (today_bar.high - today_bar.low))
+            filtered_buy_signals: list[tuple[str, AgentDecision, PriceBar]] = []
+            for symbol, decision, today_bar in buy_signals:
+                if today_bar.high != today_bar.low:
+                    ibs = float(
+                        (today_bar.close - today_bar.low) / (today_bar.high - today_bar.low)
+                    )
                 else:
                     ibs = 0.5
                 if ibs < ibs_max:
-                    filtered_buy_signals.append((symbol, decision))
+                    filtered_buy_signals.append((symbol, decision, today_bar))
                 else:
                     decisions[symbol]["ibs_filtered"] = True
                     decisions[symbol]["ibs_value"] = round(ibs, 4)
@@ -775,7 +777,7 @@ class SimulationEngine:
         # Build qualifying signals with sector and ATR data from caches
         qualifying: list[QualifyingSignal] = []
         sim_sector_map = self._sector_cache.get(simulation_id, {})
-        for symbol, decision in buy_signals:
+        for symbol, decision, _today_bar in buy_signals:
             qualifying.append(
                 QualifyingSignal(
                     symbol=symbol,
@@ -804,7 +806,7 @@ class SimulationEngine:
         selected_symbols = {s.symbol for s in selected}
 
         # Create PENDING positions for selected signals only
-        for symbol, decision in buy_signals:
+        for symbol, decision, _today_bar in buy_signals:
             is_selected = symbol in selected_symbols
             # Annotate decision for transparency in snapshots
             decisions[symbol]["portfolio_selected"] = is_selected

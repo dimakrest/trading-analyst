@@ -5881,17 +5881,21 @@ class TestSimulationEngineIBSFilter:
         assert pending_count == 1, "IBS just below threshold should pass"
 
     @pytest.mark.unit
-    async def test_ibs_boundary_decimal_precision_at_threshold(
+    async def test_ibs_boundary_float_precision_rounding_blocks_entry(
         self, db_session, rollback_session_factory
     ) -> None:
-        """Engineered close/high/low producing IBS exactly 0.5 is blocked when threshold=0.5."""
-        # IBS = (50-40)/(60-40) = 10/20 = 0.5 == threshold(0.5) → blocked
+        """Float-cast IBS at the threshold blocks entry even when the underlying
+        Decimal division isn't exactly representable in IEEE-754."""
+        # Decimal(0.1)/Decimal(0.3) cast to float is 0.3333333333333333.
+        # Threshold literal 1/3 in Python float is also 0.3333333333333333.
+        # ibs >= threshold must still block — verifying the float rounding
+        # isn't introducing an off-by-one at the boundary.
         pending_count, _ = await self._run_step_day(
             db_session, rollback_session_factory,
-            ibs_max_threshold=0.5,
-            close=50.0, high=60.0, low=40.0,
+            ibs_max_threshold=1 / 3,
+            close=50.1, high=50.3, low=50.0,
         )
-        assert pending_count == 0, "IBS == 0.5 at threshold 0.5 should be blocked"
+        assert pending_count == 0, "IBS at float-rounded threshold should be blocked"
 
     @pytest.mark.unit
     async def test_ibs_zero_range_day_defaults_to_neutral_ibs_05(
@@ -6004,9 +6008,11 @@ class TestSimulationEngineIBSFilter:
 
         mock_agent = MagicMock()
         mock_agent.required_lookback_days = 5
-        mock_agent.evaluate = AsyncMock(
-            return_value=AgentDecision(symbol="AAPL", action="BUY", score=80)
-        )
+
+        async def _evaluate(symbol, *_args, **_kwargs):
+            return AgentDecision(symbol=symbol, action="BUY", score=80)
+
+        mock_agent.evaluate = AsyncMock(side_effect=_evaluate)
 
         with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
             await engine.step_day(sim.id)

@@ -839,6 +839,21 @@ describe('ArenaSetupForm', () => {
       );
     });
 
+    it('IBS value included in comparison payload when 2+ strategies selected', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      // Select a second strategy so the form routes through onSubmitComparison.
+      await user.click(screen.getByRole('button', { name: /best score — calm/i }));
+      const ibsInput = screen.getByLabelText(/ibs threshold/i);
+      fireEvent.change(ibsInput, { target: { value: '0.55' } });
+      await user.click(
+        screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
+      );
+      expect(mockOnSubmitComparison).toHaveBeenCalledWith(
+        expect.objectContaining({ ibs_max_threshold: 0.55 })
+      );
+      expect(mockOnSubmit).not.toHaveBeenCalled();
+    });
+
     it('IBS=0 shows inline error and form does not submit', async () => {
       await renderWithPortfolioAndEntryFilters();
       const ibsInput = screen.getByLabelText(/ibs threshold/i);

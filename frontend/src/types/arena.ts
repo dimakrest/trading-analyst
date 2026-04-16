@@ -118,13 +118,9 @@ export interface AgentDecision {
   reasoning: string | null;
 }
 
-/** Snapshot decision entry: agent output + engine filter annotations */
-export interface DecisionEntry {
-  // Agent output (same fields as AgentDecision)
-  action: string;
-  score: number | null;
-  reasoning: string | null;
-  // Engine annotations (added by portfolio execution / entry filters)
+/** Snapshot decision entry: agent output plus engine-added annotations from
+ * portfolio selection and entry filters. */
+export interface DecisionEntry extends AgentDecision {
   portfolio_selected?: boolean;
   ibs_filtered?: boolean;
   ibs_value?: number;
