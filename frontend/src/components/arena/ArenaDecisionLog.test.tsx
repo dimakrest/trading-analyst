@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ArenaDecisionLog } from './ArenaDecisionLog';
-import type { AgentDecision, Snapshot } from '../../types/arena';
+import type { DecisionEntry, Snapshot } from '../../types/arena';
 
-const mockDecisions: Record<string, AgentDecision> = {
+const mockDecisions: Record<string, DecisionEntry> = {
   AAPL: {
     action: 'BUY',
     score: 80,
@@ -231,5 +231,64 @@ describe('ArenaDecisionLog', () => {
     // Find the decision card (div with border and rounded-lg classes)
     const aaplCard = screen.getByText('AAPL').closest('.rounded-lg');
     expect(aaplCard).toHaveClass('border-accent-bullish/30');
+  });
+
+  it('should show IBS FILTERED badge when ibs_filtered is true', () => {
+    const mockOnSelect = vi.fn();
+    const ibsFilteredSnapshot: Snapshot = {
+      ...mockSnapshot,
+      decisions: {
+        AAPL: { action: 'BUY', score: 75, reasoning: null, ibs_filtered: true, ibs_value: 0.72 },
+      },
+    };
+    render(
+      <ArenaDecisionLog
+        snapshot={ibsFilteredSnapshot}
+        snapshots={[ibsFilteredSnapshot]}
+        onSelectSnapshot={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('IBS FILTERED')).toBeInTheDocument();
+  });
+
+  it('should display ibs_value when present in decision entry', () => {
+    const mockOnSelect = vi.fn();
+    const ibsValueSnapshot: Snapshot = {
+      ...mockSnapshot,
+      decisions: {
+        NVDA: { action: 'BUY', score: 65, reasoning: null, ibs_filtered: true, ibs_value: 0.72 },
+      },
+    };
+    render(
+      <ArenaDecisionLog
+        snapshot={ibsValueSnapshot}
+        snapshots={[ibsValueSnapshot]}
+        onSelectSnapshot={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('0.72')).toBeInTheDocument();
+    // The IBS value is rendered with a label prefix
+    expect(screen.getByText(/IBS:/)).toBeInTheDocument();
+  });
+
+  it('should not show IBS FILTERED badge when ibs_filtered is absent', () => {
+    const mockOnSelect = vi.fn();
+    const normalSnapshot: Snapshot = {
+      ...mockSnapshot,
+      decisions: {
+        AAPL: { action: 'BUY', score: 80, reasoning: 'Buy signal' },
+      },
+    };
+    render(
+      <ArenaDecisionLog
+        snapshot={normalSnapshot}
+        snapshots={[normalSnapshot]}
+        onSelectSnapshot={mockOnSelect}
+      />
+    );
+
+    expect(screen.queryByText('IBS FILTERED')).not.toBeInTheDocument();
   });
 });

@@ -78,6 +78,24 @@ describe('ArenaConfigPanel', () => {
     });
   });
 
+  describe('Entry Filters', () => {
+    it('renders IBS threshold row when ibs_max_threshold is set', () => {
+      render(<ArenaConfigPanel simulation={createMockSimulation({ ibs_max_threshold: 0.55 })} />);
+      expect(screen.getByText('IBS Threshold')).toBeInTheDocument();
+      expect(screen.getByText('0.55')).toBeInTheDocument();
+    });
+
+    it('does not render IBS threshold row when ibs_max_threshold is null', () => {
+      render(<ArenaConfigPanel simulation={createMockSimulation({ ibs_max_threshold: null })} />);
+      expect(screen.queryByText('IBS Threshold')).not.toBeInTheDocument();
+    });
+
+    it('does not render IBS threshold row when ibs_max_threshold is absent', () => {
+      render(<ArenaConfigPanel simulation={createMockSimulation()} />);
+      expect(screen.queryByText('IBS Threshold')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Symbol List', () => {
     it('renders symbol count', () => {
       render(<ArenaConfigPanel simulation={createMockSimulation()} />);

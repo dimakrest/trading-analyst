@@ -267,6 +267,18 @@ class CreateSimulationRequest(StrictBaseModel):
         ),
     )
 
+    # --- Layer 10: Entry Filters ---
+    ibs_max_threshold: float | None = Field(
+        default=None,
+        gt=0,
+        le=1,
+        description=(
+            "Internal Bar Strength (IBS) maximum threshold. IBS = (close-low)/(high-low). "
+            "BUY signals are filtered when IBS >= threshold (stock already near daily high). "
+            "None = disabled. Must be in (0, 1]."
+        ),
+    )
+
     # --- Layer 7: Market Regime Filter ---
     regime_filter: bool = Field(
         default=False,
@@ -494,6 +506,18 @@ class CreateComparisonRequest(StrictBaseModel):
         description="Maximum effective risk % per trade cap (sizing_mode='risk_based').",
     )
 
+    # --- Layer 10: Entry Filters ---
+    ibs_max_threshold: float | None = Field(
+        default=None,
+        gt=0,
+        le=1,
+        description=(
+            "Internal Bar Strength (IBS) maximum threshold. IBS = (close-low)/(high-low). "
+            "BUY signals are filtered when IBS >= threshold (stock already near daily high). "
+            "None = disabled. Must be in (0, 1]."
+        ),
+    )
+
     # Shared validators — same standalone functions as CreateSimulationRequest
     _normalize_symbols = field_validator("symbols", mode="before")(_normalize_symbols_value)
     _validate_symbols_count = field_validator("symbols")(_validate_symbols_count_value)
@@ -663,6 +687,7 @@ class SimulationResponse(StrictBaseModel):
     risk_per_trade_pct: float | None = None
     win_streak_bonus_pct: float | None = None
     max_risk_pct: float | None = None
+    ibs_max_threshold: float | None = None
     group_id: str | None = None
     status: str
     current_day: int

@@ -214,6 +214,26 @@ class TestCreateComparison:
             assert sim["min_buy_score"] == 70
 
     @pytest.mark.asyncio
+    async def test_create_comparison_with_ibs_max_threshold_propagates_to_variants(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        """ibs_max_threshold on the comparison request lands on every variant."""
+        request = {
+            **BASE_COMPARISON_REQUEST,
+            "ibs_max_threshold": 0.55,
+        }
+
+        response = await async_client.post("/api/v1/arena/comparisons", json=request)
+
+        assert response.status_code == 202
+        data = response.json()
+        assert len(data["simulations"]) >= 2
+        for sim in data["simulations"]:
+            assert sim["ibs_max_threshold"] == 0.55
+
+    @pytest.mark.asyncio
     async def test_create_comparison_with_agent_config_id_uses_config_algorithm(
         self,
         async_client: AsyncClient,

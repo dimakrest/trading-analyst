@@ -9,6 +9,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  Filter,
   Layers,
   LayoutGrid,
   Settings2,
@@ -246,6 +247,18 @@ export const ArenaConfigPanel = ({ simulation }: ArenaConfigPanelProps) => {
                 />
               </>
             )}
+          </div>
+        )}
+
+        {simulation.ibs_max_threshold != null && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 pt-3 border-t border-border-subtle">
+            <ConfigItem
+              icon={<Filter className="h-3.5 w-3.5" />}
+              label="IBS Threshold"
+              value={
+                <span className="text-text-primary">{simulation.ibs_max_threshold}</span>
+              }
+            />
           </div>
         )}
 

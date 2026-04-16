@@ -64,6 +64,7 @@ export interface Simulation {
   risk_per_trade_pct?: number | null;
   win_streak_bonus_pct?: number | null;
   max_risk_pct?: number | null;
+  ibs_max_threshold?: number | null;
   group_id: string | null;
   status: SimulationStatus;
   current_day: number;
@@ -117,6 +118,14 @@ export interface AgentDecision {
   reasoning: string | null;
 }
 
+/** Snapshot decision entry: agent output plus engine-added annotations from
+ * portfolio selection and entry filters. */
+export interface DecisionEntry extends AgentDecision {
+  portfolio_selected?: boolean;
+  ibs_filtered?: boolean;
+  ibs_value?: number;
+}
+
 /** Daily snapshot of portfolio state */
 export interface Snapshot {
   id: number;
@@ -130,7 +139,7 @@ export interface Snapshot {
   cumulative_return_pct: string;
   open_position_count: number;
   /** Agent decisions keyed by symbol */
-  decisions: Record<string, AgentDecision>;
+  decisions: Record<string, DecisionEntry>;
 }
 
 /** Full simulation detail with positions and snapshots */
@@ -194,6 +203,8 @@ export interface CreateSimulationRequest {
   win_streak_bonus_pct?: number;
   /** Maximum effective risk % per trade cap (used when sizing_mode='risk_based') */
   max_risk_pct?: number;
+  /** IBS max threshold for entry filter (0, 1]; omit or null = disabled */
+  ibs_max_threshold?: number;
 }
 
 /** Response from step endpoint */
@@ -246,6 +257,8 @@ export interface CreateComparisonRequest {
   win_streak_bonus_pct?: number;
   /** Maximum effective risk % per trade cap (used when sizing_mode='risk_based') */
   max_risk_pct?: number;
+  /** IBS max threshold for entry filter (0, 1]; omit or null = disabled */
+  ibs_max_threshold?: number;
 }
 
 /** Response from comparison creation / retrieval */

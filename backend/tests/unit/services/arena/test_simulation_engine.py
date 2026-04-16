@@ -5721,3 +5721,324 @@ class TestRiskBasedSizingClampedAndCappedByCash:
         assert pending.status == PositionStatus.OPEN.value
         # Capped at cash = $1000 → 10 shares (NOT 125 from the equity-based cap).
         assert pending.shares == 10
+
+
+@pytest.mark.usefixtures("db_session")
+class TestSimulationEngineIBSFilter:
+    """Tests for Internal Bar Strength (IBS) entry filter in step_day()."""
+
+    def _make_engine(self, db_session, rollback_session_factory) -> SimulationEngine:
+        return SimulationEngine(db_session, session_factory=rollback_session_factory)
+
+    def _make_bars(
+        self,
+        close: float,
+        high: float,
+        low: float,
+        n_history: int = 10,
+        target_date: date = date(2024, 1, 16),
+    ) -> list[PriceBar]:
+        """Build price bar history ending with a specific today bar."""
+        history = [
+            PriceBar(
+                date=date(2024, 1, 1) + timedelta(days=i),
+                open=Decimal("100.00"),
+                high=Decimal("105.00"),
+                low=Decimal("95.00"),
+                close=Decimal("100.00"),
+                volume=1_000_000,
+            )
+            for i in range(n_history)
+        ]
+        today = PriceBar(
+            date=target_date,
+            open=Decimal(str(close)),
+            high=Decimal(str(high)),
+            low=Decimal(str(low)),
+            close=Decimal(str(close)),
+            volume=1_000_000,
+        )
+        return history + [today]
+
+    async def _run_step_day(
+        self,
+        db_session,
+        rollback_session_factory,
+        ibs_max_threshold: float | None,
+        close: float,
+        high: float,
+        low: float,
+    ) -> tuple[int, dict]:
+        """Create a simulation with one symbol and run step_day, returning (pending_count, decisions)."""
+        sim = ArenaSimulation(
+            name="IBS Filter Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={
+                "trailing_stop_pct": 5.0,
+                "ibs_max_threshold": ibs_max_threshold,
+            },
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=3,
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        engine = self._make_engine(db_session, rollback_session_factory)
+
+        trading_days = [date(2024, 1, 16), date(2024, 1, 17)]
+        bars = self._make_bars(close=close, high=high, low=low)
+
+        engine._trading_days_cache[sim.id] = trading_days
+        engine._price_cache[sim.id] = {"AAPL": bars}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 5
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="BUY", score=80)
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(sim.id)
+
+        result = await db_session.execute(
+            select(ArenaPosition)
+            .where(ArenaPosition.simulation_id == sim.id)
+            .where(ArenaPosition.status == PositionStatus.PENDING.value)
+        )
+        pending = result.scalars().all()
+
+        # Retrieve decisions from the snapshot
+        snap_result = await db_session.execute(
+            select(ArenaSnapshot).where(ArenaSnapshot.simulation_id == sim.id)
+        )
+        snapshot = snap_result.scalar_one_or_none()
+        decisions = snapshot.decisions if snapshot else {}
+
+        return len(pending), decisions
+
+    # ------------------------------------------------------------------
+    # Core filter logic
+    # ------------------------------------------------------------------
+
+    @pytest.mark.unit
+    async def test_ibs_filter_blocks_entry_when_ibs_at_threshold(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """IBS >= threshold: BUY signal is filtered out, no PENDING position created."""
+        # IBS = (close-low)/(high-low) = (55-40)/(60-40) = 15/20 = 0.75 >= 0.55
+        pending_count, _ = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=0.55,
+            close=55.0, high=60.0, low=40.0,
+        )
+        assert pending_count == 0, "IBS >= threshold should block BUY signal"
+
+    @pytest.mark.unit
+    async def test_ibs_filter_allows_entry_when_ibs_below_threshold(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """IBS < threshold: BUY signal passes through, PENDING position created."""
+        # IBS = (42-40)/(60-40) = 2/20 = 0.10 < 0.55
+        pending_count, _ = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=0.55,
+            close=42.0, high=60.0, low=40.0,
+        )
+        assert pending_count == 1, "IBS < threshold should allow BUY signal"
+
+    @pytest.mark.unit
+    async def test_ibs_boundary_exactly_at_threshold_is_blocked(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """IBS == threshold is blocked (>= comparison)."""
+        # IBS = (51-40)/(60-40) = 11/20 = 0.55 exactly == threshold
+        pending_count, _ = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=0.55,
+            close=51.0, high=60.0, low=40.0,
+        )
+        assert pending_count == 0, "IBS == threshold should be blocked"
+
+    @pytest.mark.unit
+    async def test_ibs_boundary_one_epsilon_below_threshold_is_allowed(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """IBS just below threshold passes (strict less-than)."""
+        # IBS = (50.99-40)/(60-40) = 10.99/20 = 0.5495 < 0.55
+        pending_count, _ = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=0.55,
+            close=50.99, high=60.0, low=40.0,
+        )
+        assert pending_count == 1, "IBS just below threshold should pass"
+
+    @pytest.mark.unit
+    async def test_ibs_boundary_float_precision_rounding_blocks_entry(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Float-cast IBS at the threshold blocks entry even when the underlying
+        Decimal division isn't exactly representable in IEEE-754."""
+        # Decimal(0.1)/Decimal(0.3) cast to float is 0.3333333333333333.
+        # Threshold literal 1/3 in Python float is also 0.3333333333333333.
+        # ibs >= threshold must still block — verifying the float rounding
+        # isn't introducing an off-by-one at the boundary.
+        pending_count, _ = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=1 / 3,
+            close=50.1, high=50.3, low=50.0,
+        )
+        assert pending_count == 0, "IBS at float-rounded threshold should be blocked"
+
+    @pytest.mark.unit
+    async def test_ibs_zero_range_day_defaults_to_neutral_ibs_05(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Zero-range day (high == low) defaults IBS to 0.5 (neutral)."""
+        # high == low == close → IBS defaults to 0.5
+        # threshold=0.6 → 0.5 < 0.6 → should ALLOW entry
+        pending_count, _ = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=0.6,
+            close=50.0, high=50.0, low=50.0,
+        )
+        assert pending_count == 1, "Zero-range day IBS=0.5 < threshold=0.6 should allow entry"
+
+    @pytest.mark.unit
+    async def test_ibs_zero_range_day_blocked_when_threshold_at_or_below_neutral(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Zero-range day IBS=0.5 blocked when threshold <= 0.5."""
+        # IBS=0.5 == threshold=0.5 → blocked
+        pending_count, _ = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=0.5,
+            close=50.0, high=50.0, low=50.0,
+        )
+        assert pending_count == 0, "Zero-range day IBS=0.5 == threshold=0.5 should be blocked"
+
+    @pytest.mark.unit
+    async def test_ibs_filter_disabled_when_threshold_is_none(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """No filtering occurs when ibs_max_threshold is None."""
+        # Even with high IBS (close at top of range), no filter → PENDING created
+        pending_count, _ = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=None,
+            close=59.0, high=60.0, low=40.0,
+        )
+        assert pending_count == 1, "IBS filter disabled (None) should allow all BUY signals"
+
+    # ------------------------------------------------------------------
+    # Decisions dict annotations
+    # ------------------------------------------------------------------
+
+    @pytest.mark.unit
+    async def test_ibs_filtered_and_ibs_value_recorded_in_decisions(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Filtered signals have ibs_filtered=True and ibs_value recorded in decisions."""
+        # IBS = (55-40)/(60-40) = 0.75 >= threshold=0.55 → filtered
+        _, decisions = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=0.55,
+            close=55.0, high=60.0, low=40.0,
+        )
+        aapl = decisions.get("AAPL", {})
+        assert aapl.get("ibs_filtered") is True, "ibs_filtered should be True for filtered signal"
+        assert aapl.get("ibs_value") == 0.75, f"ibs_value should be 0.75, got {aapl.get('ibs_value')}"
+
+    @pytest.mark.unit
+    async def test_portfolio_selected_false_set_for_filtered_signals(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Filtered signals have portfolio_selected=False in decisions."""
+        # IBS = (55-40)/(60-40) = 0.75 >= threshold=0.55 → filtered
+        _, decisions = await self._run_step_day(
+            db_session, rollback_session_factory,
+            ibs_max_threshold=0.55,
+            close=55.0, high=60.0, low=40.0,
+        )
+        aapl = decisions.get("AAPL", {})
+        assert aapl.get("portfolio_selected") is False, "portfolio_selected should be False for filtered signal"
+
+    @pytest.mark.unit
+    async def test_ibs_filtered_symbol_excluded_from_portfolio_selection(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """IBS-filtered symbol is excluded from portfolio selection (buy_signals list is pruned)."""
+        # Use 2 symbols: AAPL has high IBS (filtered), MSFT has low IBS (passes)
+        sim = ArenaSimulation(
+            name="IBS Filter Portfolio Exclusion Test",
+            symbols=["AAPL", "MSFT"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={
+                "trailing_stop_pct": 5.0,
+                "ibs_max_threshold": 0.55,
+            },
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=3,
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        engine = self._make_engine(db_session, rollback_session_factory)
+        engine._trading_days_cache[sim.id] = [date(2024, 1, 16), date(2024, 1, 17)]
+
+        # AAPL: high IBS=0.75 → filtered; MSFT: low IBS=0.1 → passes
+        aapl_bars = self._make_bars(close=55.0, high=60.0, low=40.0)  # IBS=0.75
+        msft_bars = self._make_bars(close=42.0, high=60.0, low=40.0)  # IBS=0.10
+
+        engine._price_cache[sim.id] = {"AAPL": aapl_bars, "MSFT": msft_bars}
+        engine._sector_cache[sim.id] = {"AAPL": None, "MSFT": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 5
+
+        async def _evaluate(symbol, *_args, **_kwargs):
+            return AgentDecision(symbol=symbol, action="BUY", score=80)
+
+        mock_agent.evaluate = AsyncMock(side_effect=_evaluate)
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            await engine.step_day(sim.id)
+
+        result = await db_session.execute(
+            select(ArenaPosition)
+            .where(ArenaPosition.simulation_id == sim.id)
+            .where(ArenaPosition.status == PositionStatus.PENDING.value)
+        )
+        pending = result.scalars().all()
+        pending_symbols = {p.symbol for p in pending}
+
+        # Only MSFT should have a PENDING position; AAPL was IBS-filtered
+        assert "MSFT" in pending_symbols, "MSFT (low IBS) should pass through to portfolio selection"
+        assert "AAPL" not in pending_symbols, "AAPL (high IBS) should be excluded from portfolio selection"
+
+        # Check AAPL's decision annotations
+        snap_result = await db_session.execute(
+            select(ArenaSnapshot).where(ArenaSnapshot.simulation_id == sim.id)
+        )
+        snapshot = snap_result.scalar_one_or_none()
+        assert snapshot is not None
+        aapl_decision = snapshot.decisions.get("AAPL", {})
+        assert aapl_decision.get("ibs_filtered") is True
+        assert aapl_decision.get("portfolio_selected") is False
+
+        # MSFT should not have ibs_filtered set (it passed)
+        msft_decision = snapshot.decisions.get("MSFT", {})
+        assert "ibs_filtered" not in msft_decision
