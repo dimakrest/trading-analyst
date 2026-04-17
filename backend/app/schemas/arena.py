@@ -57,7 +57,53 @@ def _validate_agent_type_value(v: str) -> str:
     return v.lower()
 
 
-class CreateSimulationRequest(StrictBaseModel):
+class _EntryFiltersMixin(StrictBaseModel):
+    """Shared entry-filter fields for simulation and comparison requests.
+
+    Both CreateSimulationRequest and CreateComparisonRequest declare identical
+    Layer-10 entry-filter fields. This mixin eliminates drift between the two:
+    any new filter field added here is automatically available in both.
+    """
+
+    # --- Layer 10: Entry Filters ---
+    ibs_max_threshold: float | None = Field(
+        default=None,
+        gt=0,
+        le=1,
+        description=(
+            "Internal Bar Strength (IBS) maximum threshold. IBS = (close-low)/(high-low). "
+            "BUY signals are filtered when IBS >= threshold (stock already near daily high). "
+            "None = disabled. Must be in (0, 1]."
+        ),
+    )
+    ma50_filter_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable MA50 trend filter. Only buys stocks trading above their 50-day moving average. "
+            "90 calendar days of history are pre-loaded when enabled to guarantee ≥50 trading bars. "
+            "Dot-notation tickers (BRK.B) are not supported."
+        ),
+    )
+    circuit_breaker_atr_threshold: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "ATR% as a percentage, e.g. 2.8 = 2.8%. When the market proxy ATR% meets or exceeds "
+            "this threshold, all new entries are blocked for that day. None = disabled."
+        ),
+    )
+    circuit_breaker_symbol: str = Field(
+        default="SPY",
+        max_length=10,
+        pattern=r"^[A-Z]{1,5}$",
+        description=(
+            "Market proxy ticker for the circuit breaker (default: 'SPY'). "
+            "Dot-notation tickers (BRK.B) are not supported by the pattern constraint."
+        ),
+    )
+
+
+class CreateSimulationRequest(_EntryFiltersMixin, StrictBaseModel):
     """Request to create a new arena simulation.
 
     Validates and normalizes input for simulation creation.
@@ -267,42 +313,7 @@ class CreateSimulationRequest(StrictBaseModel):
         ),
     )
 
-    # --- Layer 10: Entry Filters ---
-    ibs_max_threshold: float | None = Field(
-        default=None,
-        gt=0,
-        le=1,
-        description=(
-            "Internal Bar Strength (IBS) maximum threshold. IBS = (close-low)/(high-low). "
-            "BUY signals are filtered when IBS >= threshold (stock already near daily high). "
-            "None = disabled. Must be in (0, 1]."
-        ),
-    )
-    ma50_filter_enabled: bool = Field(
-        default=False,
-        description=(
-            "Enable MA50 trend filter. Only buys stocks trading above their 50-day moving average. "
-            "Inactive for symbols with <50 bars of history; logs debug for skipped evaluations. "
-            "Dot-notation tickers (BRK.B) are not supported."
-        ),
-    )
-    circuit_breaker_atr_threshold: float | None = Field(
-        default=None,
-        gt=0,
-        description=(
-            "ATR% as a percentage, e.g. 2.8 = 2.8%. When the market proxy ATR% meets or exceeds "
-            "this threshold, all new entries are blocked for that day. None = disabled."
-        ),
-    )
-    circuit_breaker_symbol: str = Field(
-        default="SPY",
-        max_length=10,
-        pattern=r"^[A-Z]{1,5}$",
-        description=(
-            "Market proxy ticker for the circuit breaker (default: 'SPY'). "
-            "Dot-notation tickers (BRK.B) are not supported by the pattern constraint."
-        ),
-    )
+    # Layer 10 entry-filter fields are inherited from _EntryFiltersMixin.
 
     # --- Layer 7: Market Regime Filter ---
     regime_filter: bool = Field(
@@ -387,7 +398,7 @@ class CreateSimulationRequest(StrictBaseModel):
         return self
 
 
-class CreateComparisonRequest(StrictBaseModel):
+class CreateComparisonRequest(_EntryFiltersMixin, StrictBaseModel):
     """Request to create a multi-strategy comparison run.
 
     Creates one simulation per selected portfolio strategy, all sharing
@@ -531,42 +542,7 @@ class CreateComparisonRequest(StrictBaseModel):
         description="Maximum effective risk % per trade cap (sizing_mode='risk_based').",
     )
 
-    # --- Layer 10: Entry Filters ---
-    ibs_max_threshold: float | None = Field(
-        default=None,
-        gt=0,
-        le=1,
-        description=(
-            "Internal Bar Strength (IBS) maximum threshold. IBS = (close-low)/(high-low). "
-            "BUY signals are filtered when IBS >= threshold (stock already near daily high). "
-            "None = disabled. Must be in (0, 1]."
-        ),
-    )
-    ma50_filter_enabled: bool = Field(
-        default=False,
-        description=(
-            "Enable MA50 trend filter. Only buys stocks trading above their 50-day moving average. "
-            "Inactive for symbols with <50 bars of history; logs debug for skipped evaluations. "
-            "Dot-notation tickers (BRK.B) are not supported."
-        ),
-    )
-    circuit_breaker_atr_threshold: float | None = Field(
-        default=None,
-        gt=0,
-        description=(
-            "ATR% as a percentage, e.g. 2.8 = 2.8%. When the market proxy ATR% meets or exceeds "
-            "this threshold, all new entries are blocked for that day. None = disabled."
-        ),
-    )
-    circuit_breaker_symbol: str = Field(
-        default="SPY",
-        max_length=10,
-        pattern=r"^[A-Z]{1,5}$",
-        description=(
-            "Market proxy ticker for the circuit breaker (default: 'SPY'). "
-            "Dot-notation tickers (BRK.B) are not supported by the pattern constraint."
-        ),
-    )
+    # Layer 10 entry-filter fields are inherited from _EntryFiltersMixin.
 
     # Shared validators — same standalone functions as CreateSimulationRequest
     _normalize_symbols = field_validator("symbols", mode="before")(_normalize_symbols_value)

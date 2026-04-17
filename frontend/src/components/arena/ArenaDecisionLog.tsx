@@ -52,10 +52,11 @@ const MarketConditionsBanner = ({
   const renderBannerContent = () => {
     switch (circuitBreakerState) {
       case 'clear':
+        // Passive indicator — no role/live-region; firing role="status" on every
+        // day-change during fast replay is spammy for screen readers.
         return (
           <div
-            className="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-600"
-            role="status"
+            className="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-700"
             data-testid="cb-banner-clear"
           >
             <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
@@ -80,7 +81,7 @@ const MarketConditionsBanner = ({
       case 'data_unavailable':
         return (
           <div
-            className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600"
+            className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700"
             role="alert"
             data-testid="cb-banner-data-unavailable"
           >
@@ -91,8 +92,16 @@ const MarketConditionsBanner = ({
             </span>
           </div>
         );
-      default:
+      case 'disabled':
+        // 'disabled' reaches here only when regimeState is set (the early-return guard
+        // at the top of the component handles the fully-hidden case).
         return null;
+      default: {
+        // Exhaustiveness check: TypeScript will error here if a new
+        // CircuitBreakerState variant is added without a matching case.
+        const _exhaustive: never = circuitBreakerState;
+        return _exhaustive;
+      }
     }
   };
 

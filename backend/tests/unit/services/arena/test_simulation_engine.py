@@ -6209,10 +6209,21 @@ class TestSimulationEngineMA50Filter:
     ) -> None:
         """Stale close guard: when last bar date != current_date, filter is skipped, entry allowed.
 
-        Simulates a data-gap scenario: the symbol has 50 bars in the 90-day window
-        but none of them falls on current_date. We achieve this by patching
-        _get_cached_price_history so the MA50-specific call returns bars ending before
-        current_date, while the agent-loop call returns a bar at current_date.
+        Simulates a data-gap scenario: AAPL has 50 bars in the 90-day window but none of
+        them falls on current_date.  The agent-loop call returns a bar at current_date so
+        that a BUY signal is generated; the MA50 filter call returns stale bars (last date
+        is current_date - 1) so the stale-guard branch is taken and the entry is allowed.
+
+        Implementation note: _get_cached_price_history returns a date-filtered slice of
+        _price_cache. Because both the agent-loop call (narrow window) and the MA50 filter
+        call (90-day window) include current_date in their end bound, a single cache list
+        cannot simultaneously contain a bar at current_date (for the agent) and not contain
+        one (for the MA50 filter). Direct cache seeding is therefore insufficient to isolate
+        the stale-guard branch; we use patch.object with a side_effect instead.
+
+        Unlike the previous bare attribute assignment (engine._get_cached_price_history = fn),
+        patch.object is properly scoped to the with-block and will raise AttributeError on
+        rename, making test breakage visible rather than silent.
         """
         current_date = date(2024, 1, 16)
 
@@ -6237,14 +6248,14 @@ class TestSimulationEngineMA50Filter:
         await db_session.refresh(sim)
 
         engine = self._make_engine(db_session, rollback_session_factory)
-        trading_days = [current_date, date(2024, 1, 17)]
-        engine._trading_days_cache[sim.id] = trading_days
+        engine._trading_days_cache[sim.id] = [current_date, date(2024, 1, 17)]
         engine._sector_cache[sim.id] = {"AAPL": None}
 
-        # Normal bars for the agent loop (has a bar at current_date so agent sees BUY)
+        # Bars for the agent loop: include a bar at current_date so AAPL gets a BUY signal.
         normal_bars = self._make_bars_with_ma50([100.0] * 49 + [50.0], target_date=current_date)
 
-        # Stale bars for MA50 check: 50 bars all ending before current_date
+        # Stale bars for the MA50 filter: 50 bars all ending one day before current_date.
+        # ph[-1].date == current_date - 1, so the stale-guard branch fires and entry is allowed.
         stale_bars = [
             PriceBar(
                 date=current_date - timedelta(days=(50 - i)),
@@ -6256,21 +6267,19 @@ class TestSimulationEngineMA50Filter:
             )
             for i in range(50)
         ]
-        # stale_bars[-1].date == current_date - timedelta(days=1) != current_date
+        # stale_bars[-1].date == current_date - timedelta(days=1)
 
-        call_count = [0]
-
-        def patched_get_cached(simulation_id, symbol, start, end):
-            call_count[0] += 1
-            # First call: agent loop (short window ending at current_date)
-            # Subsequent calls: MA50 filter (90-day window) -- return stale bars
-            if call_count[0] == 1:
-                return normal_bars  # agent loop sees today's bar
-            else:
-                return stale_bars  # MA50 sees stale bars (ph[-1].date != current_date)
-
-        engine._get_cached_price_history = patched_get_cached
         engine._price_cache[sim.id] = {"AAPL": normal_bars}
+
+        # side_effect distinguishes by window width: the agent loop requests a narrow window
+        # (required_lookback_days + 30 = 35 days) while the MA50 filter requests 90 days.
+        # Both share current_date as end; we use the window start to route each call.
+        ma50_window_start = current_date - timedelta(days=90)
+
+        def route_by_window(simulation_id, symbol, start, end):
+            if start <= ma50_window_start:
+                return stale_bars  # MA50 filter call → stale bars → stale guard fires
+            return normal_bars     # agent-loop call → normal bars with today's bar
 
         mock_agent = MagicMock()
         mock_agent.required_lookback_days = 5
@@ -6278,7 +6287,8 @@ class TestSimulationEngineMA50Filter:
             return_value=AgentDecision(symbol="AAPL", action="BUY", score=80)
         )
 
-        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent), \
+             patch.object(engine, "_get_cached_price_history", side_effect=route_by_window):
             await engine.step_day(sim.id)
 
         result = await db_session.execute(
@@ -6480,17 +6490,67 @@ class TestSimulationEngineCircuitBreaker:
     async def test_circuit_breaker_boundary_at_threshold_triggers(
         self, db_session, rollback_session_factory
     ) -> None:
-        """Boundary: market_atr_pct == threshold fires (>= comparison), state == 'triggered'."""
-        # We use a real ATR calc, so we set up bars where ATR% > threshold to ensure trigger.
-        # Instead test the >= logic by setting threshold=3.0 and atr_pct=3.0
-        # Since _calculate_symbol_atr_pct uses Wilder's ATR and is approximate,
-        # we test via state rather than exact ATR value.
-        pending_count, _, snapshot = await self._run_step_day_cb(
-            db_session, rollback_session_factory,
-            circuit_breaker_atr_threshold=2.8,
-            spy_atr_pct=3.0,
+        """Boundary: market_atr_pct exactly == threshold must trigger (>= comparison).
+
+        We patch _calculate_symbol_atr_pct to return exactly 2.8 and set threshold=2.8.
+        Engineering exact ATR% from bar geometry is infeasible with Wilder's smoothed ATR
+        because the initial SMA seed and subsequent smoothing prevent a clean closed-form
+        match. The mock gives us float-identical equality without relying on approximation.
+        The circuit breaker condition is ``market_atr_pct >= threshold`` (not ``>``), so
+        this test specifically validates the equal-to boundary that the adjacent
+        ``_above_threshold_triggers`` test (atr_pct=3.0, threshold=2.8) does NOT cover.
+        """
+        engine = self._make_engine(db_session, rollback_session_factory)
+        sim = ArenaSimulation(
+            name="CB Boundary Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={
+                "trailing_stop_pct": 5.0,
+                "circuit_breaker_atr_threshold": 2.8,
+                "circuit_breaker_symbol": "SPY",
+            },
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=3,
         )
-        assert pending_count == 0
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        target_date = date(2024, 1, 16)
+        engine._trading_days_cache[sim.id] = [target_date, date(2024, 1, 17)]
+        aapl_bars = self._make_aapl_bars(target_date)
+        spy_bars = self._make_spy_bars(3.0, target_date)  # bars needed; ATR value is mocked
+        engine._price_cache[sim.id] = {"AAPL": aapl_bars, "SPY": spy_bars}
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 5
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="BUY", score=80)
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent), \
+             patch.object(engine, "_calculate_symbol_atr_pct", return_value=2.8):
+            await engine.step_day(sim.id)
+
+        result = await db_session.execute(
+            select(ArenaPosition)
+            .where(ArenaPosition.simulation_id == sim.id)
+            .where(ArenaPosition.status == PositionStatus.PENDING.value)
+        )
+        pending = result.scalars().all()
+        snap_result = await db_session.execute(
+            select(ArenaSnapshot).where(ArenaSnapshot.simulation_id == sim.id)
+        )
+        snapshot = snap_result.scalar_one()
+
+        assert len(pending) == 0, "ATR% == threshold should trigger circuit breaker (>= not >)"
         assert snapshot.circuit_breaker_state == "triggered"
 
     @pytest.mark.unit
@@ -6817,13 +6877,19 @@ class TestSimulationEngineCircuitBreaker:
             mock_agent.required_lookback_days = 5
             mock_get_agent.return_value = mock_agent
 
-            # step_day with empty cache triggers resume lazy-load path
-            # The simulation.current_day=0, total_days=3, so step_day checks the cache
+            # step_day with empty cache triggers resume lazy-load path.
+            # The simulation.current_day=0, total_days=3, so step_day checks the cache.
+            # The mocked _load_price_cache is a no-op, so _price_cache[sim.id] is never
+            # populated; the agent loop returns NO_DATA for all symbols and step_day
+            # normally completes without raising. If mocking gaps in the test setup ever
+            # cause downstream attribute access on a None (e.g. _get_cached_bar_for_date
+            # returning None being dereferenced), that surfaces as AttributeError or
+            # KeyError — the narrowest types that could plausibly arise here.
             try:
                 await engine.step_day(sim.id)
-            except Exception:
-                # Step may fail after the cache load (no actual price data) -- that's fine.
-                # We only care that _load_auxiliary_symbol_cache was called.
+            except (AttributeError, KeyError):
+                # Failure after the cache-load section is acceptable; we only assert
+                # that _load_auxiliary_symbol_cache was called before the failure.
                 pass
 
         # Verify _load_auxiliary_symbol_cache was called for SPY with lookback_days=90.

@@ -210,6 +210,7 @@ export const ArenaSetupForm = ({
     ma50FilterEnabled, setMa50FilterEnabled,
     circuitBreakerThreshold, setCircuitBreakerThreshold,
     circuitBreakerSymbol, setCircuitBreakerSymbol,
+    applyInitialValues,
   } = entryFilters;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   /** Tracks whether ATR stop was auto-set by switching to risk_based sizing */
@@ -285,11 +286,16 @@ export const ArenaSetupForm = ({
       if (initialValues.max_risk_pct != null) {
         setMaxRiskPct(initialValues.max_risk_pct.toString());
       }
-      entryFilters.applyInitialValues(initialValues);
+      applyInitialValues(initialValues);
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [initialValues]);
+  // applyInitialValues is stable (useCallback with no deps in useEntryFilterState).
+  // setSelectedAgentConfigId is a stable useState setter (React guarantees), so
+  // omitting it from deps is safe. It is not listed because the test mock returns
+  // a new vi.fn() on every render, which would cause an infinite loop in tests.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValues, applyInitialValues]);
 
   /**
    * Handle list selection.
@@ -334,6 +340,11 @@ export const ArenaSetupForm = ({
    * Does NOT modify selectedStrategies, symbols, dates, or capital. */
   const applyPreset = (preset: keyof typeof STRATEGY_PRESETS) => {
     const p = STRATEGY_PRESETS[preset];
+    // Capture pre-preset stop_type so we can determine whether we are
+    // auto-flipping stop for the user (invariant: the ref must only be true
+    // when *we* changed stop_type from fixed→atr, not when the preset's
+    // stop_type was already atr or when sizing is not risk_based).
+    const prevStopType = stopType;
     setStopType(p.stop_type);
     setAtrStopMultiplier(String(p.atr_stop_multiplier));
     setSizingMode(p.sizing_mode);
@@ -341,8 +352,15 @@ export const ArenaSetupForm = ({
     setMaxOpenPositions(String(p.max_open_positions));
     setMaxPerSector(String(p.max_per_sector));
     entryFilters.applyPresetFilters(p);
-    // risk_based forces ATR; mark as auto-set
-    atrAutoSetByRiskSizing.current = true;
+    // Only mark as auto-set when we are actually flipping fixed→atr for the
+    // user (because risk_based requires ATR). If the user had already chosen
+    // ATR, or the preset does not use risk_based sizing, leave the ref alone
+    // so that a later sizing-mode switch does not silently revert stop_type.
+    if (p.sizing_mode === 'risk_based' && prevStopType === 'fixed') {
+      atrAutoSetByRiskSizing.current = true;
+    } else if (p.sizing_mode !== 'risk_based') {
+      atrAutoSetByRiskSizing.current = false;
+    }
   };
 
   /** Toggle a portfolio strategy on or off */
@@ -556,24 +574,26 @@ export const ArenaSetupForm = ({
         <div className="flex items-center justify-between gap-3">
           <CardTitle>Setup Simulation</CardTitle>
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => applyPreset('aggressive')}
               disabled={isLoading}
-              className="text-xs font-medium px-2.5 py-1 rounded border border-border bg-background hover:bg-accent/10 hover:border-muted-foreground/50 transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50"
               aria-label="Load Aggressive preset"
             >
               Load Aggressive
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => applyPreset('conservative')}
               disabled={isLoading}
-              className="text-xs font-medium px-2.5 py-1 rounded border border-border bg-background hover:bg-accent/10 hover:border-muted-foreground/50 transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50"
               aria-label="Load Conservative preset"
             >
               Load Conservative
-            </button>
+            </Button>
           </div>
         </div>
       </CardHeader>
@@ -1182,8 +1202,9 @@ export const ArenaSetupForm = ({
 
                   {/* MA50 Filter toggle */}
                   <div className="space-y-2">
-                    <Label>MA50 Filter</Label>
+                    <Label htmlFor="arena-ma50-toggle">MA50 Filter</Label>
                     <button
+                      id="arena-ma50-toggle"
                       type="button"
                       onClick={() => setMa50FilterEnabled((prev) => !prev)}
                       disabled={isLoading}

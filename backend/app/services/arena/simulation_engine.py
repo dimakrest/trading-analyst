@@ -78,6 +78,9 @@ class SimulationEngine:
         self._max_drawdown: dict[int, Decimal] = {}
         # Price data cache: {simulation_id: {symbol: [PriceBar, ...]}}
         self._price_cache: dict[int, dict[str, list[PriceBar]]] = {}
+        # Cache window metadata used by _load_auxiliary_symbol_cache to detect under-coverage.
+        # Structure: {simulation_id: {symbol: {"data_start": date, "data_end": date}}}
+        self._price_cache_meta: dict[int, dict[str, dict[str, date]]] = {}
         # Sector cache: {simulation_id: {symbol: sector_name | None}}
         self._sector_cache: dict[int, dict[str, str | None]] = {}
 
@@ -136,28 +139,14 @@ class SimulationEngine:
             simulation.end_date,
             lookback_days,
         )
-        # Regime filter: pre-load regime symbol (e.g. SPY) into price cache
-        if simulation.agent_config.get("regime_filter", False):
-            sma_period_init = simulation.agent_config.get("regime_sma_period", 20)
-            await self._load_auxiliary_symbol_cache(
-                simulation.id,
-                simulation.agent_config.get("regime_symbol", "SPY"),
-                simulation.start_date,
-                simulation.end_date,
-                lookback_days=sma_period_init * 2 + 30,
-            )
-        # Circuit breaker: pre-load market proxy symbol (e.g. SPY) into price cache
-        cb_threshold_init = simulation.agent_config.get("circuit_breaker_atr_threshold")
-        if cb_threshold_init is not None:
-            cb_symbol_init = simulation.agent_config.get("circuit_breaker_symbol", "SPY")
-            if cb_symbol_init not in simulation.symbols:
-                await self._load_auxiliary_symbol_cache(
-                    simulation.id,
-                    cb_symbol_init,
-                    simulation.start_date,
-                    simulation.end_date,
-                    lookback_days=90,
-                )
+        # Pre-load auxiliary symbols required by optional filters (regime, circuit breaker, MA50).
+        await self._load_filter_auxiliary_caches(
+            simulation.id,
+            simulation.agent_config,
+            simulation.start_date,
+            simulation.end_date,
+            simulation_symbols=simulation.symbols,
+        )
         # Prefetch any missing sector data from Yahoo Finance (non-blocking on failure)
         try:
             sector_name_map = await self.data_service.batch_prefetch_sectors(
@@ -312,28 +301,14 @@ class SimulationEngine:
                 simulation.end_date,
                 agent.required_lookback_days,
             )
-            # Regime filter: load regime symbol if enabled
-            if simulation.agent_config.get("regime_filter", False):
-                sma_period_resume = simulation.agent_config.get("regime_sma_period", 20)
-                await self._load_auxiliary_symbol_cache(
-                    simulation_id,
-                    simulation.agent_config.get("regime_symbol", "SPY"),
-                    simulation.start_date,
-                    simulation.end_date,
-                    lookback_days=sma_period_resume * 2 + 30,
-                )
-            # Circuit breaker: load market proxy symbol if enabled
-            cb_threshold_resume = simulation.agent_config.get("circuit_breaker_atr_threshold")
-            if cb_threshold_resume is not None:
-                cb_symbol_resume = simulation.agent_config.get("circuit_breaker_symbol", "SPY")
-                if cb_symbol_resume not in self._price_cache.get(simulation_id, {}):
-                    await self._load_auxiliary_symbol_cache(
-                        simulation_id,
-                        cb_symbol_resume,
-                        simulation.start_date,
-                        simulation.end_date,
-                        lookback_days=90,
-                    )
+            # Load auxiliary symbols required by optional filters (regime, circuit breaker, MA50).
+            await self._load_filter_auxiliary_caches(
+                simulation_id,
+                simulation.agent_config,
+                simulation.start_date,
+                simulation.end_date,
+                simulation_symbols=simulation.symbols,
+            )
             await self._load_sector_cache(simulation_id, simulation.symbols)
 
         # Use cached trading days (lazy-load for resume case)
@@ -832,13 +807,23 @@ class SimulationEngine:
                         decisions[symbol]["portfolio_selected"] = False
                         continue
                 else:
-                    # Insufficient data (< 50 bars) or stale bar -- skip filter, allow entry.
-                    if ph and len(ph) < 50:
+                    # Skip filter, allow entry. Possible reasons:
+                    #   (a) empty cache — should not happen after Fix #3 pre-loads 90d;
+                    #       emits a warning so any data-fetch failure is immediately visible.
+                    #   (b) <50 bars — rare after Fix #3 but kept as defense-in-depth.
+                    #   (c) stale bar — data gap where last cached bar predates current_date.
+                    if not ph:
+                        logger.warning(
+                            "MA50 filter skipped for %s on %s: price cache is empty "
+                            "(expected ≥50 bars after pre-load; check data fetch)",
+                            symbol, current_date,
+                        )
+                    elif len(ph) < 50:
                         logger.debug(
                             "MA50 filter skipped for %s: only %d bars available",
                             symbol, len(ph),
                         )
-                    elif ph and ph[-1].date != current_date:
+                    elif ph[-1].date != current_date:
                         logger.debug(
                             "MA50 filter skipped for %s: last bar date %s != %s",
                             symbol, ph[-1].date, current_date,
@@ -856,14 +841,18 @@ class SimulationEngine:
         # Dynamically adjust max_open_positions based on regime symbol trend.
         # This runs AFTER reading the base max_open_positions so the bull regime
         # can optionally override it and the bear regime reduces it.
+        # regime_state_value is also reused below for the snapshot column.
+        regime_state_value: str | None = None
         if simulation.agent_config.get("regime_filter", False):
             regime_symbol: str = simulation.agent_config.get("regime_symbol", "SPY")
             sma_period: int = simulation.agent_config.get("regime_sma_period", 20)
-            regime = self._detect_market_regime(simulation_id, current_date, regime_symbol, sma_period)
-            if regime == "bear":
+            regime_state_value = self._detect_market_regime(
+                simulation_id, current_date, regime_symbol, sma_period
+            )
+            if regime_state_value == "bear":
                 bear_max: int = simulation.agent_config.get("regime_bear_max_positions", 1)
                 max_open_positions = bear_max
-            elif regime == "bull":
+            elif regime_state_value == "bull":
                 bull_max: int | None = simulation.agent_config.get("regime_bull_max_positions")
                 if bull_max is not None:
                     max_open_positions = bull_max
@@ -950,17 +939,7 @@ class SimulationEngine:
             (total_equity - simulation.initial_capital) / simulation.initial_capital * 100
         )
 
-        # Determine regime state for snapshot (None if regime filter disabled).
-        # Re-calling _detect_market_regime is a pure cache lookup (no I/O cost).
-        regime_state_value: str | None = None
-        if simulation.agent_config.get("regime_filter", False):
-            regime_sym_snap: str = simulation.agent_config.get("regime_symbol", "SPY")
-            sma_period_snap: int = simulation.agent_config.get("regime_sma_period", 20)
-            regime_state_value = self._detect_market_regime(
-                simulation_id, current_date, regime_sym_snap, sma_period_snap
-            )
-
-        # Create snapshot
+        # Create snapshot (regime_state_value computed in the regime filter block above)
         snapshot = ArenaSnapshot(
             simulation_id=simulation.id,
             snapshot_date=current_date,
@@ -1177,6 +1156,55 @@ class SimulationEngine:
         self._price_cache[simulation_id] = cache
 
 
+    async def _load_filter_auxiliary_caches(
+        self,
+        simulation_id: int,
+        agent_config: dict,
+        start_date: date,
+        end_date: date,
+        simulation_symbols: list[str] | None = None,
+    ) -> None:
+        """Load auxiliary symbols required by optional filters (regime, circuit breaker, MA50).
+
+        Each filter is loaded only when enabled in agent_config. The underlying
+        ``_load_auxiliary_symbol_cache`` is window-aware: if a symbol is already cached
+        but the existing window starts later than requested, it tops up the missing prefix.
+
+        MA50 filter requires ≥50 trading bars per symbol. 90 calendar days guarantees this:
+        5 trading days / 7 calendar days × 90 ≈ 64 trading bars — a safe margin above 50.
+        When ma50_filter_enabled=True and an agent's normal required_lookback_days + 30 < 90,
+        we pre-load every simulation symbol with the full 90-day window here so the filter
+        never silently skips evaluation. (circuit breaker follows the same pattern.)
+        """
+        if agent_config.get("regime_filter", False):
+            sma_period = agent_config.get("regime_sma_period", 20)
+            await self._load_auxiliary_symbol_cache(
+                simulation_id,
+                agent_config.get("regime_symbol", "SPY"),
+                start_date,
+                end_date,
+                lookback_days=sma_period * 2 + 30,
+            )
+        if agent_config.get("circuit_breaker_atr_threshold") is not None:
+            await self._load_auxiliary_symbol_cache(
+                simulation_id,
+                agent_config.get("circuit_breaker_symbol", "SPY"),
+                start_date,
+                end_date,
+                lookback_days=90,
+            )
+        if agent_config.get("ma50_filter_enabled", False) and simulation_symbols:
+            # Top up each simulation symbol to ≥90 calendar days of history so the
+            # MA50 filter always has ≥50 trading bars available.
+            for symbol in simulation_symbols:
+                await self._load_auxiliary_symbol_cache(
+                    simulation_id,
+                    symbol,
+                    start_date,
+                    end_date,
+                    lookback_days=90,
+                )
+
     async def _load_auxiliary_symbol_cache(
         self,
         simulation_id: int,
@@ -1185,25 +1213,86 @@ class SimulationEngine:
         end_date: date,
         lookback_days: int,
     ) -> None:
-        """Fetch auxiliary symbol (e.g. SPY) into the price cache with lookback.
+        """Fetch symbol into the price cache with lookback, topping up if window is too short.
 
-        Merges into the existing cache without overwriting simulation symbol data.
-        Auxiliary symbols are deliberately not added to simulation.symbols so they
-        never participate in position or trading-day logic.
+        Window-aware idempotence: if the symbol is already cached but its recorded
+        ``data_start`` is later than the newly requested ``data_start``, the missing
+        prefix is fetched and prepended. This prevents a second caller that needs a
+        longer lookback (e.g. MA50 needing 90 d when the main cache only loaded 40 d)
+        from silently receiving a truncated history.
+
+        Simulation symbols loaded by the main ``_load_price_cache`` call are not tracked
+        in ``_price_cache_meta`` initially; when MA50's aux-cache call arrives for those
+        symbols, it is treated as the first call and seeds meta. The prepend-merge path
+        only fires when the existing entry was loaded with a shorter window.
 
         Args:
             simulation_id: Simulation ID for cache key.
-            symbol: Ticker to load (e.g. 'SPY').
+            symbol: Ticker to load.
             start_date: Simulation start date.
             end_date: Simulation end date.
             lookback_days: Extra historical days to load before start_date.
-                Regime filter uses sma_period * 2 + 30; circuit breaker uses 90.
+                Regime filter uses sma_period * 2 + 30; circuit breaker and MA50 use 90.
         """
         cache = self._price_cache.setdefault(simulation_id, {})
-        if symbol in cache:
-            return  # Already loaded
+        meta = self._price_cache_meta.setdefault(simulation_id, {})
+        requested_data_start = start_date - timedelta(days=lookback_days)
 
-        data_start = start_date - timedelta(days=lookback_days)
+        if symbol in cache and symbol in meta:
+            existing_data_start: date = meta[symbol]["data_start"]
+            if existing_data_start <= requested_data_start:
+                return  # Existing window already covers the requested range
+
+            # Top up: fetch the missing prefix [requested_data_start, existing_data_start)
+            prefix_end = existing_data_start - timedelta(days=1)
+            if prefix_end < requested_data_start:
+                return  # Nothing to fetch (gap is zero days)
+
+            prefix_records = await self.data_service.get_price_data(
+                symbol=symbol,
+                start_date=datetime.combine(
+                    requested_data_start, datetime.min.time(), tzinfo=timezone.utc
+                ),
+                end_date=datetime.combine(
+                    prefix_end, datetime.max.time(), tzinfo=timezone.utc
+                ),
+                interval="1d",
+            )
+            prefix_bars = [
+                PriceBar(
+                    date=r.timestamp.date(),
+                    open=Decimal(str(r.open_price)),
+                    high=Decimal(str(r.high_price)),
+                    low=Decimal(str(r.low_price)),
+                    close=Decimal(str(r.close_price)),
+                    volume=int(r.volume),
+                )
+                for r in prefix_records
+            ]
+            # Merge: prepend prefix, then sort ascending by date (defensive — prefix
+            # should already precede existing bars, but sort ensures invariant holds).
+            merged = sorted(prefix_bars + cache[symbol], key=lambda b: b.date)
+            cache[symbol] = merged
+            meta[symbol]["data_start"] = requested_data_start
+            logger.debug(
+                "Simulation %s: topped up %s cache by %d bars (new data_start=%s)",
+                simulation_id, symbol, len(prefix_bars), requested_data_start,
+            )
+            return
+
+        if symbol in cache:
+            # Symbol was loaded by _load_price_cache (no meta entry yet); treat this
+            # call as the first to seed meta. We do NOT know the exact data_start that
+            # _load_price_cache used, so infer it from the oldest bar date in cache.
+            existing_bars = cache[symbol]
+            if existing_bars:
+                inferred_start = existing_bars[0].date
+                meta[symbol] = {"data_start": inferred_start, "data_end": end_date}
+                if inferred_start <= requested_data_start:
+                    return  # Main load already covers the requested window
+            # Fall through to full fetch if cache is empty or window is insufficient
+
+        data_start = requested_data_start
 
         records = await self.data_service.get_price_data(
             symbol=symbol,
@@ -1223,6 +1312,7 @@ class SimulationEngine:
             for r in records
         ]
         cache[symbol] = bars
+        meta[symbol] = {"data_start": data_start, "data_end": end_date}
         logger.debug(
             "Simulation %s: loaded %d %s bars for auxiliary symbol cache (lookback_days=%d)",
             simulation_id, len(bars), symbol, lookback_days,
@@ -1526,6 +1616,7 @@ class SimulationEngine:
         sequentially, so no concurrency issues exist.
         """
         self._price_cache.pop(simulation_id, None)
+        self._price_cache_meta.pop(simulation_id, None)
         self._trading_days_cache.pop(simulation_id, None)
         self._peak_equity.pop(simulation_id, None)
         self._max_drawdown.pop(simulation_id, None)
