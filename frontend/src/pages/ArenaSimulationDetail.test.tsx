@@ -106,6 +106,7 @@ const mockSnapshots: Snapshot[] = [
       AAPL: { action: 'HOLD', score: null, reasoning: 'Already holding' },
       NVDA: { action: 'BUY', score: 80, reasoning: 'Score: 80/100' },
     },
+    circuit_breaker_state: 'disabled',
   },
 ];
 

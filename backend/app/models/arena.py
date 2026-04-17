@@ -19,6 +19,7 @@ from sqlalchemy import JSON
 from sqlalchemy import Numeric
 from sqlalchemy import String
 from sqlalchemy import Text
+from sqlalchemy import text
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -447,6 +448,24 @@ class ArenaSnapshot(Base):
         nullable=False,
         default=dict,
         doc="Agent decisions: {symbol: {action, score, reasoning}}",
+    )
+
+    # Day-level market condition metadata (Phase 5)
+    circuit_breaker_state: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        server_default=text("'disabled'"),
+        doc="Circuit breaker state: 'disabled' | 'clear' | 'triggered' | 'data_unavailable'",
+    )
+    circuit_breaker_atr_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 4),
+        nullable=True,
+        doc="Market proxy ATR% on this day (None when breaker disabled or data unavailable)",
+    )
+    regime_state: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+        doc="Detected market regime ('bull' | 'bear' | 'neutral'), None when regime filter disabled",
     )
 
     # Relationship

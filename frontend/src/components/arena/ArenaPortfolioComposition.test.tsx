@@ -55,6 +55,7 @@ const makeSnapshot = (overrides: Partial<Snapshot> = {}): Snapshot => ({
   cumulative_return_pct: '11.00',
   open_position_count: 2,
   decisions: {},
+  circuit_breaker_state: 'disabled',
   ...overrides,
 });
 
