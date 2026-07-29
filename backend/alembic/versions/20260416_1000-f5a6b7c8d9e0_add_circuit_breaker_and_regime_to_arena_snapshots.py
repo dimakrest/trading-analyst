@@ -38,7 +38,9 @@ def upgrade() -> None:
     )
     op.add_column(
         "arena_snapshots",
-        sa.Column("circuit_breaker_atr_pct", sa.Numeric(8, 4), nullable=True),
+        # 6dp so a near-threshold ATR% cannot round into looking at-threshold while
+        # circuit_breaker_state records 'clear'. See ArenaSnapshot for the rationale.
+        sa.Column("circuit_breaker_atr_pct", sa.Numeric(10, 6), nullable=True),
     )
     op.add_column(
         "arena_snapshots",

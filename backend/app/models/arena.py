@@ -458,7 +458,10 @@ class ArenaSnapshot(Base):
         doc="Circuit breaker state: 'disabled' | 'clear' | 'triggered' | 'data_unavailable'",
     )
     circuit_breaker_atr_pct: Mapped[Decimal | None] = mapped_column(
-        Numeric(8, 4),
+        # 6dp, not 4: at 4dp an ATR% of 2.79996 stores as 2.8000, so a snapshot could
+        # read as at-threshold while circuit_breaker_state says 'clear'. The gate uses
+        # the unrounded value, so this is an audit-trail concern, not a trading one.
+        Numeric(10, 6),
         nullable=True,
         doc="Market proxy ATR% on this day (None when breaker disabled or data unavailable)",
     )

@@ -180,6 +180,10 @@ export const ArenaSetupForm = ({
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>(['none']);
   const [maxPerSector, setMaxPerSector] = useState('2');
   const [maxOpenPositions, setMaxOpenPositions] = useState('');
+  /** True once a preset or the user sets the constraints, as opposed to the
+   * untouched defaults above. Constraints apply to every strategy in the backend,
+   * so a deliberately-set limit must be submitted even under "none". */
+  const [constraintsTouched, setConstraintsTouched] = useState(false);
   const [maSweetSpotCenter, setMaSweetSpotCenter] = useState('8.5');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [entryFiltersOpen, setEntryFiltersOpen] = useState(false);
@@ -201,6 +205,7 @@ export const ArenaSetupForm = ({
     ma50FilterEnabled, setMa50FilterEnabled,
     circuitBreakerThreshold, setCircuitBreakerThreshold,
     circuitBreakerSymbol, setCircuitBreakerSymbol,
+    onIbsChange, onCbThresholdChange,
     applyInitialValues,
   } = entryFilters;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -342,6 +347,7 @@ export const ArenaSetupForm = ({
     setRiskPerTradePct(String(p.risk_per_trade_pct));
     setMaxOpenPositions(String(p.max_open_positions));
     setMaxPerSector(String(p.max_per_sector));
+    setConstraintsTouched(true);
     entryFilters.applyPresetFilters(p);
     // Only mark as auto-set when we are actually flipping fixed→atr for the
     // user (because risk_based requires ATR). If the user had already chosen
@@ -368,11 +374,15 @@ export const ArenaSetupForm = ({
     const symbolList = parseSymbols(symbols);
     if (symbolList.length === 0) return;
 
-    // Only send portfolio constraints when any non-"none" strategy is selected
-    const hasStrategy = selectedStrategies.some((s) => s !== 'none');
-    const parsedMaxPerSector = hasStrategy && maxPerSector ? parseInt(maxPerSector, 10) : null;
+    // Sent when a ranking strategy is selected, or when these were explicitly set
+    // (preset or user edit). maxPerSector defaults to '2', so submitting on a bare
+    // non-empty check would cap every plain simulation at 2 per sector; gating only
+    // on strategy meant "Load Aggressive" promised 10 positions and sent null —
+    // unlimited — at 2.5% risk each. constraintsTouched separates the two.
+    const sendConstraints = selectedStrategies.some((s) => s !== 'none') || constraintsTouched;
+    const parsedMaxPerSector = sendConstraints && maxPerSector ? parseInt(maxPerSector, 10) : null;
     const parsedMaxOpenPositions =
-      hasStrategy && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null;
+      sendConstraints && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null;
 
     // Only send ma_sweet_spot_center when an enriched_score strategy is selected
     const hasEnrichedScore = selectedStrategies.some(
@@ -1058,8 +1068,12 @@ export const ArenaSetupForm = ({
               )}
             </div>
 
-            {/* Constraints — shown when any non-"none" strategy is selected */}
-            {hasNonNoneStrategy && (
+            {/* Constraints — shown for any non-"none" strategy, and whenever a value
+                is actually set. The second case matters because a preset populates
+                these under "none": the backend's _apply_constraints is "shared by all
+                strategies", so they do take effect, and a value that takes effect must
+                never be invisible. */}
+            {(hasNonNoneStrategy || constraintsTouched) && (
               <>
                 <div className="border-t border-border pt-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
@@ -1073,7 +1087,7 @@ export const ArenaSetupForm = ({
                         type="number"
                         min="1"
                         value={maxPerSector}
-                        onChange={(e) => setMaxPerSector(e.target.value)}
+                        onChange={(e) => { setMaxPerSector(e.target.value); setConstraintsTouched(true); }}
                         className="mt-1"
                         disabled={isLoading}
                       />
@@ -1089,7 +1103,7 @@ export const ArenaSetupForm = ({
                         min="1"
                         value={maxOpenPositions}
                         placeholder="Unlimited"
-                        onChange={(e) => setMaxOpenPositions(e.target.value)}
+                        onChange={(e) => { setMaxOpenPositions(e.target.value); setConstraintsTouched(true); }}
                         className="mt-1"
                         disabled={isLoading}
                       />
@@ -1176,7 +1190,7 @@ export const ArenaSetupForm = ({
                         step="0.05"
                         placeholder="Disabled"
                         value={ibsMaxThreshold}
-                        onChange={(e) => setIbsMaxThreshold(e.target.value)}
+                        onChange={onIbsChange}
                         className="mt-1"
                         disabled={isLoading}
                       />
@@ -1228,7 +1242,7 @@ export const ArenaSetupForm = ({
                         step="0.1"
                         placeholder="Disabled"
                         value={circuitBreakerThreshold}
-                        onChange={(e) => setCircuitBreakerThreshold(e.target.value)}
+                        onChange={onCbThresholdChange}
                         className="mt-1"
                         disabled={isLoading}
                       />

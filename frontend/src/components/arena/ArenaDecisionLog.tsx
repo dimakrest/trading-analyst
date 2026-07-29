@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '../ui/select';
 import { cn } from '../../lib/utils';
-import type { CircuitBreakerState, Snapshot } from '../../types/arena';
+import type { CircuitBreakerState, DecisionEntry, Snapshot } from '../../types/arena';
 
 interface ArenaDecisionLogProps {
   /** Currently selected snapshot (or null if none) */
@@ -34,6 +34,14 @@ interface MarketConditionsBannerProps {
   regimeState?: string | null;
   circuitBreakerSymbol?: string;
 }
+
+/** Why the MA50 filter could not be applied to a symbol that still entered. */
+const MA50_SKIP_REASONS: Record<NonNullable<DecisionEntry['ma50_skipped']>, string> = {
+  no_data: 'MA50 was not applied: no price history was cached for this symbol.',
+  insufficient_history:
+    'MA50 was not applied: fewer than 50 bars of history (e.g. a recent listing). This symbol entered without the trend filter.',
+  stale_bar: 'MA50 was not applied: the most recent cached bar predates this date.',
+};
 
 /** Presentation for one circuit breaker state's banner. */
 interface BannerSpec {
@@ -255,6 +263,16 @@ export const ArenaDecisionLog = ({
                       <Badge className="bg-purple-500/15 text-purple-600 border border-purple-500/30 text-[10px]">
                         MA50 FILTERED
                       </Badge>
+                    )}
+                    {decision.ma50_skipped && (
+                      // This symbol entered WITHOUT the MA50 gate. Without this badge it
+                      // is indistinguishable from one that passed, while the config panel
+                      // still reports "MA50 Filter: On".
+                      <span title={MA50_SKIP_REASONS[decision.ma50_skipped]}>
+                        <Badge className="bg-amber-500/15 text-amber-700 border border-amber-500/30 text-[10px]">
+                          MA50 NOT APPLIED
+                        </Badge>
+                      </span>
                     )}
                     <Badge className={getActionBadgeClass(decision.action)}>
                       {decision.action}

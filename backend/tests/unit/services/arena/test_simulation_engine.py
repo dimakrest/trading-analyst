@@ -6915,11 +6915,13 @@ class TestSimulationEngineCircuitBreaker:
     ) -> None:
         """MA50 forces the main cache lookback to >=60 even for a short-lookback agent.
 
-        This is the safety property that keeps the filter from silently no-op'ing:
-        with the agent's raw lookback of 5, the cache would hold ~24 bars, MA50 would
-        hit its <50-bars branch for every symbol, and every BUY would bypass the gate
-        while the UI still reported the filter as ON. Asserted on the load path itself
-        because every other MA50 test seeds _price_cache directly and never runs it.
+        The only registered agent (live20) already requires 60, so today this guard
+        is a no-op in production and the short lookback below is deliberately
+        synthetic. It is asserted anyway for two reasons: any future agent with a
+        smaller lookback would otherwise load ~24 bars, hit MA50's <50-bars branch
+        for every symbol, and bypass the gate on every BUY while the UI reported the
+        filter as ON; and every other MA50 test seeds _price_cache directly, so
+        without this the load path is never executed by the suite at all.
         """
         sim = ArenaSimulation(
             name="MA50 Lookback Widening Test",

@@ -38,12 +38,17 @@ from app.utils.technical_indicators import calculate_atr_percentage
 
 logger = logging.getLogger(__name__)
 
-# The MA50 filter needs >=50 trading bars. _load_price_cache widens whatever
-# lookback it is given by 30 days, so 60 yields a 90 calendar-day window
-# (5 trading days / 7 calendar days x 90 ~= 64 bars) -- a safe margin above 50.
+# The MA50 filter needs >=50 trading bars. With CACHE_LOOKBACK_MARGIN_DAYS added
+# by _load_price_cache, 60 yields a 90 calendar-day window: ~64 bars on weekends
+# alone, and ~60 in the worst holiday stretch (Thanksgiving through Presidents'
+# Day) -- still a margin above 50.
 MA50_MIN_LOOKBACK_DAYS = 60
 # Circuit breaker ATR needs far less, but shares the same window for simplicity.
 CIRCUIT_BREAKER_LOOKBACK_DAYS = 90
+# Slack _load_price_cache adds to every requested lookback. Anyone reasoning about
+# how far back the cache actually reaches must use this rather than repeat the
+# literal, or the two can drift apart silently.
+CACHE_LOOKBACK_MARGIN_DAYS = 30
 
 
 def _main_lookback_days(agent_lookback_days: int, agent_config: dict) -> int:
@@ -820,7 +825,8 @@ class SimulationEngine:
             for symbol, decision, today_bar in buy_signals:
                 ph = self._get_cached_price_history(
                     simulation_id, symbol,
-                    current_date - timedelta(days=MA50_MIN_LOOKBACK_DAYS + 30), current_date,
+                    current_date - timedelta(days=MA50_MIN_LOOKBACK_DAYS + CACHE_LOOKBACK_MARGIN_DAYS),
+                    current_date,
                 )
                 if not ph:
                     # Should not happen now the main cache is pre-loaded wide enough;
@@ -1135,7 +1141,7 @@ class SimulationEngine:
         if simulation_id in self._price_cache:
             return  # Already loaded
 
-        data_start = start_date - timedelta(days=lookback_days + 30)
+        data_start = start_date - timedelta(days=lookback_days + CACHE_LOOKBACK_MARGIN_DAYS)
 
         async def fetch_symbol_data(symbol: str) -> tuple[str, list[PriceBar]]:
             """Fetch data for a single symbol (any error propagates, fail-fast)."""
@@ -1248,10 +1254,9 @@ class SimulationEngine:
             main_lookback_days: Lookback the main price cache was loaded with.
         """
         cache = self._price_cache.setdefault(simulation_id, {})
-        # _load_price_cache widens whatever lookback it is given by 30 days.
         # cache.get(), not `in`: an empty list means the main fetch came back with no
         # bars, and the proxy must be retried rather than left permanently empty.
-        if cache.get(symbol) and lookback_days <= main_lookback_days + 30:
+        if cache.get(symbol) and lookback_days <= main_lookback_days + CACHE_LOOKBACK_MARGIN_DAYS:
             return  # Main load already covers the requested window
 
         bars = await self._fetch_price_bars(

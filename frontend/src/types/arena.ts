@@ -128,6 +128,9 @@ export interface DecisionEntry extends AgentDecision {
   ibs_filtered?: boolean;
   ibs_value?: number;
   ma50_filtered?: boolean;
+  /** Set when the symbol entered WITHOUT being evaluated by the MA50 filter
+   * (too little history, or a stale bar). Distinct from passing the filter. */
+  ma50_skipped?: 'no_data' | 'insufficient_history' | 'stale_bar';
   circuit_breaker_filtered?: boolean;
 }
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ArenaSetupForm } from './ArenaSetupForm';
 
@@ -1057,6 +1057,38 @@ describe('ArenaSetupForm', () => {
     it('Load Aggressive button is rendered', () => {
       renderWithSetupInputs();
       expect(screen.getByRole('button', { name: /load aggressive/i })).toBeInTheDocument();
+    });
+
+    it('preset position limits are submitted even under the default "none" strategy', async () => {
+      // Regression: constraints used to be gated on a non-"none" strategy being
+      // selected, so clicking Load Aggressive promised 10 positions / 3 per sector
+      // and submitted null for both -- i.e. UNLIMITED concurrent positions at 2.5%
+      // risk each. The backend applies these caps to every strategy including FIFO.
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_open_positions).toBe(10);
+      expect(payload.max_per_sector).toBe(3);
+    });
+
+    it('untouched constraint defaults are NOT submitted under "none"', async () => {
+      // The mirror of the test above, and the reason the fix cannot simply be
+      // "always send them": maxPerSector defaults to '2'. Submitting that default
+      // would silently cap every plain simulation at 2 positions per sector.
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_per_sector).toBeNull();
+      expect(payload.max_open_positions).toBeNull();
     });
 
     it('Load Conservative button is rendered', () => {
