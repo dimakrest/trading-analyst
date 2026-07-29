@@ -35,6 +35,16 @@ interface MarketConditionsBannerProps {
   circuitBreakerSymbol?: string;
 }
 
+/** Presentation for one circuit breaker state's banner. */
+interface BannerSpec {
+  /** Tone classes layered onto the shared banner box. */
+  className: string;
+  Icon: typeof Info;
+  role?: 'alert';
+  testId: string;
+  content: React.ReactNode;
+}
+
 /** Market Conditions banner rendered before symbol rows.
  * Hidden when circuit_breaker_state is 'disabled'. */
 const MarketConditionsBanner = ({
@@ -49,61 +59,62 @@ const MarketConditionsBanner = ({
     ? `${parseFloat(circuitBreakerAtrPct).toFixed(2)}%`
     : null;
 
-  const renderBannerContent = () => {
-    switch (circuitBreakerState) {
-      case 'clear':
-        // Passive indicator — no role/live-region; firing role="status" on every
-        // day-change during fast replay is spammy for screen readers.
-        return (
-          <div
-            className="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-700"
-            data-testid="cb-banner-clear"
-          >
-            <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-            <span>
-              Market ATR: {atrDisplay ?? '—'} <span className="font-medium">(clear)</span>
-            </span>
-          </div>
-        );
-      case 'triggered':
-        return (
-          <div
-            className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-            role="alert"
-            data-testid="cb-banner-triggered"
-          >
-            <ShieldAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-            <span>
-              <span className="font-medium">Circuit breaker triggered:</span> Market ATR {atrDisplay ?? '—'} &ge; threshold. All entries blocked.
-            </span>
-          </div>
-        );
-      case 'data_unavailable':
-        return (
-          <div
-            className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700"
-            role="alert"
-            data-testid="cb-banner-data-unavailable"
-          >
-            <ShieldOff className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-            <span>
-              <span className="font-medium">Circuit breaker bypassed:</span> market data unavailable
-              for {circuitBreakerSymbol ?? 'market symbol'} on this date. Entries proceeded without the safety gate.
-            </span>
-          </div>
-        );
-      case 'disabled':
-        // 'disabled' reaches here only when regimeState is set (the early-return guard
-        // at the top of the component handles the fully-hidden case).
-        return null;
-      default: {
-        // Exhaustiveness check: TypeScript will error here if a new
-        // CircuitBreakerState variant is added without a matching case.
-        const _exhaustive: never = circuitBreakerState;
-        return _exhaustive;
-      }
-    }
+  // One entry per state. Typing this as a total Record is the exhaustiveness check:
+  // adding a CircuitBreakerState variant without a banner is a compile error.
+  // 'disabled' renders nothing — it only reaches here when regimeState is set, since
+  // the early return above handles the fully-hidden case.
+  // 'clear' is a passive indicator with no role/live-region; firing role="status" on
+  // every day-change during fast replay is spammy for screen readers.
+  const banners: Record<CircuitBreakerState, BannerSpec | null> = {
+    disabled: null,
+    clear: {
+      className: 'border-blue-500/30 bg-blue-500/10 text-blue-700',
+      Icon: Info,
+      testId: 'cb-banner-clear',
+      content: (
+        <>
+          Market ATR: {atrDisplay ?? '—'} <span className="font-medium">(clear)</span>
+        </>
+      ),
+    },
+    triggered: {
+      className: 'border-destructive/30 bg-destructive/10 text-destructive',
+      Icon: ShieldAlert,
+      role: 'alert',
+      testId: 'cb-banner-triggered',
+      content: (
+        <>
+          <span className="font-medium">Circuit breaker triggered:</span> Market ATR{' '}
+          {atrDisplay ?? '—'} &ge; threshold. All entries blocked.
+        </>
+      ),
+    },
+    data_unavailable: {
+      className: 'border-amber-500/40 bg-amber-500/10 text-amber-700',
+      Icon: ShieldOff,
+      role: 'alert',
+      testId: 'cb-banner-data-unavailable',
+      content: (
+        <>
+          <span className="font-medium">Circuit breaker bypassed:</span> market data unavailable
+          for {circuitBreakerSymbol ?? 'market symbol'} on this date. Entries proceeded without the safety gate.
+        </>
+      ),
+    },
   };
+
+  const banner = banners[circuitBreakerState];
+  const renderBannerContent = () =>
+    banner && (
+      <div
+        className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${banner.className}`}
+        role={banner.role}
+        data-testid={banner.testId}
+      >
+        <banner.Icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+        <span>{banner.content}</span>
+      </div>
+    );
 
   return (
     <div className="space-y-1.5 mb-3" data-testid="market-conditions-banner">

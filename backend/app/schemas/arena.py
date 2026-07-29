@@ -80,8 +80,7 @@ class _EntryFiltersMixin(StrictBaseModel):
         default=False,
         description=(
             "Enable MA50 trend filter. Only buys stocks trading above their 50-day moving average. "
-            "90 calendar days of history are pre-loaded when enabled to guarantee ≥50 trading bars. "
-            "Dot-notation tickers (BRK.B) are not supported."
+            "90 calendar days of history are pre-loaded when enabled to guarantee ≥50 trading bars."
         ),
     )
     circuit_breaker_atr_threshold: float | None = Field(
@@ -653,7 +652,7 @@ class SnapshotResponse(StrictBaseModel):
     decisions: dict
     circuit_breaker_state: Literal["disabled", "clear", "triggered", "data_unavailable"] = "disabled"
     circuit_breaker_atr_pct: Decimal | None = None
-    regime_state: str | None = None
+    regime_state: Literal["bull", "bear", "neutral"] | None = None
 
     model_config = {
         "from_attributes": True,

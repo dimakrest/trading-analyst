@@ -42,6 +42,10 @@ export default defineConfig(({ mode }) => {
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // The arena form tests drive a large multi-tab form through userEvent and take
+    // ~5s each on their own; under parallel suite load they exceed vitest's 5s
+    // default and fail as timeouts rather than on their assertions.
+    testTimeout: 20000,
     exclude: ['**/node_modules/**', '**/e2e/**', '**/*.spec.ts'],
     server: {
       deps: {

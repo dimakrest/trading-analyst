@@ -30,7 +30,7 @@ export function useEntryFilterState() {
     const hasCbSymbolError =
       circuitBreakerThreshold !== '' && !/^[A-Z]{1,5}$/.test(circuitBreakerSymbol);
 
-    return { ibsParsed, cbThresholdParsed, hasIbsError, hasCbThresholdError, hasCbSymbolError };
+    return { hasIbsError, hasCbThresholdError, hasCbSymbolError };
   }, [ibsMaxThreshold, circuitBreakerThreshold, circuitBreakerSymbol]);
 
   const applyPresetFilters = useCallback((p: EntryFilterPresetConfig) => {

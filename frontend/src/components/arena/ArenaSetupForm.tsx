@@ -117,31 +117,22 @@ const getMinBuyScoreHelpText = (score: number): string => {
 
 /** Strategy presets for one-click setup. Populate stop, sizing, constraints, and filter fields.
  * Do NOT modify selectedStrategies, symbols, dates, or capital. */
+/** Shared by every preset — only the differences are spelled out below. */
+const PRESET_BASE = {
+  stop_type: 'atr' as const,
+  sizing_mode: 'risk_based' as const,
+  risk_per_trade_pct: 2.5,
+  max_open_positions: 10,
+  max_per_sector: 3,
+  ibs_max_threshold: undefined as number | undefined,
+  ma50_filter_enabled: true,
+  circuit_breaker_atr_threshold: 2.8,
+  circuit_breaker_symbol: 'SPY',
+};
+
 const STRATEGY_PRESETS = {
-  aggressive: {
-    stop_type: 'atr' as const,
-    atr_stop_multiplier: 2.0,
-    sizing_mode: 'risk_based' as const,
-    risk_per_trade_pct: 2.5,
-    max_open_positions: 10,
-    max_per_sector: 3,
-    ibs_max_threshold: undefined as number | undefined,
-    ma50_filter_enabled: true,
-    circuit_breaker_atr_threshold: 2.8,
-    circuit_breaker_symbol: 'SPY',
-  },
-  conservative: {
-    stop_type: 'atr' as const,
-    atr_stop_multiplier: 2.5,
-    sizing_mode: 'risk_based' as const,
-    risk_per_trade_pct: 2.5,
-    max_open_positions: 10,
-    max_per_sector: 3,
-    ibs_max_threshold: 0.55,
-    ma50_filter_enabled: true,
-    circuit_breaker_atr_threshold: 2.8,
-    circuit_breaker_symbol: 'SPY',
-  },
+  aggressive: { ...PRESET_BASE, atr_stop_multiplier: 2.0 },
+  conservative: { ...PRESET_BASE, atr_stop_multiplier: 2.5, ibs_max_threshold: 0.55 },
 } as const;
 
 /** Map volatility value to a Tailwind bg color class for the indicator dot */
