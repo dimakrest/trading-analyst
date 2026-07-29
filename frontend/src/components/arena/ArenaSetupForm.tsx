@@ -115,9 +115,7 @@ const getMinBuyScoreHelpText = (score: number): string => {
   return 'Trend must be bearish. This threshold is permissive and may increase trade frequency.';
 };
 
-/** Strategy presets for one-click setup. Populate stop, sizing, constraints, and filter fields.
- * Do NOT modify selectedStrategies, symbols, dates, or capital. */
-/** Shared by every preset — only the differences are spelled out below. */
+/** Fields shared by every preset — only the differences are spelled out in STRATEGY_PRESETS. */
 const PRESET_BASE = {
   stop_type: 'atr' as const,
   sizing_mode: 'risk_based' as const,
@@ -130,6 +128,8 @@ const PRESET_BASE = {
   circuit_breaker_symbol: 'SPY',
 };
 
+/** Strategy presets for one-click setup. Populate stop, sizing, constraints, and filter fields.
+ * Do NOT modify selectedStrategies, symbols, dates, or capital. */
 const STRATEGY_PRESETS = {
   aggressive: { ...PRESET_BASE, atr_stop_multiplier: 2.0 },
   conservative: { ...PRESET_BASE, atr_stop_multiplier: 2.5, ibs_max_threshold: 0.55 },

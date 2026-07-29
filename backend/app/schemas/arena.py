@@ -79,8 +79,10 @@ class _EntryFiltersMixin(StrictBaseModel):
     ma50_filter_enabled: bool = Field(
         default=False,
         description=(
-            "Enable MA50 trend filter. Only buys stocks trading above their 50-day moving average. "
-            "90 calendar days of history are pre-loaded when enabled to guarantee ≥50 trading bars."
+            "Enable MA50 trend filter. Blocks BUY signals for stocks trading below their "
+            "50-day moving average. 90 calendar days of history are pre-loaded when enabled, "
+            "but a symbol with fewer than 50 available bars (recent IPO, data gap) cannot be "
+            "evaluated and is allowed through unfiltered."
         ),
     )
     circuit_breaker_atr_threshold: float | None = Field(
@@ -88,7 +90,8 @@ class _EntryFiltersMixin(StrictBaseModel):
         gt=0,
         description=(
             "ATR% as a percentage, e.g. 2.8 = 2.8%. When the market proxy ATR% meets or exceeds "
-            "this threshold, all new entries are blocked for that day. None = disabled."
+            "this threshold, all new BUY signals are blocked for that day. Positions already "
+            "selected on the previous day still open at today's open. None = disabled."
         ),
     )
     circuit_breaker_symbol: str = Field(

@@ -46,7 +46,8 @@ interface BannerSpec {
 }
 
 /** Market Conditions banner rendered before symbol rows.
- * Hidden when circuit_breaker_state is 'disabled'. */
+ * Hidden only when the circuit breaker is 'disabled' AND no regime state is set —
+ * a regime state alone still renders the regime row. */
 const MarketConditionsBanner = ({
   circuitBreakerState,
   circuitBreakerAtrPct,
@@ -85,7 +86,7 @@ const MarketConditionsBanner = ({
       content: (
         <>
           <span className="font-medium">Circuit breaker triggered:</span> Market ATR{' '}
-          {atrDisplay ?? '—'} &ge; threshold. All entries blocked.
+          {atrDisplay ?? '—'} &ge; threshold. New buy signals blocked.
         </>
       ),
     },

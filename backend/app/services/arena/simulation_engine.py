@@ -735,7 +735,9 @@ class SimulationEngine:
             }
 
             # Collect BUY signals for portfolio selection (don't create PENDING yet).
-            # today_bar rides along so Layer 10 filters don't re-scan the price cache.
+            # today_bar rides along so Layer 10 filters have today's OHLC without a
+            # cache lookup. Filters needing history (MA50, circuit breaker ATR) still
+            # read the cache for the earlier bars.
             if decision.action == "BUY" and not has_position:
                 buy_signals.append((symbol, decision, today_bar))
 
@@ -811,7 +813,8 @@ class SimulationEngine:
         # Only buy stocks trading above their 50-day moving average (trend-following gate).
         # The MA itself needs history from the cache, but today's close comes from the
         # today_bar carried on the signal. Each branch below is one skip reason: an
-        # unevaluable symbol is allowed through rather than rejected.
+        # unevaluable symbol is allowed through rather than rejected, and records
+        # ma50_skipped so a bypassed entry is never mistaken for an evaluated pass.
         if simulation.agent_config.get("ma50_filter_enabled", False):
             ma50_filtered_buy_signals: list[tuple[str, AgentDecision, PriceBar]] = []
             for symbol, decision, today_bar in buy_signals:
@@ -827,18 +830,24 @@ class SimulationEngine:
                         "(expected ≥50 bars after pre-load; check data fetch)",
                         symbol, current_date,
                     )
+                    decisions[symbol]["ma50_skipped"] = "no_data"
                 elif len(ph) < 50:
-                    logger.debug(
+                    # Realistic for a symbol that listed recently: it silently enters
+                    # unfiltered, so record it rather than leaving the decision
+                    # indistinguishable from an evaluated pass.
+                    logger.info(
                         "MA50 filter skipped for %s: only %d bars available",
                         symbol, len(ph),
                     )
+                    decisions[symbol]["ma50_skipped"] = "insufficient_history"
                 elif ph[-1].date != current_date:
                     # Guaranteed equal for symbols in buy_signals (agent loop NO_DATA
                     # guard); kept as defence against data gaps causing silent mispricing.
-                    logger.debug(
+                    logger.info(
                         "MA50 filter skipped for %s: last bar date %s != %s",
                         symbol, ph[-1].date, current_date,
                     )
+                    decisions[symbol]["ma50_skipped"] = "stale_bar"
                 elif float(today_bar.close) < sum(float(b.close) for b in ph[-50:]) / 50:
                     _mark_filtered(symbol, "ma50_filtered")
                     continue
@@ -1240,7 +1249,9 @@ class SimulationEngine:
         """
         cache = self._price_cache.setdefault(simulation_id, {})
         # _load_price_cache widens whatever lookback it is given by 30 days.
-        if symbol in cache and lookback_days <= main_lookback_days + 30:
+        # cache.get(), not `in`: an empty list means the main fetch came back with no
+        # bars, and the proxy must be retried rather than left permanently empty.
+        if cache.get(symbol) and lookback_days <= main_lookback_days + 30:
             return  # Main load already covers the requested window
 
         bars = await self._fetch_price_bars(

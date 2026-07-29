@@ -343,7 +343,7 @@ describe('ArenaDecisionLog', () => {
       expect(banner).toHaveAttribute('role', 'alert');
       expect(screen.getByText(/circuit breaker triggered/i)).toBeInTheDocument();
       expect(screen.getByText(/3\.20%/)).toBeInTheDocument();
-      expect(screen.getByText(/all entries blocked/i)).toBeInTheDocument();
+      expect(screen.getByText(/new buy signals blocked/i)).toBeInTheDocument();
     });
 
     it('banner renders before symbol rows when state is triggered', () => {

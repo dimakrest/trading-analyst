@@ -20,7 +20,11 @@ from app.models.arena import (
     SimulationStatus,
 )
 from app.services.arena.agent_protocol import AgentDecision, PriceBar
-from app.services.arena.simulation_engine import SimulationEngine
+from app.services.arena.simulation_engine import (
+    CIRCUIT_BREAKER_LOOKBACK_DAYS,
+    MA50_MIN_LOOKBACK_DAYS,
+    SimulationEngine,
+)
 
 
 class TestSimulationEngineInit:
@@ -6904,6 +6908,125 @@ class TestSimulationEngineCircuitBreaker:
             "step_day resume path should call _load_auxiliary_symbol_cache for CB symbol with lookback_days=90. "
             f"Actual calls: {mock_load.call_args_list}"
         )
+
+    @pytest.mark.unit
+    async def test_ma50_widens_main_price_cache_lookback(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """MA50 forces the main cache lookback to >=60 even for a short-lookback agent.
+
+        This is the safety property that keeps the filter from silently no-op'ing:
+        with the agent's raw lookback of 5, the cache would hold ~24 bars, MA50 would
+        hit its <50-bars branch for every symbol, and every BUY would bypass the gate
+        while the UI still reported the filter as ON. Asserted on the load path itself
+        because every other MA50 test seeds _price_cache directly and never runs it.
+        """
+        sim = ArenaSimulation(
+            name="MA50 Lookback Widening Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={"trailing_stop_pct": 5.0, "ma50_filter_enabled": True},
+            status=SimulationStatus.PENDING.value,
+            current_day=0,
+            total_days=0,
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        engine = self._make_engine(db_session, rollback_session_factory)
+
+        with patch.object(engine, "_load_price_cache", new_callable=AsyncMock) as mock_load_main, \
+             patch.object(engine, "_load_sector_cache", new_callable=AsyncMock), \
+             patch.object(engine, "_get_trading_days_from_cache", return_value=[date(2024, 1, 16)]), \
+             patch("app.services.arena.simulation_engine.get_agent") as mock_get_agent, \
+             patch.object(engine.data_service, "batch_prefetch_sectors", new_callable=AsyncMock) as mock_prefetch:
+            mock_agent = MagicMock()
+            mock_agent.required_lookback_days = 5  # far short of MA50's needs
+            mock_get_agent.return_value = mock_agent
+            mock_prefetch.return_value = {"AAPL": "Technology"}
+            await engine.initialize_simulation(sim.id)
+
+        # _load_price_cache(sim_id, symbols, start_date, end_date, lookback_days)
+        lookback_used = mock_load_main.call_args.args[4]
+        assert lookback_used >= MA50_MIN_LOOKBACK_DAYS, (
+            f"MA50 enabled must widen the main cache lookback to >={MA50_MIN_LOOKBACK_DAYS}, "
+            f"got {lookback_used}. The filter would silently skip every symbol."
+        )
+
+    @pytest.mark.unit
+    async def test_auxiliary_cache_refetches_proxy_that_is_also_a_simulation_symbol(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Exercise _load_auxiliary_symbol_cache's real body (other tests mock it out).
+
+        Covers the coverage-guard arithmetic that replaced _price_cache_meta, for the
+        case the earlier review asked for: the circuit-breaker proxy is also one of
+        simulation.symbols, so it is already cached but only over the main window.
+        """
+        from app.providers.base import PriceDataPoint
+
+        engine = self._make_engine(db_session, rollback_session_factory)
+        sim_id = 4242
+        start_date, end_date = date(2024, 1, 15), date(2024, 1, 20)
+
+        def _records(n: int) -> list[PriceDataPoint]:
+            return [
+                PriceDataPoint(
+                    symbol="SPY",
+                    timestamp=datetime.combine(
+                        start_date - timedelta(days=i), datetime.min.time(), tzinfo=timezone.utc
+                    ),
+                    open_price=100.0, high_price=102.0, low_price=98.0,
+                    close_price=101.0, volume=1_000_000,
+                )
+                for i in range(n)
+            ]
+
+        # Narrow main window (agent lookback 5) -> the 90-day CB need is not covered,
+        # so the proxy must be re-fetched even though it is already in the cache.
+        engine._price_cache[sim_id] = {"SPY": [PriceBar(
+            date=start_date, open=Decimal("100"), high=Decimal("102"),
+            low=Decimal("98"), close=Decimal("101"), volume=1_000_000,
+        )]}
+        with patch.object(
+            engine.data_service, "get_price_data", new=AsyncMock(return_value=_records(70))
+        ) as mock_fetch:
+            await engine._load_auxiliary_symbol_cache(
+                sim_id, "SPY", start_date, end_date,
+                lookback_days=CIRCUIT_BREAKER_LOOKBACK_DAYS, main_lookback_days=5,
+            )
+        assert mock_fetch.await_count == 1, "narrow main window must trigger a re-fetch"
+        assert len(engine._price_cache[sim_id]["SPY"]) == 70
+
+        # Wide main window (MA50 already widened it to 60 -> 90 calendar days) covers
+        # the same 90-day need, so no second round trip.
+        with patch.object(
+            engine.data_service, "get_price_data", new=AsyncMock(return_value=_records(70))
+        ) as mock_fetch:
+            await engine._load_auxiliary_symbol_cache(
+                sim_id, "SPY", start_date, end_date,
+                lookback_days=CIRCUIT_BREAKER_LOOKBACK_DAYS,
+                main_lookback_days=MA50_MIN_LOOKBACK_DAYS,
+            )
+        assert mock_fetch.await_count == 0, "wide main window must not re-fetch"
+
+        # An empty cache entry means the main fetch returned nothing; the proxy has to
+        # be retried, or the breaker fails open for the whole run.
+        engine._price_cache[sim_id]["SPY"] = []
+        with patch.object(
+            engine.data_service, "get_price_data", new=AsyncMock(return_value=_records(70))
+        ) as mock_fetch:
+            await engine._load_auxiliary_symbol_cache(
+                sim_id, "SPY", start_date, end_date,
+                lookback_days=CIRCUIT_BREAKER_LOOKBACK_DAYS,
+                main_lookback_days=MA50_MIN_LOOKBACK_DAYS,
+            )
+        assert mock_fetch.await_count == 1, "empty cached entry must be retried"
 
 
 @pytest.mark.usefixtures("db_session")

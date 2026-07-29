@@ -11,7 +11,9 @@ Implemented (2026-04-16). Backend (5a-5h), frontend (F1-F6), tests, and migratio
 
 Two entry-level filters that complete both aggressive and conservative strategies:
 1. **MA50 filter**: Only buy stocks trading above their 50-day moving average (trend-following gate)
-2. **Circuit breaker**: Block all new entries when market volatility (SPY ATR%) exceeds a threshold
+2. **Circuit breaker**: Block all new BUY signals when market volatility (SPY ATR%) exceeds a
+   threshold. Note this gates signal generation, not position opening: positions selected on the
+   previous day are already PENDING and still open at today's open.
 
 ## Why
 
@@ -413,7 +415,7 @@ Display `ma50_filtered` and `circuit_breaker_filtered` annotations. Show circuit
 |-------------------------|-------------------|------------------|
 | `disabled` | Hidden (no breaker configured) | n/a |
 | `clear` | Shown, neutral/info style | "Market ATR: X.XX% (clear)" |
-| `triggered` | Shown, alert/warning style | "Circuit breaker triggered: Market ATR X.XX% >= threshold. All entries blocked." |
+| `triggered` | Shown, alert/warning style | "Circuit breaker triggered: Market ATR X.XX% >= threshold. New buy signals blocked." |
 | `data_unavailable` | Shown, distinct warning style (**different from triggered**) | "Circuit breaker bypassed: market data unavailable for {symbol} on this date. Entries proceeded without the safety gate." |
 
 The `data_unavailable` styling must be visually distinct from both `clear` (calm) and `triggered` (blocking) so operators do not mistake a bypassed safety valve for either normal state. A subdued-but-attention-grabbing treatment (e.g., a yellow/amber banner with a warning icon) is appropriate; do not reuse the red/triggered styling.
