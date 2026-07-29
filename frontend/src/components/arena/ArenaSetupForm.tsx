@@ -120,6 +120,11 @@ const PRESET_BASE = {
   stop_type: 'atr' as const,
   sizing_mode: 'risk_based' as const,
   risk_per_trade_pct: 2.5,
+  // Spelled out even though these match the form defaults: a preset must produce
+  // one whole sizing profile, not the preset's risk_per_trade_pct grafted onto
+  // whatever the user last typed into Advanced.
+  win_streak_bonus_pct: 0.3,
+  max_risk_pct: 4.0,
   max_open_positions: 10,
   max_per_sector: 3,
   ibs_max_threshold: undefined as number | undefined,
@@ -201,9 +206,12 @@ export const ArenaSetupForm = ({
   // Entry filters
   const entryFilters = useEntryFilterState();
   const {
-    ibsMaxThreshold, setIbsMaxThreshold,
+    // The two number fields go through onIbsChange/onCbThresholdChange rather than
+    // their raw setters, so a typo the browser rejects ("2,8") is recorded as an
+    // error instead of arriving as "" and reading as "filter off".
+    ibsMaxThreshold,
     ma50FilterEnabled, setMa50FilterEnabled,
-    circuitBreakerThreshold, setCircuitBreakerThreshold,
+    circuitBreakerThreshold,
     circuitBreakerSymbol, setCircuitBreakerSymbol,
     onIbsChange, onCbThresholdChange,
     applyInitialValues,
@@ -257,6 +265,13 @@ export const ArenaSetupForm = ({
       }
       if (initialValues.max_open_positions != null) {
         setMaxOpenPositions(initialValues.max_open_positions.toString());
+      }
+      // Restoring a constraint is exactly as deliberate as typing one: without this
+      // a replay of a 'none'-strategy run re-submits null for both — unlimited
+      // positions — while the Constraints section stays hidden, so the restored
+      // values are neither sent nor visible.
+      if (initialValues.max_per_sector != null || initialValues.max_open_positions != null) {
+        setConstraintsTouched(true);
       }
       // Set sizing mode from replay (default to 'fixed' for old simulations without this field)
       setSizingMode(initialValues.sizing_mode ?? 'fixed');
@@ -345,6 +360,8 @@ export const ArenaSetupForm = ({
     setAtrStopMultiplier(String(p.atr_stop_multiplier));
     setSizingMode(p.sizing_mode);
     setRiskPerTradePct(String(p.risk_per_trade_pct));
+    setWinStreakBonusPct(String(p.win_streak_bonus_pct));
+    setMaxRiskPct(String(p.max_risk_pct));
     setMaxOpenPositions(String(p.max_open_positions));
     setMaxPerSector(String(p.max_per_sector));
     setConstraintsTouched(true);
@@ -493,6 +510,7 @@ export const ArenaSetupForm = ({
     selectedStrategies,
     maxPerSector,
     maxOpenPositions,
+    constraintsTouched,
     maSweetSpotCenter,
     sizingMode,
     positionSizePct,
@@ -525,12 +543,7 @@ export const ArenaSetupForm = ({
   const isFixedPctSizing = sizingMode === 'fixed_pct';
   const isRiskBasedSizing = sizingMode === 'risk_based';
 
-  // Circuit breaker error message (depends on symbol value, stays in form)
-  const cbSymbolHasDot = circuitBreakerSymbol.includes('.');
-  const { hasIbsError, hasCbThresholdError, hasCbSymbolError } = entryFilters;
-  const cbSymbolErrorMessage = cbSymbolHasDot
-    ? 'Dot-notation tickers like BRK.B are not supported'
-    : 'Must be 1–5 uppercase letters (e.g. SPY)';
+  const { hasIbsError, hasCbThresholdError, hasCbSymbolError, cbSymbolError } = entryFilters;
 
   const hasValidPositionSize =
     isRiskBasedSizing || isFixedPctSizing || parseFloat(positionSize) > 0;
@@ -1179,30 +1192,28 @@ export const ArenaSetupForm = ({
 
               {entryFiltersOpen && (
                 <div id="arena-entry-filters-panel" className="pt-3 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="arena-ibs-threshold">IBS Threshold</Label>
-                      <Input
-                        id="arena-ibs-threshold"
-                        type="number"
-                        min="0.01"
-                        max="1"
-                        step="0.05"
-                        placeholder="Disabled"
-                        value={ibsMaxThreshold}
-                        onChange={onIbsChange}
-                        className="mt-1"
-                        disabled={isLoading}
-                      />
-                      {hasIbsError && (
-                        <p className="text-xs text-destructive">
-                          Must be greater than 0 and at most 1
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        Filter entries when close is near daily high. Typical: 0.55. Empty = disabled.
+                  <div className="space-y-2">
+                    <Label htmlFor="arena-ibs-threshold">IBS Threshold</Label>
+                    <Input
+                      id="arena-ibs-threshold"
+                      type="number"
+                      min="0.01"
+                      max="1"
+                      step="0.05"
+                      placeholder="Disabled"
+                      value={ibsMaxThreshold}
+                      onChange={onIbsChange}
+                      className="mt-1"
+                      disabled={isLoading}
+                    />
+                    {hasIbsError && (
+                      <p className="text-xs text-destructive">
+                        Must be greater than 0 and at most 1
                       </p>
-                    </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Filter entries when close is near daily high. Typical: 0.55. Empty = disabled.
+                    </p>
                   </div>
 
                   {/* MA50 Filter toggle */}
@@ -1252,7 +1263,8 @@ export const ArenaSetupForm = ({
                         </p>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Block all entries when market ATR% &ge; threshold. e.g. 2.8 for 2.8%. Empty = disabled.
+                        Block new buy signals when market ATR% &ge; threshold; positions already
+                        selected the previous day still open. e.g. 2.8 for 2.8%. Empty = disabled.
                       </p>
                     </div>
 
@@ -1271,7 +1283,7 @@ export const ArenaSetupForm = ({
                         />
                         {hasCbSymbolError && (
                           <p className="text-xs text-destructive">
-                            {cbSymbolErrorMessage}
+                            {cbSymbolError}
                           </p>
                         )}
                         <p className="text-xs text-muted-foreground">

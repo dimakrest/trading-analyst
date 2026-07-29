@@ -323,7 +323,7 @@ describe('ArenaDecisionLog', () => {
         <ArenaDecisionLog snapshot={snap} snapshots={[snap]} onSelectSnapshot={mockOnSelect} />
       );
       expect(screen.getByTestId('cb-banner-clear')).toBeInTheDocument();
-      expect(screen.getByText(/1\.50%/)).toBeInTheDocument();
+      expect(screen.getByText(/1\.5%/)).toBeInTheDocument();
       expect(screen.getByText(/clear/i)).toBeInTheDocument();
     });
 
@@ -342,7 +342,7 @@ describe('ArenaDecisionLog', () => {
       expect(banner).toBeInTheDocument();
       expect(banner).toHaveAttribute('role', 'alert');
       expect(screen.getByText(/circuit breaker triggered/i)).toBeInTheDocument();
-      expect(screen.getByText(/3\.20%/)).toBeInTheDocument();
+      expect(screen.getByText(/3\.2%/)).toBeInTheDocument();
       expect(screen.getByText(/new buy signals blocked/i)).toBeInTheDocument();
     });
 
@@ -556,7 +556,27 @@ describe('ArenaDecisionLog', () => {
       render(
         <ArenaDecisionLog snapshot={snap} snapshots={[snap]} onSelectSnapshot={mockOnSelect} />
       );
-      expect(screen.getByText(/2\.80%/)).toBeInTheDocument();
+      // Trailing zeros dropped: the stored scale is 6dp, but a tidy value must
+      // still read tidily.
+      expect(screen.getByText(/2\.8%/)).toBeInTheDocument();
+    });
+
+    it('does not round a near-threshold ATR% into looking at-threshold', () => {
+      const mockOnSelect = vi.fn();
+      // The reason circuit_breaker_atr_pct is Numeric(10,6): at 2dp this renders
+      // "Market ATR: 2.80% (clear)" against a 2.8 threshold — an audit line that
+      // contradicts its own state.
+      const snap: Snapshot = {
+        ...mockSnapshot,
+        circuit_breaker_state: 'clear',
+        circuit_breaker_atr_pct: '2.799960',
+        decisions: {},
+      };
+      render(
+        <ArenaDecisionLog snapshot={snap} snapshots={[snap]} onSelectSnapshot={mockOnSelect} />
+      );
+      expect(screen.getByText(/2\.79996%/)).toBeInTheDocument();
+      expect(screen.queryByText(/2\.80%/)).not.toBeInTheDocument();
     });
 
     it('shows dash when circuit_breaker_atr_pct is null in triggered banner', () => {

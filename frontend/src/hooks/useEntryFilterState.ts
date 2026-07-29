@@ -34,10 +34,18 @@ export function useEntryFilterState() {
     const hasCbThresholdError =
       cbThresholdBadInput ||
       (cbThresholdParsed !== null && !(cbThresholdParsed > 0 && isFinite(cbThresholdParsed)));
+    // The rule and its explanation live together: a form that re-derived "why"
+    // from its own second predicate could show a message for a value this hook
+    // considers valid the moment the accepted format changes.
     const hasCbSymbolError =
       circuitBreakerThreshold !== '' && !/^[A-Z]{1,5}$/.test(circuitBreakerSymbol);
+    const cbSymbolError = !hasCbSymbolError
+      ? null
+      : circuitBreakerSymbol.includes('.')
+        ? 'Dot-notation tickers like BRK.B are not supported'
+        : 'Must be 1–5 uppercase letters (e.g. SPY)';
 
-    return { hasIbsError, hasCbThresholdError, hasCbSymbolError };
+    return { hasIbsError, hasCbThresholdError, hasCbSymbolError, cbSymbolError };
   }, [
     ibsMaxThreshold,
     circuitBreakerThreshold,

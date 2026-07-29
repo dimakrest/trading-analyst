@@ -96,7 +96,8 @@ class _EntryFiltersMixin(StrictBaseModel):
     )
     circuit_breaker_symbol: str = Field(
         default="SPY",
-        max_length=10,
+        # No max_length: the pattern already caps length at 5, so a second, looser
+        # bound only misleads a reader into thinking 6-10 character tickers pass.
         pattern=r"^[A-Z]{1,5}$",
         description=(
             "Market proxy ticker for the circuit breaker (default: 'SPY'). "
@@ -327,7 +328,7 @@ class CreateSimulationRequest(_EntryFiltersMixin, StrictBaseModel):
     )
     regime_symbol: str = Field(
         default="SPY",
-        max_length=10,
+        # No max_length: the pattern already caps length at 5 (see circuit_breaker_symbol).
         pattern=r"^[A-Z]{1,5}$",
         description="Ticker used as market regime indicator (default: 'SPY').",
     )

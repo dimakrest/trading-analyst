@@ -3,6 +3,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ArenaSetupForm } from './ArenaSetupForm';
 
+// These tests drive a large multi-tab form through userEvent and take seconds
+// each on their own; under parallel suite load they exceed vitest's 5s default
+// and fail as timeouts rather than on their assertions. Raised here rather than
+// in vite.config.ts so the rest of the repo still fails fast.
+vi.setConfig({ testTimeout: 20000 });
+
 // Mock useStockLists hook
 const mockLists = [
   { id: 1, name: 'Tech Stocks', symbols: ['AAPL', 'MSFT', 'GOOGL'], symbol_count: 3 },
@@ -1091,6 +1097,33 @@ describe('ArenaSetupForm', () => {
       expect(payload.max_open_positions).toBeNull();
     });
 
+    it('preset overwrites stale Advanced risk fields', async () => {
+      // A preset must land as one whole sizing profile. Leaving win_streak_bonus_pct
+      // and max_risk_pct at whatever the user last typed produces a hybrid config
+      // that matches neither the preset nor anything they chose.
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /risk-based/i }));
+
+      const winStreak = screen.getByLabelText(/win streak bonus/i) as HTMLInputElement;
+      const maxRisk = screen.getByLabelText(/max risk cap/i) as HTMLInputElement;
+      await user.clear(winStreak);
+      await user.type(winStreak, '2');
+      await user.clear(maxRisk);
+      await user.type(maxRisk, '10');
+
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.risk_per_trade_pct).toBe(2.5);
+      expect(payload.win_streak_bonus_pct).toBe(0.3);
+      expect(payload.max_risk_pct).toBe(4.0);
+    });
+
     it('Load Conservative button is rendered', () => {
       renderWithSetupInputs();
       expect(screen.getByRole('button', { name: /load conservative/i })).toBeInTheDocument();
@@ -1164,6 +1197,107 @@ describe('ArenaSetupForm', () => {
   });
 
   describe('initialValues (replay feature)', () => {
+    it('replay re-submits restored position limits under the default "none" strategy', async () => {
+      // Replaying a capped run must reproduce the caps. Restoring the values into
+      // state without marking them as set left the payload at null for both --
+      // unlimited concurrent positions -- while the hidden Constraints section
+      // meant the user could not see the restored numbers either.
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: 10,
+            max_per_sector: 3,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_open_positions).toBe(10);
+      expect(payload.max_per_sector).toBe(3);
+    });
+
+    it('replay honours a restored limit that equals the field default', async () => {
+      // maxPerSector already holds '2', so restoring 2 is a no-op on that field --
+      // the cap survives only because the replay effect marks constraints as set
+      // independently of whether any value visibly changed.
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: null,
+            max_per_sector: 2,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      expect(mockOnSubmit.mock.calls[0][0].max_per_sector).toBe(2);
+    });
+
+    it('replay of a run with no position limits still submits null', async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: null,
+            max_per_sector: null,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_open_positions).toBeNull();
+      expect(payload.max_per_sector).toBeNull();
+    });
+
     it('should populate form fields from initialValues', async () => {
       const user = userEvent.setup();
       const initialValues = {

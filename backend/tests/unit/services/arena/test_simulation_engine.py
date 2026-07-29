@@ -21,7 +21,7 @@ from app.models.arena import (
 )
 from app.services.arena.agent_protocol import AgentDecision, PriceBar
 from app.services.arena.simulation_engine import (
-    CIRCUIT_BREAKER_LOOKBACK_DAYS,
+    ATR_LOOKBACK_DAYS,
     MA50_MIN_LOOKBACK_DAYS,
     SimulationEngine,
 )
@@ -7000,7 +7000,7 @@ class TestSimulationEngineCircuitBreaker:
         ) as mock_fetch:
             await engine._load_auxiliary_symbol_cache(
                 sim_id, "SPY", start_date, end_date,
-                lookback_days=CIRCUIT_BREAKER_LOOKBACK_DAYS, main_lookback_days=5,
+                lookback_days=ATR_LOOKBACK_DAYS, main_lookback_days=5,
             )
         assert mock_fetch.await_count == 1, "narrow main window must trigger a re-fetch"
         assert len(engine._price_cache[sim_id]["SPY"]) == 70
@@ -7012,7 +7012,7 @@ class TestSimulationEngineCircuitBreaker:
         ) as mock_fetch:
             await engine._load_auxiliary_symbol_cache(
                 sim_id, "SPY", start_date, end_date,
-                lookback_days=CIRCUIT_BREAKER_LOOKBACK_DAYS,
+                lookback_days=ATR_LOOKBACK_DAYS,
                 main_lookback_days=MA50_MIN_LOOKBACK_DAYS,
             )
         assert mock_fetch.await_count == 0, "wide main window must not re-fetch"
@@ -7025,10 +7025,47 @@ class TestSimulationEngineCircuitBreaker:
         ) as mock_fetch:
             await engine._load_auxiliary_symbol_cache(
                 sim_id, "SPY", start_date, end_date,
-                lookback_days=CIRCUIT_BREAKER_LOOKBACK_DAYS,
+                lookback_days=ATR_LOOKBACK_DAYS,
                 main_lookback_days=MA50_MIN_LOOKBACK_DAYS,
             )
         assert mock_fetch.await_count == 1, "empty cached entry must be retried"
+
+    @pytest.mark.unit
+    def test_trading_days_exclude_auxiliary_proxy_symbols(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """Proxy bars must not invent trading days the universe has no data for.
+
+        The regime / circuit-breaker proxy shares _price_cache with the tradable
+        symbols. If its calendar were unioned in, a date where only the proxy has
+        a bar becomes a simulation day on which every symbol is NO_DATA and held
+        positions are skipped by positions_value -- total_equity drops to cash and
+        the equity curve records a crash that never happened.
+        """
+        engine = self._make_engine(db_session, rollback_session_factory)
+        sim_id = 909
+
+        def _bar(d: date) -> PriceBar:
+            return PriceBar(
+                date=d, open=Decimal("100"), high=Decimal("102"),
+                low=Decimal("98"), close=Decimal("101"), volume=1_000_000,
+            )
+
+        engine._price_cache[sim_id] = {
+            "AAPL": [_bar(date(2024, 1, 16)), _bar(date(2024, 1, 17))],
+            # Proxy is fresher than the universe backfill -- 3 extra sessions.
+            "SPY": [
+                _bar(date(2024, 1, 16)), _bar(date(2024, 1, 17)),
+                _bar(date(2024, 1, 18)), _bar(date(2024, 1, 19)),
+                _bar(date(2024, 1, 22)),
+            ],
+        }
+
+        days = engine._get_trading_days_from_cache(
+            sim_id, ["AAPL"], date(2024, 1, 15), date(2024, 1, 31)
+        )
+
+        assert days == [date(2024, 1, 16), date(2024, 1, 17)]
 
 
 @pytest.mark.usefixtures("db_session")

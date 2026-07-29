@@ -64,9 +64,12 @@ const MarketConditionsBanner = ({
 }: MarketConditionsBannerProps) => {
   if (circuitBreakerState === 'disabled' && !regimeState) return null;
 
-  const atrDisplay = circuitBreakerAtrPct
-    ? `${parseFloat(circuitBreakerAtrPct).toFixed(2)}%`
-    : null;
+  // Rendered at the column's full stored precision, trailing zeros dropped by
+  // Number formatting ("2.800000" -> "2.8", "2.799960" -> "2.79996"). Rounding to
+  // 2dp here would undo the Numeric(10,6) widening: 2.79996 would print as
+  // "Market ATR: 2.80% (clear)" against a 2.8 threshold — an audit line that
+  // contradicts itself.
+  const atrDisplay = circuitBreakerAtrPct ? `${Number(circuitBreakerAtrPct)}%` : null;
 
   // One entry per state. Typing this as a total Record is the exhaustiveness check:
   // adding a CircuitBreakerState variant without a banner is a compile error.

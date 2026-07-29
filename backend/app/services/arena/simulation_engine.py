@@ -43,8 +43,10 @@ logger = logging.getLogger(__name__)
 # alone, and ~60 in the worst holiday stretch (Thanksgiving through Presidents'
 # Day) -- still a margin above 50.
 MA50_MIN_LOOKBACK_DAYS = 60
-# Circuit breaker ATR needs far less, but shares the same window for simplicity.
-CIRCUIT_BREAKER_LOOKBACK_DAYS = 90
+# Window for 14-period Wilder's ATR, used both to size the proxy fetch for the
+# circuit breaker and to bound the read in _calculate_symbol_atr_pct. One constant
+# for both so the fetched window can never be narrower than the window read back.
+ATR_LOOKBACK_DAYS = 90
 # Slack _load_price_cache adds to every requested lookback. Anyone reasoning about
 # how far back the cache actually reaches must use this rather than repeat the
 # literal, or the two can drift apart silently.
@@ -189,7 +191,7 @@ class SimulationEngine:
 
         # Get trading days from cache
         trading_days = self._get_trading_days_from_cache(
-            simulation.id, simulation.start_date, simulation.end_date
+            simulation.id, simulation.symbols, simulation.start_date, simulation.end_date
         )
         self._trading_days_cache[simulation.id] = trading_days
 
@@ -339,7 +341,10 @@ class SimulationEngine:
         # Use cached trading days (lazy-load for resume case)
         if simulation_id not in self._trading_days_cache:
             self._trading_days_cache[simulation_id] = self._get_trading_days_from_cache(
-                simulation_id, simulation.start_date, simulation.end_date
+                simulation_id,
+                simulation.symbols,
+                simulation.start_date,
+                simulation.end_date,
             )
         trading_days = self._trading_days_cache[simulation_id]
 
@@ -432,7 +437,8 @@ class SimulationEngine:
             price_history = self._get_cached_price_history(
                 simulation_id,
                 symbol,
-                current_date - timedelta(days=agent.required_lookback_days + 30),
+                current_date
+                - timedelta(days=agent.required_lookback_days + CACHE_LOOKBACK_MARGIN_DAYS),
                 current_date,
             )
 
@@ -1217,7 +1223,7 @@ class SimulationEngine:
             required[symbol] = max(required.get(symbol, 0), sma_period * 2 + 30)
         if agent_config.get("circuit_breaker_atr_threshold") is not None:
             symbol = agent_config.get("circuit_breaker_symbol", "SPY")
-            required[symbol] = max(required.get(symbol, 0), CIRCUIT_BREAKER_LOOKBACK_DAYS)
+            required[symbol] = max(required.get(symbol, 0), ATR_LOOKBACK_DAYS)
 
         for symbol, lookback_days in required.items():
             await self._load_auxiliary_symbol_cache(
@@ -1339,7 +1345,7 @@ class SimulationEngine:
     ) -> float | None:
         """Calculate ATR% for a symbol from cached price data.
 
-        Uses a 90-day window (enough for 14-period Wilder's ATR).
+        Reads back an ``ATR_LOOKBACK_DAYS`` window (enough for 14-period Wilder's ATR).
         Returns None if insufficient price data is available.
 
         Args:
@@ -1353,7 +1359,7 @@ class SimulationEngine:
         price_history = self._get_cached_price_history(
             simulation_id,
             symbol,
-            current_date - timedelta(days=90),
+            current_date - timedelta(days=ATR_LOOKBACK_DAYS),
             current_date,
         )
         if not price_history or len(price_history) < 15:
@@ -1381,12 +1387,20 @@ class SimulationEngine:
         return None
 
     def _get_trading_days_from_cache(
-        self, simulation_id: int, start: date, end: date
+        self, simulation_id: int, symbols: list[str], start: date, end: date
     ) -> list[date]:
         """Get trading days from price cache.
 
+        Restricted to ``symbols`` on purpose: the cache also holds market proxies
+        (regime / circuit breaker) that are not tradable here. Unioning those in
+        would invent trading days on which no universe symbol has a bar — every
+        symbol reports NO_DATA, held positions are skipped by ``positions_value``,
+        and total_equity collapses to cash, printing a phantom crash and recovery
+        into the equity curve and drawdown stats.
+
         Args:
             simulation_id: Simulation ID.
+            symbols: The simulation's tradable symbols.
             start: Start date.
             end: End date.
 
@@ -1395,8 +1409,8 @@ class SimulationEngine:
         """
         all_dates: set[date] = set()
         symbol_cache = self._price_cache.get(simulation_id, {})
-        for bars in symbol_cache.values():
-            for bar in bars:
+        for symbol in symbols:
+            for bar in symbol_cache.get(symbol, []):
                 if start <= bar.date <= end:
                     all_dates.add(bar.date)
         return sorted(all_dates)
