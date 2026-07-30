@@ -91,6 +91,12 @@ export const Arena = () => {
       portfolio_strategy: replaySimulation.portfolio_strategy ?? undefined,
       max_per_sector: replaySimulation.max_per_sector,
       max_open_positions: replaySimulation.max_open_positions,
+      // Entry filters must round-trip too: replaying a run with these dropped
+      // silently re-runs it unfiltered, which is not a comparable simulation.
+      ibs_max_threshold: replaySimulation.ibs_max_threshold,
+      ma50_filter_enabled: replaySimulation.ma50_filter_enabled,
+      circuit_breaker_atr_threshold: replaySimulation.circuit_breaker_atr_threshold,
+      circuit_breaker_symbol: replaySimulation.circuit_breaker_symbol,
     };
   }, [replaySimulation]);
 

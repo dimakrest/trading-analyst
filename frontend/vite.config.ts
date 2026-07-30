@@ -42,6 +42,10 @@ export default defineConfig(({ mode }) => {
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // testTimeout stays at the 5s default here on purpose. The handful of suites
+    // that legitimately need longer (large userEvent-driven forms) raise it for
+    // themselves with vi.setConfig, so a genuinely hung test everywhere else
+    // still fails fast instead of holding CI for 20s.
     exclude: ['**/node_modules/**', '**/e2e/**', '**/*.spec.ts'],
     server: {
       deps: {

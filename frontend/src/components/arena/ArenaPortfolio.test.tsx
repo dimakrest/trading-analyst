@@ -50,6 +50,7 @@ const mockSnapshot: Snapshot = {
   cumulative_return_pct: '8.30',
   open_position_count: 3,
   decisions: {},
+  circuit_breaker_state: 'disabled',
 };
 
 const mockPositions: Position[] = [

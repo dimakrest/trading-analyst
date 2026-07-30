@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ArenaSetupForm } from './ArenaSetupForm';
+
+// These tests drive a large multi-tab form through userEvent and take seconds
+// each on their own; under parallel suite load they exceed vitest's 5s default
+// and fail as timeouts rather than on their assertions. Raised here rather than
+// in vite.config.ts so the rest of the repo still fails fast.
+vi.setConfig({ testTimeout: 20000 });
 
 // Mock useStockLists hook
 const mockLists = [
@@ -882,13 +888,549 @@ describe('ArenaSetupForm', () => {
         />
       );
       await user.click(screen.getByRole('tab', { name: /portfolio/i }));
-      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+      // The restore already opened Entry Filters (a restored IBS threshold is in
+      // effect and must be visible) — no manual toggle click.
       const ibsInput = screen.getByLabelText(/ibs threshold/i) as HTMLInputElement;
       expect(ibsInput.value).toBe('0.55');
     });
   });
 
+  describe('Phase 5: MA50 + Circuit Breaker Entry Filters', () => {
+    /**
+     * Helper: render with valid setup inputs, open Portfolio tab, open Entry Filters.
+     */
+    const renderWithPortfolioAndEntryFilters = async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+        />
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+        target: { value: 'AAPL' },
+      });
+      fireEvent.change(screen.getByLabelText(/start date/i), {
+        target: { value: '2024-01-01' },
+      });
+      fireEvent.change(screen.getByLabelText(/end date/i), {
+        target: { value: '2024-06-01' },
+      });
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+      return user;
+    };
+
+    it('MA50 toggle starts as Off', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const toggle = screen.getByTestId('ma50-filter-toggle');
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      expect(toggle).toHaveTextContent('MA50 Filter: Off');
+    });
+
+    it('MA50 toggle state updates correctly when clicked', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      const toggle = screen.getByTestId('ma50-filter-toggle');
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      expect(toggle).toHaveTextContent('MA50 Filter: On');
+    });
+
+    it('MA50 enabled is included in submit payload when toggled on', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      await user.click(screen.getByTestId('ma50-filter-toggle'));
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ ma50_filter_enabled: true })
+      );
+    });
+
+    it('MA50 false is included in submit payload when not toggled', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ ma50_filter_enabled: false })
+      );
+    });
+
+    it('circuit breaker symbol field hidden when threshold is empty', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      expect(screen.queryByLabelText(/market symbol/i)).not.toBeInTheDocument();
+    });
+
+    it('circuit breaker symbol field appears when threshold is set', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      expect(screen.getByLabelText(/market symbol/i)).toBeInTheDocument();
+    });
+
+    it('circuit breaker symbol auto-uppercases input', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      const symbolInput = screen.getByLabelText(/market symbol/i) as HTMLInputElement;
+      fireEvent.change(symbolInput, { target: { value: 'qqq' } });
+      expect(symbolInput.value).toBe('QQQ');
+    });
+
+    it('BRK.B dot-notation shows inline error', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      const symbolInput = screen.getByLabelText(/market symbol/i);
+      fireEvent.change(symbolInput, { target: { value: 'BRK.B' } });
+      expect(screen.getByText(/dot-notation tickers like BRK\.B are not supported/i)).toBeInTheDocument();
+    });
+
+    it('invalid CB symbol format blocks submit', async () => {
+      await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      const symbolInput = screen.getByLabelText(/market symbol/i);
+      fireEvent.change(symbolInput, { target: { value: 'BRK.B' } });
+      expect(screen.getByRole('button', { name: /start simulation/i })).toBeDisabled();
+    });
+
+    it('circuit breaker fields included in submit payload when set', async () => {
+      const user = await renderWithPortfolioAndEntryFilters();
+      const cbInput = screen.getByLabelText(/market atr% threshold/i);
+      fireEvent.change(cbInput, { target: { value: '2.8' } });
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          circuit_breaker_atr_threshold: 2.8,
+          circuit_breaker_symbol: 'SPY',
+        })
+      );
+    });
+
+    it('replay: initialValues with MA50/CB fields pre-populates form correctly', async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            ma50_filter_enabled: true,
+            circuit_breaker_atr_threshold: 2.8,
+            circuit_breaker_symbol: 'QQQ',
+          }}
+        />
+      );
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      // Restored filters are in effect and must be visible: the section is
+      // force-opened by the restore, with no manual toggle click.
+      expect(screen.getByRole('button', { name: /entry filters/i })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+
+      const toggle = screen.getByTestId('ma50-filter-toggle');
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+      const cbInput = screen.getByLabelText(/market atr% threshold/i) as HTMLInputElement;
+      expect(cbInput.value).toBe('2.8');
+
+      const symbolInput = screen.getByLabelText(/market symbol/i) as HTMLInputElement;
+      expect(symbolInput.value).toBe('QQQ');
+    });
+
+    it('replay of a run with no entry filters leaves the section collapsed', async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+          }}
+        />
+      );
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      // Nothing was restored into the filters, so there is nothing to reveal
+      expect(screen.getByRole('button', { name: /entry filters/i })).toHaveAttribute(
+        'aria-expanded',
+        'false'
+      );
+      expect(screen.queryByTestId('ma50-filter-toggle')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Phase 5: Strategy Presets', () => {
+    const renderWithSetupInputs = () => {
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+        />
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: /symbols/i }), {
+        target: { value: 'AAPL' },
+      });
+      fireEvent.change(screen.getByLabelText(/start date/i), {
+        target: { value: '2024-01-01' },
+      });
+      fireEvent.change(screen.getByLabelText(/end date/i), {
+        target: { value: '2024-06-01' },
+      });
+    };
+
+    it('Load Aggressive button is rendered', () => {
+      renderWithSetupInputs();
+      expect(screen.getByRole('button', { name: /load aggressive/i })).toBeInTheDocument();
+    });
+
+    it('preset position limits are submitted even under the default "none" strategy', async () => {
+      // Regression: constraints used to be gated on a non-"none" strategy being
+      // selected, so clicking Load Aggressive promised 10 positions / 3 per sector
+      // and submitted null for both -- i.e. UNLIMITED concurrent positions at 2.5%
+      // risk each. The backend applies these caps to every strategy including FIFO.
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_open_positions).toBe(10);
+      expect(payload.max_per_sector).toBe(3);
+    });
+
+    it('untouched constraint defaults are NOT submitted under "none"', async () => {
+      // The mirror of the test above, and the reason the fix cannot simply be
+      // "always send them": maxPerSector defaults to '2'. Submitting that default
+      // would silently cap every plain simulation at 2 positions per sector.
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_per_sector).toBeNull();
+      expect(payload.max_open_positions).toBeNull();
+    });
+
+    it('preset overwrites stale Advanced risk fields', async () => {
+      // A preset must land as one whole sizing profile. Leaving win_streak_bonus_pct
+      // and max_risk_pct at whatever the user last typed produces a hybrid config
+      // that matches neither the preset nor anything they chose.
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('combobox', { name: /sizing mode/i }));
+      await user.click(screen.getByRole('option', { name: /risk-based/i }));
+
+      const winStreak = screen.getByLabelText(/win streak bonus/i) as HTMLInputElement;
+      const maxRisk = screen.getByLabelText(/max risk cap/i) as HTMLInputElement;
+      await user.clear(winStreak);
+      await user.type(winStreak, '2');
+      await user.clear(maxRisk);
+      await user.type(maxRisk, '10');
+
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.risk_per_trade_pct).toBe(2.5);
+      expect(payload.win_streak_bonus_pct).toBe(0.3);
+      expect(payload.max_risk_pct).toBe(4.0);
+    });
+
+    it('Load Conservative button is rendered', () => {
+      renderWithSetupInputs();
+      expect(screen.getByRole('button', { name: /load conservative/i })).toBeInTheDocument();
+    });
+
+    it('aggressive preset populates stop, sizing, and filter fields', async () => {
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+
+      // Navigate to portfolio tab — the preset already opened Entry Filters
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      const toggle = screen.getByTestId('ma50-filter-toggle');
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+      const cbInput = screen.getByLabelText(/market atr% threshold/i) as HTMLInputElement;
+      expect(cbInput.value).toBe('2.8');
+    });
+
+    it('conservative preset populates ibs threshold', async () => {
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /load conservative/i }));
+
+      // The preset already opened the Entry Filters section
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      const ibsInput = screen.getByLabelText(/ibs threshold/i) as HTMLInputElement;
+      expect(ibsInput.value).toBe('0.55');
+    });
+
+    it('preset force-opens the Entry Filters section so applied filters are visible', async () => {
+      // Presets enable MA50 + a 2.8% SPY circuit breaker, and handleSubmit sends
+      // them unconditionally — a value that takes effect must never sit in a
+      // collapsed section with zero indication it exists (same rule the
+      // Constraints section already follows).
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      // No manual toggle click: the section must already be expanded
+      expect(screen.getByRole('button', { name: /entry filters/i })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+      // The toggle's accessible name comes from its <Label htmlFor>, not its
+      // text content, so the on/off state is asserted via aria-pressed.
+      expect(screen.getByTestId('ma50-filter-toggle')).toHaveAttribute('aria-pressed', 'true');
+      expect(
+        (screen.getByLabelText(/market atr% threshold/i) as HTMLInputElement).value
+      ).toBe('2.8');
+    });
+
+    it('aggressive preset clears ibs threshold', async () => {
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      // First set IBS to something
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+      fireEvent.change(screen.getByLabelText(/ibs threshold/i), { target: { value: '0.55' } });
+
+      // Apply aggressive preset
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+
+      const ibsInput = screen.getByLabelText(/ibs threshold/i) as HTMLInputElement;
+      expect(ibsInput.value).toBe('');
+    });
+
+    it('preset preserves selectedStrategies in comparison mode', async () => {
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      // Select multiple strategies to enter comparison mode
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+      await user.click(screen.getByRole('button', { name: /best score — calm/i }));
+      expect(
+        screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
+      ).toBeEnabled();
+
+      // Apply preset — should NOT change selectedStrategies
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+
+      // Still in comparison mode (2 strategies still selected)
+      expect(
+        screen.getByRole('button', { name: /start comparison \(2 strategies\)/i })
+      ).toBeEnabled();
+    });
+  });
+
   describe('initialValues (replay feature)', () => {
+    it('replay re-submits restored position limits under the default "none" strategy', async () => {
+      // Replaying a capped run must reproduce the caps. Restoring the values into
+      // state without marking them as set left the payload at null for both --
+      // unlimited concurrent positions -- while the hidden Constraints section
+      // meant the user could not see the restored numbers either.
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: 10,
+            max_per_sector: 3,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_open_positions).toBe(10);
+      expect(payload.max_per_sector).toBe(3);
+    });
+
+    it('replay honours a restored limit that equals the field default', async () => {
+      // maxPerSector already holds '2', so restoring 2 is a no-op on that field --
+      // the cap survives only because the replay effect marks constraints as set
+      // independently of whether any value visibly changed.
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: null,
+            max_per_sector: 2,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      expect(mockOnSubmit.mock.calls[0][0].max_per_sector).toBe(2);
+    });
+
+    it('replay does not resurrect the sector-cap default for a run stored without one', async () => {
+      // Reachable today: preset under strategy 'none' -> clear Max Per Sector ->
+      // run -> Replay. The stored run has max_per_sector=null but
+      // max_open_positions set; restoring used to backfill constraintsTouched
+      // while leaving maxPerSector at its '2' useState default, so the replayed
+      // submission sent a sector cap the original run never had — breaking
+      // replay comparability.
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: 10,
+            max_per_sector: null,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_per_sector).toBeNull();
+      expect(payload.max_open_positions).toBe(10);
+    });
+
+    it('replay shows a cleared Max Per Sector field, not the form default', async () => {
+      // The visible field must agree with what will be submitted: a null
+      // constraint restores as an empty input (serializes back to null), not
+      // as the untouched '2' default.
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: 10,
+            max_per_sector: null,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      const maxPerSectorInput = screen.getByLabelText(/max per sector/i) as HTMLInputElement;
+      expect(maxPerSectorInput.value).toBe('');
+      const maxOpenPositionsInput = screen.getByLabelText(
+        /max open positions/i
+      ) as HTMLInputElement;
+      expect(maxOpenPositionsInput.value).toBe('10');
+    });
+
+    it('replay of a run with no position limits still submits null', async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: null,
+            max_per_sector: null,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_open_positions).toBeNull();
+      expect(payload.max_per_sector).toBeNull();
+    });
+
     it('should populate form fields from initialValues', async () => {
       const user = userEvent.setup();
       const initialValues = {

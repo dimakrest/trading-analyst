@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ListSelector } from '../molecules/ListSelector';
 import { useStockLists } from '../../hooks/useStockLists';
 import { useAgentConfigs } from '../../hooks/useAgentConfigs';
+import { useEntryFilterState } from '../../hooks/useEntryFilterState';
 import { PORTFOLIO_STRATEGIES } from '../../constants/portfolio';
 import { cn } from '../../lib/utils';
 import type { CreateComparisonRequest, CreateSimulationRequest } from '../../types/arena';
@@ -57,6 +58,9 @@ interface ArenaSetupFormProps {
     win_streak_bonus_pct?: number | null;
     max_risk_pct?: number | null;
     ibs_max_threshold?: number | null;
+    ma50_filter_enabled?: boolean;
+    circuit_breaker_atr_threshold?: number | null;
+    circuit_breaker_symbol?: string;
   };
 }
 
@@ -111,6 +115,31 @@ const getMinBuyScoreHelpText = (score: number): string => {
   return 'Trend must be bearish. This threshold is permissive and may increase trade frequency.';
 };
 
+/** Fields shared by every preset — only the differences are spelled out in STRATEGY_PRESETS. */
+const PRESET_BASE = {
+  stop_type: 'atr' as const,
+  sizing_mode: 'risk_based' as const,
+  risk_per_trade_pct: 2.5,
+  // Spelled out even though these match the form defaults: a preset must produce
+  // one whole sizing profile, not the preset's risk_per_trade_pct grafted onto
+  // whatever the user last typed into Advanced.
+  win_streak_bonus_pct: 0.3,
+  max_risk_pct: 4.0,
+  max_open_positions: 10,
+  max_per_sector: 3,
+  ibs_max_threshold: undefined as number | undefined,
+  ma50_filter_enabled: true,
+  circuit_breaker_atr_threshold: 2.8,
+  circuit_breaker_symbol: 'SPY',
+};
+
+/** Strategy presets for one-click setup. Populate stop, sizing, constraints, and filter fields.
+ * Do NOT modify selectedStrategies, symbols, dates, or capital. */
+const STRATEGY_PRESETS = {
+  aggressive: { ...PRESET_BASE, atr_stop_multiplier: 2.0 },
+  conservative: { ...PRESET_BASE, atr_stop_multiplier: 2.5, ibs_max_threshold: 0.55 },
+} as const;
+
 /** Map volatility value to a Tailwind bg color class for the indicator dot */
 const volatilityDotClass: Record<string, string> = {
   calm: 'bg-green-500',
@@ -156,6 +185,10 @@ export const ArenaSetupForm = ({
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>(['none']);
   const [maxPerSector, setMaxPerSector] = useState('2');
   const [maxOpenPositions, setMaxOpenPositions] = useState('');
+  /** True once a preset or the user sets the constraints, as opposed to the
+   * untouched defaults above. Constraints apply to every strategy in the backend,
+   * so a deliberately-set limit must be submitted even under "none". */
+  const [constraintsTouched, setConstraintsTouched] = useState(false);
   const [maSweetSpotCenter, setMaSweetSpotCenter] = useState('8.5');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [entryFiltersOpen, setEntryFiltersOpen] = useState(false);
@@ -171,7 +204,22 @@ export const ArenaSetupForm = ({
   const [winStreakBonusPct, setWinStreakBonusPct] = useState('0.3');
   const [maxRiskPct, setMaxRiskPct] = useState('4.0');
   // Entry filters
-  const [ibsMaxThreshold, setIbsMaxThreshold] = useState('');
+  const entryFilters = useEntryFilterState();
+  const {
+    // The two number fields go through onIbsChange/onCbThresholdChange rather than
+    // their raw setters, so a typo the browser rejects ("2,8") is recorded as an
+    // error instead of arriving as "" and reading as "filter off".
+    ibsMaxThreshold,
+    ma50FilterEnabled, setMa50FilterEnabled,
+    circuitBreakerThreshold,
+    circuitBreakerSymbol, setCircuitBreakerSymbol,
+    onIbsChange, onCbThresholdChange,
+    // Payload-ready parsed values — the hook nulls out anything invalid, so
+    // handleSubmit never re-parses the raw strings (a NaN would serialize to
+    // JSON null and silently disarm a filter that looks configured).
+    ibsSubmitValue, cbThresholdSubmitValue,
+    applyInitialValues,
+  } = entryFilters;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   /** Tracks whether ATR stop was auto-set by switching to risk_based sizing */
   const atrAutoSetByRiskSizing = useRef(false);
@@ -216,12 +264,28 @@ export const ArenaSetupForm = ({
       if (initialValues.portfolio_strategy != null) {
         setSelectedStrategies([initialValues.portfolio_strategy]);
       }
-      if (initialValues.max_per_sector != null) {
-        setMaxPerSector(initialValues.max_per_sector.toString());
-      }
-      if (initialValues.max_open_positions != null) {
-        setMaxOpenPositions(initialValues.max_open_positions.toString());
-      }
+      // Constraints must round-trip exactly: a null/absent field is an explicit
+      // "no cap" that clears the input to '' (the value handleSubmit serializes
+      // back to null) — NOT skip-keep-default. Skipping would let maxPerSector's
+      // '2' default resurrect a sector cap the original run never had the moment
+      // constraintsTouched is set below (e.g. max_open_positions set, max_per_sector
+      // null), breaking replay comparability.
+      setMaxPerSector(
+        initialValues.max_per_sector != null ? initialValues.max_per_sector.toString() : '',
+      );
+      setMaxOpenPositions(
+        initialValues.max_open_positions != null
+          ? initialValues.max_open_positions.toString()
+          : '',
+      );
+      // Restoring a constraint is exactly as deliberate as typing one: without this
+      // a replay of a 'none'-strategy run re-submits null for both — unlimited
+      // positions — while the Constraints section stays hidden, so the restored
+      // values are neither sent nor visible. A run with no constraints restores
+      // the flag to false — full-restore semantics for the flag too.
+      setConstraintsTouched(
+        initialValues.max_per_sector != null || initialValues.max_open_positions != null,
+      );
       // Set sizing mode from replay (default to 'fixed' for old simulations without this field)
       setSizingMode(initialValues.sizing_mode ?? 'fixed');
       // Set stop type and ATR params from replay
@@ -246,13 +310,27 @@ export const ArenaSetupForm = ({
       if (initialValues.max_risk_pct != null) {
         setMaxRiskPct(initialValues.max_risk_pct.toString());
       }
-      if (initialValues.ibs_max_threshold != null) {
-        setIbsMaxThreshold(initialValues.ibs_max_threshold.toString());
+      applyInitialValues(initialValues);
+      // A restored filter that will be submitted must be visible (same rule the
+      // Constraints section follows): force the collapsible open whenever the
+      // replayed run had any entry filter in effect. A CB symbol alone does not
+      // count — without a threshold the breaker is disabled.
+      if (
+        initialValues.ibs_max_threshold != null ||
+        initialValues.ma50_filter_enabled ||
+        initialValues.circuit_breaker_atr_threshold != null
+      ) {
+        setEntryFiltersOpen(true);
       }
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [initialValues]);
+  // applyInitialValues is stable (useCallback with no deps in useEntryFilterState).
+  // setSelectedAgentConfigId is a stable useState setter (React guarantees), so
+  // omitting it from deps is safe. It is not listed because the test mock returns
+  // a new vi.fn() on every render, which would cause an infinite loop in tests.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValues, applyInitialValues]);
 
   /**
    * Handle list selection.
@@ -293,6 +371,40 @@ export const ArenaSetupForm = ({
     }
   };
 
+  /** Apply a strategy preset. Populates stop, sizing, constraints, and filter fields.
+   * Does NOT modify selectedStrategies, symbols, dates, or capital. */
+  const applyPreset = (preset: keyof typeof STRATEGY_PRESETS) => {
+    const p = STRATEGY_PRESETS[preset];
+    // Capture pre-preset stop_type so we can determine whether we are
+    // auto-flipping stop for the user (invariant: the ref must only be true
+    // when *we* changed stop_type from fixed→atr, not when the preset's
+    // stop_type was already atr or when sizing is not risk_based).
+    const prevStopType = stopType;
+    setStopType(p.stop_type);
+    setAtrStopMultiplier(String(p.atr_stop_multiplier));
+    setSizingMode(p.sizing_mode);
+    setRiskPerTradePct(String(p.risk_per_trade_pct));
+    setWinStreakBonusPct(String(p.win_streak_bonus_pct));
+    setMaxRiskPct(String(p.max_risk_pct));
+    setMaxOpenPositions(String(p.max_open_positions));
+    setMaxPerSector(String(p.max_per_sector));
+    setConstraintsTouched(true);
+    entryFilters.applyPresetFilters(p);
+    // Every preset enables entry filters (MA50 + circuit breaker), and
+    // handleSubmit sends them unconditionally — a value that takes effect must
+    // never sit in a collapsed section with zero indication it exists.
+    setEntryFiltersOpen(true);
+    // Only mark as auto-set when we are actually flipping fixed→atr for the
+    // user (because risk_based requires ATR). If the user had already chosen
+    // ATR, or the preset does not use risk_based sizing, leave the ref alone
+    // so that a later sizing-mode switch does not silently revert stop_type.
+    if (p.sizing_mode === 'risk_based' && prevStopType === 'fixed') {
+      atrAutoSetByRiskSizing.current = true;
+    } else if (p.sizing_mode !== 'risk_based') {
+      atrAutoSetByRiskSizing.current = false;
+    }
+  };
+
   /** Toggle a portfolio strategy on or off */
   const handleStrategyToggle = (strategyName: string) => {
     setSelectedStrategies((prev) => {
@@ -307,11 +419,15 @@ export const ArenaSetupForm = ({
     const symbolList = parseSymbols(symbols);
     if (symbolList.length === 0) return;
 
-    // Only send portfolio constraints when any non-"none" strategy is selected
-    const hasStrategy = selectedStrategies.some((s) => s !== 'none');
-    const parsedMaxPerSector = hasStrategy && maxPerSector ? parseInt(maxPerSector, 10) : null;
+    // Sent when a ranking strategy is selected, or when these were explicitly set
+    // (preset or user edit). maxPerSector defaults to '2', so submitting on a bare
+    // non-empty check would cap every plain simulation at 2 per sector; gating only
+    // on strategy meant "Load Aggressive" promised 10 positions and sent null —
+    // unlimited — at 2.5% risk each. constraintsTouched separates the two.
+    const sendConstraints = selectedStrategies.some((s) => s !== 'none') || constraintsTouched;
+    const parsedMaxPerSector = sendConstraints && maxPerSector ? parseInt(maxPerSector, 10) : null;
     const parsedMaxOpenPositions =
-      hasStrategy && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null;
+      sendConstraints && maxOpenPositions ? parseInt(maxOpenPositions, 10) : null;
 
     // Only send ma_sweet_spot_center when an enriched_score strategy is selected
     const hasEnrichedScore = selectedStrategies.some(
@@ -346,14 +462,20 @@ export const ArenaSetupForm = ({
     const positionSizeField =
       sizingMode === 'fixed' ? { position_size: parseFloat(positionSize) } : {};
 
-    // IBS entry filter: empty input = omit (disabled). Defense-in-depth range
-    // check here in case handleSubmit is ever reached with a stale/invalid value
-    // (hasIbsError/canSubmit already gates the button path).
-    const ibsSubmit = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
-    const entryFilterFields: Partial<CreateSimulationRequest> =
-      ibsSubmit !== null && ibsSubmit > 0 && ibsSubmit <= 1
-        ? { ibs_max_threshold: ibsSubmit }
-        : {};
+    // Entry filters: null = omit (disabled). The hook already nulls out
+    // invalid/NaN values (defense-in-depth in case handleSubmit is ever reached
+    // with a stale/invalid value — hasIbsError/hasCbThresholdError/canSubmit
+    // gate the button path), so both filters share one parse.
+    const entryFilterFields: Partial<CreateSimulationRequest> = {
+      ...(ibsSubmitValue !== null ? { ibs_max_threshold: ibsSubmitValue } : {}),
+      ma50_filter_enabled: ma50FilterEnabled,
+      ...(cbThresholdSubmitValue !== null
+        ? {
+            circuit_breaker_atr_threshold: cbThresholdSubmitValue,
+            circuit_breaker_symbol: circuitBreakerSymbol,
+          }
+        : {}),
+    };
 
     if (selectedStrategies.length >= 2) {
       await onSubmitComparison({
@@ -414,13 +536,17 @@ export const ArenaSetupForm = ({
     selectedStrategies,
     maxPerSector,
     maxOpenPositions,
+    constraintsTouched,
     maSweetSpotCenter,
     sizingMode,
     positionSizePct,
     riskPerTradePct,
     winStreakBonusPct,
     maxRiskPct,
-    ibsMaxThreshold,
+    ibsSubmitValue,
+    ma50FilterEnabled,
+    cbThresholdSubmitValue,
+    circuitBreakerSymbol,
     onSubmit,
     onSubmitComparison,
   ]);
@@ -443,9 +569,7 @@ export const ArenaSetupForm = ({
   const isFixedPctSizing = sizingMode === 'fixed_pct';
   const isRiskBasedSizing = sizingMode === 'risk_based';
 
-  // IBS entry filter validation
-  const ibsParsed = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
-  const hasIbsError = ibsParsed !== null && !(ibsParsed > 0 && ibsParsed <= 1);
+  const { hasIbsError, hasCbThresholdError, hasCbSymbolError, cbSymbolError } = entryFilters;
 
   const hasValidPositionSize =
     isRiskBasedSizing || isFixedPctSizing || parseFloat(positionSize) > 0;
@@ -471,6 +595,8 @@ export const ArenaSetupForm = ({
     hasValidMinBuyScore &&
     hasStrategySelected &&
     !hasIbsError &&
+    !hasCbThresholdError &&
+    !hasCbSymbolError &&
     !isLoading;
 
   let submitButtonLabel = 'Start Simulation';
@@ -485,7 +611,31 @@ export const ArenaSetupForm = ({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Setup Simulation</CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Setup Simulation</CardTitle>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => applyPreset('aggressive')}
+              disabled={isLoading}
+              aria-label="Load Aggressive preset"
+            >
+              Load Aggressive
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => applyPreset('conservative')}
+              disabled={isLoading}
+              aria-label="Load Conservative preset"
+            >
+              Load Conservative
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <Tabs defaultValue="setup">
@@ -957,8 +1107,12 @@ export const ArenaSetupForm = ({
               )}
             </div>
 
-            {/* Constraints — shown when any non-"none" strategy is selected */}
-            {hasNonNoneStrategy && (
+            {/* Constraints — shown for any non-"none" strategy, and whenever a value
+                is actually set. The second case matters because a preset populates
+                these under "none": the backend's _apply_constraints is "shared by all
+                strategies", so they do take effect, and a value that takes effect must
+                never be invisible. */}
+            {(hasNonNoneStrategy || constraintsTouched) && (
               <>
                 <div className="border-t border-border pt-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
@@ -972,7 +1126,7 @@ export const ArenaSetupForm = ({
                         type="number"
                         min="1"
                         value={maxPerSector}
-                        onChange={(e) => setMaxPerSector(e.target.value)}
+                        onChange={(e) => { setMaxPerSector(e.target.value); setConstraintsTouched(true); }}
                         className="mt-1"
                         disabled={isLoading}
                       />
@@ -988,7 +1142,7 @@ export const ArenaSetupForm = ({
                         min="1"
                         value={maxOpenPositions}
                         placeholder="Unlimited"
-                        onChange={(e) => setMaxOpenPositions(e.target.value)}
+                        onChange={(e) => { setMaxOpenPositions(e.target.value); setConstraintsTouched(true); }}
                         className="mt-1"
                         disabled={isLoading}
                       />
@@ -1063,7 +1217,7 @@ export const ArenaSetupForm = ({
               </button>
 
               {entryFiltersOpen && (
-                <div id="arena-entry-filters-panel" className="pt-3 grid grid-cols-2 gap-4">
+                <div id="arena-entry-filters-panel" className="pt-3 space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="arena-ibs-threshold">IBS Threshold</Label>
                     <Input
@@ -1074,7 +1228,7 @@ export const ArenaSetupForm = ({
                       step="0.05"
                       placeholder="Disabled"
                       value={ibsMaxThreshold}
-                      onChange={(e) => setIbsMaxThreshold(e.target.value)}
+                      onChange={onIbsChange}
                       className="mt-1"
                       disabled={isLoading}
                     />
@@ -1086,6 +1240,83 @@ export const ArenaSetupForm = ({
                     <p className="text-xs text-muted-foreground">
                       Filter entries when close is near daily high. Typical: 0.55. Empty = disabled.
                     </p>
+                  </div>
+
+                  {/* MA50 Filter toggle */}
+                  <div className="space-y-2">
+                    <Label htmlFor="arena-ma50-toggle">MA50 Filter</Label>
+                    <button
+                      id="arena-ma50-toggle"
+                      type="button"
+                      onClick={() => setMa50FilterEnabled((prev) => !prev)}
+                      disabled={isLoading}
+                      aria-pressed={ma50FilterEnabled}
+                      className={cn(
+                        'px-3 py-1.5 text-sm rounded border transition-all duration-150',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                        'disabled:pointer-events-none disabled:opacity-50',
+                        ma50FilterEnabled
+                          ? 'border-primary bg-primary/10 text-primary font-medium'
+                          : 'border-border bg-background text-muted-foreground hover:border-muted-foreground/50',
+                      )}
+                      data-testid="ma50-filter-toggle"
+                    >
+                      MA50 Filter: {ma50FilterEnabled ? 'On' : 'Off'}
+                    </button>
+                    <p className="text-xs text-muted-foreground">
+                      Only buy stocks trading above their 50-day moving average. Inactive for symbols with &lt;50 bars of history.
+                    </p>
+                  </div>
+
+                  {/* Circuit Breaker */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="arena-cb-threshold">Market ATR% Threshold</Label>
+                      <Input
+                        id="arena-cb-threshold"
+                        type="number"
+                        min="0.01"
+                        step="0.1"
+                        placeholder="Disabled"
+                        value={circuitBreakerThreshold}
+                        onChange={onCbThresholdChange}
+                        className="mt-1"
+                        disabled={isLoading}
+                      />
+                      {hasCbThresholdError && (
+                        <p className="text-xs text-destructive">
+                          Must be a positive number
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Block new buy signals when market ATR% &ge; threshold; positions already
+                        selected the previous day still open. e.g. 2.8 for 2.8%. Empty = disabled.
+                      </p>
+                    </div>
+
+                    {circuitBreakerThreshold !== '' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="arena-cb-symbol">Market Symbol</Label>
+                        <Input
+                          id="arena-cb-symbol"
+                          type="text"
+                          placeholder="SPY"
+                          value={circuitBreakerSymbol}
+                          onChange={(e) => setCircuitBreakerSymbol(e.target.value.toUpperCase())}
+                          className="mt-1"
+                          disabled={isLoading}
+                          maxLength={5}
+                        />
+                        {hasCbSymbolError && (
+                          <p className="text-xs text-destructive">
+                            {cbSymbolError}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Ticker used to measure market volatility. Default: SPY.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

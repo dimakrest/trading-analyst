@@ -94,6 +94,7 @@ const makeSnapshot = (date: string, totalEquity: string): Snapshot => ({
   cumulative_return_pct: '0',
   open_position_count: 0,
   decisions: {},
+  circuit_breaker_state: 'disabled',
 });
 
 const makeBenchmarkPoint = (date: string, cumReturn: string) => ({

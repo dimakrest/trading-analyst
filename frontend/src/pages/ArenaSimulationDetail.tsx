@@ -289,6 +289,8 @@ export const ArenaSimulationDetail = () => {
           snapshot={currentSnapshot}
           snapshots={snapshots}
           onSelectSnapshot={setCurrentSnapshot}
+          circuitBreakerSymbol={detail.simulation.circuit_breaker_symbol ?? undefined}
+          ma50FilterEnabled={detail.simulation.ma50_filter_enabled}
         />
       </div>
 

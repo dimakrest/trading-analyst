@@ -19,6 +19,7 @@ from sqlalchemy import JSON
 from sqlalchemy import Numeric
 from sqlalchemy import String
 from sqlalchemy import Text
+from sqlalchemy import text
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -447,6 +448,27 @@ class ArenaSnapshot(Base):
         nullable=False,
         default=dict,
         doc="Agent decisions: {symbol: {action, score, reasoning}}",
+    )
+
+    # Day-level market condition metadata (Phase 5)
+    circuit_breaker_state: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        server_default=text("'disabled'"),
+        doc="Circuit breaker state: 'disabled' | 'clear' | 'triggered' | 'data_unavailable'",
+    )
+    circuit_breaker_atr_pct: Mapped[Decimal | None] = mapped_column(
+        # 6dp, not 4: at 4dp an ATR% of 2.79996 stores as 2.8000, so a snapshot could
+        # read as at-threshold while circuit_breaker_state says 'clear'. The gate uses
+        # the unrounded value, so this is an audit-trail concern, not a trading one.
+        Numeric(10, 6),
+        nullable=True,
+        doc="Market proxy ATR% on this day (None when breaker disabled or data unavailable)",
+    )
+    regime_state: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+        doc="Detected market regime ('bull' | 'bear' | 'neutral'), None when regime filter disabled",
     )
 
     # Relationship

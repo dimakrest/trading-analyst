@@ -94,6 +94,75 @@ describe('ArenaConfigPanel', () => {
       render(<ArenaConfigPanel simulation={createMockSimulation()} />);
       expect(screen.queryByText('IBS Threshold')).not.toBeInTheDocument();
     });
+
+    it('renders MA50 Filter row when ma50_filter_enabled is true', () => {
+      render(<ArenaConfigPanel simulation={createMockSimulation({ ma50_filter_enabled: true })} />);
+      expect(screen.getByText('MA50 Filter')).toBeInTheDocument();
+      expect(screen.getByText('On')).toBeInTheDocument();
+    });
+
+    it('does not render MA50 Filter row when ma50_filter_enabled is false', () => {
+      render(<ArenaConfigPanel simulation={createMockSimulation({ ma50_filter_enabled: false })} />);
+      expect(screen.queryByText('MA50 Filter')).not.toBeInTheDocument();
+    });
+
+    it('does not render MA50 Filter row when ma50_filter_enabled is absent', () => {
+      render(<ArenaConfigPanel simulation={createMockSimulation()} />);
+      expect(screen.queryByText('MA50 Filter')).not.toBeInTheDocument();
+    });
+
+    it('renders circuit breaker row when circuit_breaker_atr_threshold is set', () => {
+      render(
+        <ArenaConfigPanel
+          simulation={createMockSimulation({
+            circuit_breaker_atr_threshold: 2.8,
+            circuit_breaker_symbol: 'SPY',
+          })}
+        />
+      );
+      expect(screen.getByText('Market ATR% Threshold')).toBeInTheDocument();
+      expect(screen.getByText('2.8% (SPY)')).toBeInTheDocument();
+    });
+
+    it('renders circuit breaker row without symbol when circuit_breaker_symbol is absent', () => {
+      render(
+        <ArenaConfigPanel
+          simulation={createMockSimulation({
+            circuit_breaker_atr_threshold: 2.8,
+          })}
+        />
+      );
+      expect(screen.getByText('Market ATR% Threshold')).toBeInTheDocument();
+      expect(screen.getByText('2.8%')).toBeInTheDocument();
+    });
+
+    it('does not render circuit breaker row when circuit_breaker_atr_threshold is null', () => {
+      render(
+        <ArenaConfigPanel
+          simulation={createMockSimulation({ circuit_breaker_atr_threshold: null })}
+        />
+      );
+      expect(screen.queryByText('Market ATR% Threshold')).not.toBeInTheDocument();
+    });
+
+    it('does not render circuit breaker row when circuit_breaker_atr_threshold is absent', () => {
+      render(<ArenaConfigPanel simulation={createMockSimulation()} />);
+      expect(screen.queryByText('Market ATR% Threshold')).not.toBeInTheDocument();
+    });
+
+    it('renders both MA50 and circuit breaker rows together', () => {
+      render(
+        <ArenaConfigPanel
+          simulation={createMockSimulation({
+            ma50_filter_enabled: true,
+            circuit_breaker_atr_threshold: 2.8,
+            circuit_breaker_symbol: 'SPY',
+          })}
+        />
+      );
+      expect(screen.getByText('MA50 Filter')).toBeInTheDocument();
+      expect(screen.getByText('Market ATR% Threshold')).toBeInTheDocument();
+    });
   });
 
   describe('Symbol List', () => {

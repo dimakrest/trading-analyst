@@ -12,7 +12,7 @@ trading simulations. It manages:
 import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Sequence
 
 from sqlalchemy import select
@@ -37,6 +37,82 @@ from app.services.portfolio_selector import EnrichedScoreSelector, QualifyingSig
 from app.utils.technical_indicators import calculate_atr_percentage
 
 logger = logging.getLogger(__name__)
+
+# The MA50 filter needs >=50 trading bars. With CACHE_LOOKBACK_MARGIN_DAYS added
+# by _load_price_cache, 60 yields a 90 calendar-day window: ~64 bars on weekends
+# alone, and ~60 in the worst holiday stretch (Thanksgiving through Presidents'
+# Day) -- still a margin above 50.
+MA50_MIN_LOOKBACK_DAYS = 60
+# Window for 14-period Wilder's ATR, used both to size the proxy fetch for the
+# circuit breaker and to bound the read in _calculate_symbol_atr_pct. One constant
+# for both so the fetched window can never be narrower than the window read back.
+ATR_LOOKBACK_DAYS = 90
+# Slack _load_price_cache adds to every requested lookback. Anyone reasoning about
+# how far back the cache actually reaches must use this rather than repeat the
+# literal, or the two can drift apart silently.
+CACHE_LOOKBACK_MARGIN_DAYS = 30
+# Upper bound of the Numeric(10, 6) column backing ArenaSnapshot.circuit_breaker_atr_pct.
+# An ATR% at or above this is degenerate market data (e.g. a sub-penny proxy close),
+# but it must not DataError the snapshot flush mid-run, so it is clamped on persist.
+CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX = Decimal("9999.999999")
+# Quantization step matching the column's 6-decimal scale.
+_ATR_PCT_COLUMN_QUANT = Decimal("0.000001")
+
+
+def _main_lookback_days(agent_lookback_days: int, agent_config: dict) -> int:
+    """Lookback for the main price cache, widened for filters that need more history.
+
+    Returning a single number here (rather than topping the cache up afterwards)
+    means every caller knows the exact window the cache was loaded with.
+    """
+    if agent_config.get("ma50_filter_enabled", False):
+        return max(agent_lookback_days, MA50_MIN_LOOKBACK_DAYS)
+    return agent_lookback_days
+
+
+def _close_sma(bars: Sequence[PriceBar], period: int) -> float:
+    """Simple moving average of the last ``period`` closes, in float arithmetic.
+
+    The single SMA implementation for engine filters (MA50 entry filter and
+    market-regime detection) so their math can never drift apart. Callers must
+    guarantee ``len(bars) >= period``: averaging a shorter window would divide
+    by the wrong count, so that is treated as a programming error.
+
+    Args:
+        bars: Price bars ordered oldest to newest.
+        period: Number of trailing closes to average.
+
+    Returns:
+        Arithmetic mean of the last ``period`` closes as a float.
+
+    Raises:
+        ValueError: If fewer than ``period`` bars are provided.
+    """
+    if len(bars) < period:
+        msg = f"SMA requires {period} bars, got {len(bars)}"
+        raise ValueError(msg)
+    return sum(float(b.close) for b in bars[-period:]) / period
+
+
+def _breaker_atr_pct_column_value(
+    atr_pct: float, simulation_id: int, current_date: date
+) -> Decimal:
+    """Quantize ATR% to the snapshot column scale, clamping degenerate values.
+
+    ``ROUND_HALF_UP`` matches how PostgreSQL rounds when casting to
+    ``numeric(10, 6)``, so quantizing here changes nothing for normal values —
+    it only moves the rounding to the persist boundary, where the column cap
+    can be applied before the flush instead of erroring inside it.
+    """
+    value = Decimal(str(atr_pct)).quantize(_ATR_PCT_COLUMN_QUANT, rounding=ROUND_HALF_UP)
+    if value > CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX:
+        logger.warning(
+            "Circuit breaker ATR%% %s for simulation %s on %s exceeds column max %s; "
+            "clamping before persist (proxy data is degenerate at this magnitude).",
+            value, simulation_id, current_date, CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX,
+        )
+        return CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX
+    return value
 
 
 class SimulationEngine:
@@ -125,7 +201,9 @@ class SimulationEngine:
 
         # Get agent to know lookback requirements
         agent = get_agent(simulation.agent_type, simulation.agent_config)
-        lookback_days = agent.required_lookback_days
+        lookback_days = _main_lookback_days(
+            agent.required_lookback_days, simulation.agent_config
+        )
 
         # Pre-load all price data into memory cache (replaces the old loop that
         # loaded data through DataService and discarded the results)
@@ -136,15 +214,14 @@ class SimulationEngine:
             simulation.end_date,
             lookback_days,
         )
-        # Regime filter: pre-load regime symbol (e.g. SPY) into price cache
-        if simulation.agent_config.get("regime_filter", False):
-            await self._load_regime_symbol_cache(
-                simulation.id,
-                simulation.agent_config.get("regime_symbol", "SPY"),
-                simulation.start_date,
-                simulation.end_date,
-                simulation.agent_config.get("regime_sma_period", 20),
-            )
+        # Pre-load auxiliary symbols required by optional filters (regime, circuit breaker).
+        await self._load_filter_auxiliary_caches(
+            simulation.id,
+            simulation.agent_config,
+            simulation.start_date,
+            simulation.end_date,
+            main_lookback_days=lookback_days,
+        )
         # Prefetch any missing sector data from Yahoo Finance (non-blocking on failure)
         try:
             sector_name_map = await self.data_service.batch_prefetch_sectors(
@@ -165,7 +242,7 @@ class SimulationEngine:
 
         # Get trading days from cache
         trading_days = self._get_trading_days_from_cache(
-            simulation.id, simulation.start_date, simulation.end_date
+            simulation.id, simulation.symbols, simulation.start_date, simulation.end_date
         )
         self._trading_days_cache[simulation.id] = trading_days
 
@@ -292,29 +369,56 @@ class SimulationEngine:
 
         # Ensure price cache is loaded (handles resume case)
         if simulation_id not in self._price_cache:
+            lookback_days = _main_lookback_days(
+                agent.required_lookback_days, simulation.agent_config
+            )
             await self._load_price_cache(
                 simulation_id,
                 simulation.symbols,
                 simulation.start_date,
                 simulation.end_date,
-                agent.required_lookback_days,
+                lookback_days,
             )
-            # Regime filter: load regime symbol if enabled
-            if simulation.agent_config.get("regime_filter", False):
-                await self._load_regime_symbol_cache(
-                    simulation_id,
-                    simulation.agent_config.get("regime_symbol", "SPY"),
-                    simulation.start_date,
-                    simulation.end_date,
-                    simulation.agent_config.get("regime_sma_period", 20),
-                )
+            # Load auxiliary symbols required by optional filters (regime, circuit breaker).
+            await self._load_filter_auxiliary_caches(
+                simulation_id,
+                simulation.agent_config,
+                simulation.start_date,
+                simulation.end_date,
+                main_lookback_days=lookback_days,
+            )
             await self._load_sector_cache(simulation_id, simulation.symbols)
 
         # Use cached trading days (lazy-load for resume case)
         if simulation_id not in self._trading_days_cache:
-            self._trading_days_cache[simulation_id] = self._get_trading_days_from_cache(
-                simulation_id, simulation.start_date, simulation.end_date
+            rebuilt_days = self._get_trading_days_from_cache(
+                simulation_id,
+                simulation.symbols,
+                simulation.start_date,
+                simulation.end_date,
             )
+            # Fail loudly on resume rather than silently corrupting the run:
+            # an empty rebuild would IndexError on trading_days[-1] below, and
+            # a length drift against the persisted total_days means current_day
+            # no longer indexes the same calendar the simulation was
+            # initialized with (days would be skipped or double-processed).
+            if not rebuilt_days:
+                msg = (
+                    f"Simulation {simulation_id} resume: no trading days could be "
+                    f"rebuilt from the price cache (simulation was initialized "
+                    f"with {simulation.total_days}). Check price data availability."
+                )
+                raise ValueError(msg)
+            if len(rebuilt_days) != simulation.total_days:
+                msg = (
+                    f"Simulation {simulation_id} resume: rebuilt trading-day list "
+                    f"has {len(rebuilt_days)} days but the simulation was "
+                    f"initialized with {simulation.total_days}. Price cache no "
+                    f"longer matches the initialized day list (cache drift or "
+                    f"provider backfill); refusing to continue."
+                )
+                raise ValueError(msg)
+            self._trading_days_cache[simulation_id] = rebuilt_days
         trading_days = self._trading_days_cache[simulation_id]
 
         # Check if simulation is complete
@@ -406,7 +510,8 @@ class SimulationEngine:
             price_history = self._get_cached_price_history(
                 simulation_id,
                 symbol,
-                current_date - timedelta(days=agent.required_lookback_days + 30),
+                current_date
+                - timedelta(days=agent.required_lookback_days + CACHE_LOOKBACK_MARGIN_DAYS),
                 current_date,
             )
 
@@ -714,11 +819,60 @@ class SimulationEngine:
             }
 
             # Collect BUY signals for portfolio selection (don't create PENDING yet).
-            # today_bar rides along so Layer 10 filters don't re-scan the price cache.
+            # today_bar rides along so Layer 10 filters have today's OHLC without a
+            # cache lookup. Filters needing history (MA50, circuit breaker ATR) still
+            # read the cache for the earlier bars.
             if decision.action == "BUY" and not has_position:
                 buy_signals.append((symbol, decision, today_bar))
 
         # --- Layer 10: Entry Filters ---
+        # Filter order: circuit breaker (day-level gate) -> IBS (per-symbol) ->
+        # MA50 (per-symbol) -> portfolio selection.
+        # Circuit breaker is cheapest (one ATR calc), IBS is next (one bar lookup),
+        # MA50 is most expensive (50-bar history). Early filters reduce work for later ones.
+        # Note: when circuit breaker fires, IBS/MA50 don't run on empty buy_signals,
+        # so filtered symbols show only circuit_breaker_filtered=True (no ibs_filtered
+        # or ma50_filtered annotations). The absence of ma50_filtered on an
+        # ibs_filtered symbol is NOT an implicit MA50 pass -- IBS caught it first.
+
+        def _mark_filtered(symbol: str, reason_flag: str, **extra: object) -> None:
+            """Annotate a decision rejected by an entry filter."""
+            decisions[symbol][reason_flag] = True
+            decisions[symbol]["portfolio_selected"] = False
+            decisions[symbol].update(extra)
+
+        # --- Circuit Breaker ---
+        # Declare before the block so these are in scope for snapshot construction.
+        circuit_breaker_state: str = "disabled"
+        circuit_breaker_atr_pct_today: float | None = None
+
+        circuit_breaker_threshold = simulation.agent_config.get("circuit_breaker_atr_threshold")
+        if circuit_breaker_threshold is not None:
+            market_symbol = simulation.agent_config.get("circuit_breaker_symbol", "SPY")
+            # Reuse the per-day memo so a proxy that is also a simulation symbol
+            # (e.g. SPY in the universe) computes its ATR once for the day.
+            market_atr_pct = _get_atr_for_day(market_symbol)
+            circuit_breaker_atr_pct_today = market_atr_pct  # record even when below threshold or None
+
+            if market_atr_pct is None:
+                # SPY data unavailable: fail-open so entries proceed, but make the
+                # bypass explicit in state and logs so operators can see it.
+                circuit_breaker_state = "data_unavailable"
+                logger.warning(
+                    "Circuit breaker skipped for simulation %s on %s: ATR unavailable for %s. "
+                    "Entries proceed (fail-open). Check market-data feed health.",
+                    simulation_id, current_date, market_symbol,
+                )
+            elif market_atr_pct >= circuit_breaker_threshold:
+                circuit_breaker_state = "triggered"
+                # Empty buy_signals is a no-op; the state column is the audit record.
+                for symbol, _decision, _today_bar in buy_signals:
+                    _mark_filtered(symbol, "circuit_breaker_filtered")
+                buy_signals = []
+            else:
+                circuit_breaker_state = "clear"
+
+        # --- IBS Filter ---
         # Prune BUY signals by Internal Bar Strength before portfolio selection.
         # IBS = (close - low) / (high - low); signals with IBS >= threshold are
         # filtered out (stock already near daily high). Zero-range days use
@@ -736,10 +890,59 @@ class SimulationEngine:
                 if ibs < ibs_max:
                     filtered_buy_signals.append((symbol, decision, today_bar))
                 else:
-                    decisions[symbol]["ibs_filtered"] = True
-                    decisions[symbol]["ibs_value"] = round(ibs, 4)
-                    decisions[symbol]["portfolio_selected"] = False
+                    _mark_filtered(symbol, "ibs_filtered", ibs_value=round(ibs, 4))
             buy_signals = filtered_buy_signals
+
+        # --- MA50 Filter ---
+        # Only buy stocks trading above their 50-day moving average (trend-following gate).
+        # The MA itself needs history from the cache, but today's close comes from the
+        # today_bar carried on the signal. Each branch below is one skip reason: an
+        # unevaluable symbol is allowed through rather than rejected, and records
+        # ma50_skipped so a bypassed entry is never mistaken for an evaluated pass.
+        if simulation.agent_config.get("ma50_filter_enabled", False):
+            ma50_filtered_buy_signals: list[tuple[str, AgentDecision, PriceBar]] = []
+            for symbol, decision, today_bar in buy_signals:
+                # Read the FULL cached history up to current_date (date.min start)
+                # rather than a fixed 90-calendar-day slice: a multi-week trading
+                # halt inside such a slice can drop the in-window bar count below
+                # 50 and fail-open the trend gate on exactly the volatile
+                # post-halt re-entry day, even though 50+ older bars are cached.
+                # MA50_MIN_LOOKBACK_DAYS still sizes the cache pre-load in
+                # _main_lookback_days; this read just uses everything it loaded.
+                ph = self._get_cached_price_history(
+                    simulation_id, symbol, date.min, current_date
+                )
+                if not ph:
+                    # Should not happen now the main cache is pre-loaded wide enough;
+                    # warn so any data-fetch failure is immediately visible.
+                    logger.warning(
+                        "MA50 filter skipped for %s on %s: price cache is empty "
+                        "(expected ≥50 bars after pre-load; check data fetch)",
+                        symbol, current_date,
+                    )
+                    decisions[symbol]["ma50_skipped"] = "no_data"
+                elif len(ph) < 50:
+                    # Realistic for a symbol that listed recently: it silently enters
+                    # unfiltered, so record it rather than leaving the decision
+                    # indistinguishable from an evaluated pass.
+                    logger.info(
+                        "MA50 filter skipped for %s: only %d bars available",
+                        symbol, len(ph),
+                    )
+                    decisions[symbol]["ma50_skipped"] = "insufficient_history"
+                elif ph[-1].date != current_date:
+                    # Guaranteed equal for symbols in buy_signals (agent loop NO_DATA
+                    # guard); kept as defence against data gaps causing silent mispricing.
+                    logger.info(
+                        "MA50 filter skipped for %s: last bar date %s != %s",
+                        symbol, ph[-1].date, current_date,
+                    )
+                    decisions[symbol]["ma50_skipped"] = "stale_bar"
+                elif float(today_bar.close) < _close_sma(ph, 50):
+                    _mark_filtered(symbol, "ma50_filtered")
+                    continue
+                ma50_filtered_buy_signals.append((symbol, decision, today_bar))
+            buy_signals = ma50_filtered_buy_signals
 
         # --- Portfolio Selection ---
         # Read strategy configuration from agent_config (defaults preserve original behavior)
@@ -751,14 +954,18 @@ class SimulationEngine:
         # Dynamically adjust max_open_positions based on regime symbol trend.
         # This runs AFTER reading the base max_open_positions so the bull regime
         # can optionally override it and the bear regime reduces it.
+        # regime_state_value is also reused below for the snapshot column.
+        regime_state_value: str | None = None
         if simulation.agent_config.get("regime_filter", False):
             regime_symbol: str = simulation.agent_config.get("regime_symbol", "SPY")
             sma_period: int = simulation.agent_config.get("regime_sma_period", 20)
-            regime = self._detect_market_regime(simulation_id, current_date, regime_symbol, sma_period)
-            if regime == "bear":
+            regime_state_value = self._detect_market_regime(
+                simulation_id, current_date, regime_symbol, sma_period
+            )
+            if regime_state_value == "bear":
                 bear_max: int = simulation.agent_config.get("regime_bear_max_positions", 1)
                 max_open_positions = bear_max
-            elif regime == "bull":
+            elif regime_state_value == "bull":
                 bull_max: int | None = simulation.agent_config.get("regime_bull_max_positions")
                 if bull_max is not None:
                     max_open_positions = bull_max
@@ -845,7 +1052,7 @@ class SimulationEngine:
             (total_equity - simulation.initial_capital) / simulation.initial_capital * 100
         )
 
-        # Create snapshot
+        # Create snapshot (regime_state_value computed in the regime filter block above)
         snapshot = ArenaSnapshot(
             simulation_id=simulation.id,
             snapshot_date=current_date,
@@ -858,6 +1065,15 @@ class SimulationEngine:
             cumulative_return_pct=cumulative_return_pct,
             open_position_count=len(positions_by_symbol),
             decisions=decisions,
+            circuit_breaker_state=circuit_breaker_state,
+            circuit_breaker_atr_pct=(
+                _breaker_atr_pct_column_value(
+                    circuit_breaker_atr_pct_today, simulation_id, current_date
+                )
+                if circuit_breaker_atr_pct_today is not None
+                else None
+            ),
+            regime_state=regime_state_value,
         )
         self.session.add(snapshot)
 
@@ -1011,40 +1227,11 @@ class SimulationEngine:
         if simulation_id in self._price_cache:
             return  # Already loaded
 
-        data_start = start_date - timedelta(days=lookback_days + 30)
+        data_start = start_date - timedelta(days=lookback_days + CACHE_LOOKBACK_MARGIN_DAYS)
 
-        # Create inner function for parallel fetching
         async def fetch_symbol_data(symbol: str) -> tuple[str, list[PriceBar]]:
-            """Fetch and transform data for a single symbol.
-
-            Returns:
-                Tuple of (symbol, price_bars)
-
-            Raises:
-                Exception: Any error during fetch/transform propagates
-            """
-            records = await self.data_service.get_price_data(
-                symbol=symbol,
-                start_date=datetime.combine(
-                    data_start, datetime.min.time(), tzinfo=timezone.utc
-                ),
-                end_date=datetime.combine(
-                    end_date, datetime.max.time(), tzinfo=timezone.utc
-                ),
-                interval="1d",
-            )
-            price_bars = [
-                PriceBar(
-                    date=r.timestamp.date(),
-                    open=Decimal(str(r.open_price)),
-                    high=Decimal(str(r.high_price)),
-                    low=Decimal(str(r.low_price)),
-                    close=Decimal(str(r.close_price)),
-                    volume=int(r.volume),
-                )
-                for r in records
-            ]
-            return (symbol, price_bars)
+            """Fetch data for a single symbol (any error propagates, fail-fast)."""
+            return (symbol, await self._fetch_price_bars(symbol, data_start, end_date))
 
         # Execute all fetches concurrently (fail-fast on any error)
         tasks = [fetch_symbol_data(symbol) for symbol in symbols]
@@ -1054,42 +1241,24 @@ class SimulationEngine:
         cache: dict[str, list[PriceBar]] = {symbol: bars for symbol, bars in results}
         self._price_cache[simulation_id] = cache
 
-
-    async def _load_regime_symbol_cache(
+    async def _fetch_price_bars(
         self,
-        simulation_id: int,
-        regime_symbol: str,
-        start_date: date,
-        end_date: date,
-        sma_period: int,
-    ) -> None:
-        """Fetch regime symbol (e.g. SPY) into the price cache with SMA lookback.
+        symbol: str,
+        data_start: date,
+        data_end: date,
+    ) -> list[PriceBar]:
+        """Fetch daily bars for one symbol and map them to PriceBar.
 
-        Merges into the existing cache without overwriting simulation symbol data.
-        The regime symbol is deliberately not added to simulation.symbols so it
-        never participates in position or trading-day logic.
-
-        Args:
-            simulation_id: Simulation ID for cache key.
-            regime_symbol: Ticker to use as regime indicator (e.g. 'SPY').
-            start_date: Simulation start date.
-            end_date: Simulation end date.
-            sma_period: SMA period; extra lookback = sma_period * 2 + 30 days.
+        Single place where DataService records become PriceBar, so precision and
+        field handling cannot drift between the loaders that use it.
         """
-        cache = self._price_cache.setdefault(simulation_id, {})
-        if regime_symbol in cache:
-            return  # Already loaded
-
-        extra_lookback = sma_period * 2 + 30
-        data_start = start_date - timedelta(days=extra_lookback)
-
         records = await self.data_service.get_price_data(
-            symbol=regime_symbol,
+            symbol=symbol,
             start_date=datetime.combine(data_start, datetime.min.time(), tzinfo=timezone.utc),
-            end_date=datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc),
+            end_date=datetime.combine(data_end, datetime.max.time(), tzinfo=timezone.utc),
             interval="1d",
         )
-        bars = [
+        return [
             PriceBar(
                 date=r.timestamp.date(),
                 open=Decimal(str(r.open_price)),
@@ -1100,9 +1269,89 @@ class SimulationEngine:
             )
             for r in records
         ]
-        cache[regime_symbol] = bars
+
+
+    async def _load_filter_auxiliary_caches(
+        self,
+        simulation_id: int,
+        agent_config: dict,
+        start_date: date,
+        end_date: date,
+        main_lookback_days: int,
+    ) -> None:
+        """Load market-proxy symbols required by optional filters (regime, circuit breaker).
+
+        Simulation symbols need no work here: ``_main_lookback_days`` already widened
+        the main cache window to cover every filter that reads simulation history.
+
+        Regime and circuit breaker may name the same ticker (both default to SPY) with
+        different lookbacks, so requirements are resolved to one max per symbol and each
+        symbol is fetched at most once.
+
+        Args:
+            simulation_id: Simulation ID for cache key.
+            agent_config: Simulation agent config holding the filter settings.
+            start_date: Simulation start date.
+            end_date: Simulation end date.
+            main_lookback_days: Lookback the main price cache was loaded with. A proxy
+                already in that cache is skipped when its window is wide enough.
+        """
+        required: dict[str, int] = {}
+        if agent_config.get("regime_filter", False):
+            sma_period = agent_config.get("regime_sma_period", 20)
+            symbol = agent_config.get("regime_symbol", "SPY")
+            required[symbol] = max(required.get(symbol, 0), sma_period * 2 + 30)
+        if agent_config.get("circuit_breaker_atr_threshold") is not None:
+            symbol = agent_config.get("circuit_breaker_symbol", "SPY")
+            required[symbol] = max(required.get(symbol, 0), ATR_LOOKBACK_DAYS)
+
+        for symbol, lookback_days in required.items():
+            await self._load_auxiliary_symbol_cache(
+                simulation_id,
+                symbol,
+                start_date,
+                end_date,
+                lookback_days=lookback_days,
+                main_lookback_days=main_lookback_days,
+            )
+
+    async def _load_auxiliary_symbol_cache(
+        self,
+        simulation_id: int,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        lookback_days: int,
+        main_lookback_days: int,
+    ) -> None:
+        """Fetch one auxiliary symbol into the price cache.
+
+        A proxy that is also a simulation symbol is already cached, but only over the
+        main window. When the filter needs more history than that window holds it is
+        re-fetched at the wider lookback; ``main_lookback_days`` is passed in rather
+        than inferred from the cached bars, so the comparison is exact.
+
+        Args:
+            simulation_id: Simulation ID for cache key.
+            symbol: Ticker to load.
+            start_date: Simulation start date.
+            end_date: Simulation end date.
+            lookback_days: Historical days this filter needs before start_date.
+            main_lookback_days: Lookback the main price cache was loaded with.
+        """
+        cache = self._price_cache.setdefault(simulation_id, {})
+        # cache.get(), not `in`: an empty list means the main fetch came back with no
+        # bars, and the proxy must be retried rather than left permanently empty.
+        if cache.get(symbol) and lookback_days <= main_lookback_days + CACHE_LOOKBACK_MARGIN_DAYS:
+            return  # Main load already covers the requested window
+
+        bars = await self._fetch_price_bars(
+            symbol, start_date - timedelta(days=lookback_days), end_date
+        )
+        cache[symbol] = bars
         logger.debug(
-            f"Simulation {simulation_id}: loaded {len(bars)} {regime_symbol} bars for regime filter"
+            "Simulation %s: loaded %d %s bars for auxiliary symbol cache (lookback_days=%d)",
+            simulation_id, len(bars), symbol, lookback_days,
         )
 
     def _detect_market_regime(
@@ -1139,8 +1388,7 @@ class SimulationEngine:
             )
             return "neutral"
 
-        recent_closes = [float(b.close) for b in bars[-sma_period:]]
-        sma = sum(recent_closes) / len(recent_closes)
+        sma = _close_sma(bars, sma_period)
         regime_close = float(bars[-1].close)
         regime = "bull" if regime_close > sma else "bear"
         logger.debug(
@@ -1176,7 +1424,7 @@ class SimulationEngine:
     ) -> float | None:
         """Calculate ATR% for a symbol from cached price data.
 
-        Uses a 90-day window (enough for 14-period Wilder's ATR).
+        Reads back an ``ATR_LOOKBACK_DAYS`` window (enough for 14-period Wilder's ATR).
         Returns None if insufficient price data is available.
 
         Args:
@@ -1190,10 +1438,23 @@ class SimulationEngine:
         price_history = self._get_cached_price_history(
             simulation_id,
             symbol,
-            current_date - timedelta(days=90),
+            current_date - timedelta(days=ATR_LOOKBACK_DAYS),
             current_date,
         )
         if not price_history or len(price_history) < 15:
+            return None
+        if price_history[-1].date != current_date:
+            # A feed gap on current_date would otherwise let an ATR computed
+            # from older bars masquerade as an authoritative reading (e.g. the
+            # circuit breaker recording 'clear'/'triggered' from stale data).
+            # Tradable symbols always have a bar on current_date by the time
+            # ATR is consulted, so this fires only for market proxies with a
+            # data gap. Mirrors the MA50 filter's stale-bar guard.
+            logger.warning(
+                "ATR%% unavailable for %s on %s: latest cached bar is %s (stale). "
+                "Treating as missing data.",
+                symbol, current_date, price_history[-1].date,
+            )
             return None
         highs = [float(bar.high) for bar in price_history]
         lows = [float(bar.low) for bar in price_history]
@@ -1218,12 +1479,20 @@ class SimulationEngine:
         return None
 
     def _get_trading_days_from_cache(
-        self, simulation_id: int, start: date, end: date
+        self, simulation_id: int, symbols: list[str], start: date, end: date
     ) -> list[date]:
         """Get trading days from price cache.
 
+        Restricted to ``symbols`` on purpose: the cache also holds market proxies
+        (regime / circuit breaker) that are not tradable here. Unioning those in
+        would invent trading days on which no universe symbol has a bar — every
+        symbol reports NO_DATA, held positions are skipped by ``positions_value``,
+        and total_equity collapses to cash, printing a phantom crash and recovery
+        into the equity curve and drawdown stats.
+
         Args:
             simulation_id: Simulation ID.
+            symbols: The simulation's tradable symbols.
             start: Start date.
             end: End date.
 
@@ -1232,8 +1501,8 @@ class SimulationEngine:
         """
         all_dates: set[date] = set()
         symbol_cache = self._price_cache.get(simulation_id, {})
-        for bars in symbol_cache.values():
-            for bar in bars:
+        for symbol in symbols:
+            for bar in symbol_cache.get(symbol, []):
                 if start <= bar.date <= end:
                     all_dates.add(bar.date)
         return sorted(all_dates)
