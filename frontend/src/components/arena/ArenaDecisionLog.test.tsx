@@ -475,7 +475,60 @@ describe('ArenaDecisionLog', () => {
       expect(screen.getByText('CIRCUIT BREAKER')).toBeInTheDocument();
     });
 
-    it('shows IBS tooltip when ibs_filtered is true and ma50_filtered is absent', () => {
+    it('shows MA50 pre-emption tooltip on IBS badge when the MA50 filter was enabled', () => {
+      // The engine runs IBS first and removes filtered symbols from buy_signals,
+      // so MA50 genuinely never evaluated this symbol — the tooltip is honest
+      // only because the run actually had MA50 configured.
+      const mockOnSelect = vi.fn();
+      const snap: Snapshot = {
+        ...mockSnapshot,
+        circuit_breaker_state: 'disabled',
+        decisions: {
+          AAPL: { action: 'BUY', score: 75, reasoning: null, ibs_filtered: true, ibs_value: 0.72 },
+        },
+      };
+      render(
+        <ArenaDecisionLog
+          snapshot={snap}
+          snapshots={[snap]}
+          onSelectSnapshot={mockOnSelect}
+          ma50FilterEnabled={true}
+        />
+      );
+      const ibsBadge = screen.getByText('IBS FILTERED');
+      const ibsBadgeContainer = ibsBadge.closest('[title]');
+      expect(ibsBadgeContainer).toHaveAttribute(
+        'title',
+        'IBS filter caught this symbol before MA50 was evaluated. MA50 status unknown.'
+      );
+    });
+
+    it('does not claim MA50 pre-emption on IBS badge when the MA50 filter was disabled', () => {
+      // With MA50 off there is no filter interaction to explain — asserting one
+      // would describe an interaction that never existed.
+      const mockOnSelect = vi.fn();
+      const snap: Snapshot = {
+        ...mockSnapshot,
+        circuit_breaker_state: 'disabled',
+        decisions: {
+          AAPL: { action: 'BUY', score: 75, reasoning: null, ibs_filtered: true, ibs_value: 0.72 },
+        },
+      };
+      render(
+        <ArenaDecisionLog
+          snapshot={snap}
+          snapshots={[snap]}
+          onSelectSnapshot={mockOnSelect}
+          ma50FilterEnabled={false}
+        />
+      );
+      const ibsBadge = screen.getByText('IBS FILTERED');
+      expect(ibsBadge.closest('[title]')).toBeNull();
+    });
+
+    it('does not claim MA50 pre-emption on IBS badge for legacy runs without the field', () => {
+      // Pre-Phase-5 simulations do not carry ma50_filter_enabled at all; with the
+      // setting unknown the badge stays neutral rather than guessing.
       const mockOnSelect = vi.fn();
       const snap: Snapshot = {
         ...mockSnapshot,
@@ -488,14 +541,13 @@ describe('ArenaDecisionLog', () => {
         <ArenaDecisionLog snapshot={snap} snapshots={[snap]} onSelectSnapshot={mockOnSelect} />
       );
       const ibsBadge = screen.getByText('IBS FILTERED');
-      const ibsBadgeContainer = ibsBadge.closest('[title]');
-      expect(ibsBadgeContainer).toHaveAttribute(
-        'title',
-        'IBS filter caught this symbol before MA50 was evaluated. MA50 status unknown.'
-      );
+      expect(ibsBadge.closest('[title]')).toBeNull();
     });
 
-    it('does not show IBS tooltip when both ibs_filtered and ma50_filtered are present', () => {
+    it('shows MA50 NOT APPLIED badge with a tooltip that does not overstate entry', () => {
+      // ma50_skipped only means the gate was bypassed — the signal can still be
+      // dropped by portfolio selection or its pending open cancelled, so the
+      // tooltip must not claim the symbol "entered".
       const mockOnSelect = vi.fn();
       const snap: Snapshot = {
         ...mockSnapshot,
@@ -505,18 +557,25 @@ describe('ArenaDecisionLog', () => {
             action: 'BUY',
             score: 75,
             reasoning: null,
-            ibs_filtered: true,
-            ibs_value: 0.72,
-            ma50_filtered: true,
+            ma50_skipped: 'insufficient_history',
           },
         },
       };
       render(
-        <ArenaDecisionLog snapshot={snap} snapshots={[snap]} onSelectSnapshot={mockOnSelect} />
+        <ArenaDecisionLog
+          snapshot={snap}
+          snapshots={[snap]}
+          onSelectSnapshot={mockOnSelect}
+          ma50FilterEnabled={true}
+        />
       );
-      const ibsBadge = screen.getByText('IBS FILTERED');
-      const ibsBadgeContainer = ibsBadge.closest('[title]');
-      expect(ibsBadgeContainer).toBeNull();
+      const skipBadge = screen.getByText('MA50 NOT APPLIED');
+      const container = skipBadge.closest('[title]');
+      expect(container).toHaveAttribute(
+        'title',
+        'MA50 was not applied: fewer than 50 bars of history (e.g. a recent listing). The signal proceeded to portfolio selection without the trend filter.'
+      );
+      expect(container?.getAttribute('title')).not.toMatch(/entered/i);
     });
 
     it('uses DecisionEntry types (not AgentDecision) in mocks', () => {

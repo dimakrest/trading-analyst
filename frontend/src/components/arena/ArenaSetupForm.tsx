@@ -214,6 +214,10 @@ export const ArenaSetupForm = ({
     circuitBreakerThreshold,
     circuitBreakerSymbol, setCircuitBreakerSymbol,
     onIbsChange, onCbThresholdChange,
+    // Payload-ready parsed values — the hook nulls out anything invalid, so
+    // handleSubmit never re-parses the raw strings (a NaN would serialize to
+    // JSON null and silently disarm a filter that looks configured).
+    ibsSubmitValue, cbThresholdSubmitValue,
     applyInitialValues,
   } = entryFilters;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -260,19 +264,28 @@ export const ArenaSetupForm = ({
       if (initialValues.portfolio_strategy != null) {
         setSelectedStrategies([initialValues.portfolio_strategy]);
       }
-      if (initialValues.max_per_sector != null) {
-        setMaxPerSector(initialValues.max_per_sector.toString());
-      }
-      if (initialValues.max_open_positions != null) {
-        setMaxOpenPositions(initialValues.max_open_positions.toString());
-      }
+      // Constraints must round-trip exactly: a null/absent field is an explicit
+      // "no cap" that clears the input to '' (the value handleSubmit serializes
+      // back to null) — NOT skip-keep-default. Skipping would let maxPerSector's
+      // '2' default resurrect a sector cap the original run never had the moment
+      // constraintsTouched is set below (e.g. max_open_positions set, max_per_sector
+      // null), breaking replay comparability.
+      setMaxPerSector(
+        initialValues.max_per_sector != null ? initialValues.max_per_sector.toString() : '',
+      );
+      setMaxOpenPositions(
+        initialValues.max_open_positions != null
+          ? initialValues.max_open_positions.toString()
+          : '',
+      );
       // Restoring a constraint is exactly as deliberate as typing one: without this
       // a replay of a 'none'-strategy run re-submits null for both — unlimited
       // positions — while the Constraints section stays hidden, so the restored
-      // values are neither sent nor visible.
-      if (initialValues.max_per_sector != null || initialValues.max_open_positions != null) {
-        setConstraintsTouched(true);
-      }
+      // values are neither sent nor visible. A run with no constraints restores
+      // the flag to false — full-restore semantics for the flag too.
+      setConstraintsTouched(
+        initialValues.max_per_sector != null || initialValues.max_open_positions != null,
+      );
       // Set sizing mode from replay (default to 'fixed' for old simulations without this field)
       setSizingMode(initialValues.sizing_mode ?? 'fixed');
       // Set stop type and ATR params from replay
@@ -298,6 +311,17 @@ export const ArenaSetupForm = ({
         setMaxRiskPct(initialValues.max_risk_pct.toString());
       }
       applyInitialValues(initialValues);
+      // A restored filter that will be submitted must be visible (same rule the
+      // Constraints section follows): force the collapsible open whenever the
+      // replayed run had any entry filter in effect. A CB symbol alone does not
+      // count — without a threshold the breaker is disabled.
+      if (
+        initialValues.ibs_max_threshold != null ||
+        initialValues.ma50_filter_enabled ||
+        initialValues.circuit_breaker_atr_threshold != null
+      ) {
+        setEntryFiltersOpen(true);
+      }
       // Focus textarea after population
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -366,6 +390,10 @@ export const ArenaSetupForm = ({
     setMaxPerSector(String(p.max_per_sector));
     setConstraintsTouched(true);
     entryFilters.applyPresetFilters(p);
+    // Every preset enables entry filters (MA50 + circuit breaker), and
+    // handleSubmit sends them unconditionally — a value that takes effect must
+    // never sit in a collapsed section with zero indication it exists.
+    setEntryFiltersOpen(true);
     // Only mark as auto-set when we are actually flipping fixed→atr for the
     // user (because risk_based requires ATR). If the user had already chosen
     // ATR, or the preset does not use risk_based sizing, leave the ref alone
@@ -434,20 +462,18 @@ export const ArenaSetupForm = ({
     const positionSizeField =
       sizingMode === 'fixed' ? { position_size: parseFloat(positionSize) } : {};
 
-    // IBS entry filter: empty input = omit (disabled). Defense-in-depth range
-    // check here in case handleSubmit is ever reached with a stale/invalid value
-    // (hasIbsError/canSubmit already gates the button path).
-    const ibsSubmit = ibsMaxThreshold === '' ? null : parseFloat(ibsMaxThreshold);
-    const cbThresholdSubmit =
-      circuitBreakerThreshold !== '' ? parseFloat(circuitBreakerThreshold) : undefined;
-
+    // Entry filters: null = omit (disabled). The hook already nulls out
+    // invalid/NaN values (defense-in-depth in case handleSubmit is ever reached
+    // with a stale/invalid value — hasIbsError/hasCbThresholdError/canSubmit
+    // gate the button path), so both filters share one parse.
     const entryFilterFields: Partial<CreateSimulationRequest> = {
-      ...(ibsSubmit !== null && ibsSubmit > 0 && ibsSubmit <= 1
-        ? { ibs_max_threshold: ibsSubmit }
-        : {}),
+      ...(ibsSubmitValue !== null ? { ibs_max_threshold: ibsSubmitValue } : {}),
       ma50_filter_enabled: ma50FilterEnabled,
-      ...(cbThresholdSubmit !== undefined
-        ? { circuit_breaker_atr_threshold: cbThresholdSubmit, circuit_breaker_symbol: circuitBreakerSymbol }
+      ...(cbThresholdSubmitValue !== null
+        ? {
+            circuit_breaker_atr_threshold: cbThresholdSubmitValue,
+            circuit_breaker_symbol: circuitBreakerSymbol,
+          }
         : {}),
     };
 
@@ -517,9 +543,9 @@ export const ArenaSetupForm = ({
     riskPerTradePct,
     winStreakBonusPct,
     maxRiskPct,
-    ibsMaxThreshold,
+    ibsSubmitValue,
     ma50FilterEnabled,
-    circuitBreakerThreshold,
+    cbThresholdSubmitValue,
     circuitBreakerSymbol,
     onSubmit,
     onSubmitComparison,

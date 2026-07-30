@@ -22,8 +22,10 @@ from app.models.arena import (
 from app.services.arena.agent_protocol import AgentDecision, PriceBar
 from app.services.arena.simulation_engine import (
     ATR_LOOKBACK_DAYS,
+    CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX,
     MA50_MIN_LOOKBACK_DAYS,
     SimulationEngine,
+    _close_sma,
 )
 
 
@@ -40,6 +42,58 @@ class TestSimulationEngineInit:
 
         assert engine.session is mock_session
         assert engine.data_service is not None
+
+
+class TestCloseSmaHelper:
+    """Tests for _close_sma, the single SMA implementation shared by the
+    MA50 entry filter and market-regime detection."""
+
+    def _bars(self, closes: list[float]) -> list[PriceBar]:
+        return [
+            PriceBar(
+                date=date(2024, 1, 1) + timedelta(days=i),
+                open=Decimal(str(c)),
+                high=Decimal(str(c)),
+                low=Decimal(str(c)),
+                close=Decimal(str(c)),
+                volume=1,
+            )
+            for i, c in enumerate(closes)
+        ]
+
+    @pytest.mark.unit
+    def test_close_sma_averages_last_period_closes_only(self) -> None:
+        """Only the trailing ``period`` closes enter the average."""
+        # Arrange: first close (1000) must be excluded by the window
+        bars = self._bars([1000.0, 30.0, 40.0])
+
+        # Act
+        result = _close_sma(bars, 2)
+
+        # Assert
+        assert result == pytest.approx(35.0)
+
+    @pytest.mark.unit
+    def test_close_sma_uses_all_bars_when_period_equals_length(self) -> None:
+        """period == len(bars) averages the whole list."""
+        # Arrange
+        bars = self._bars([10.0, 20.0, 30.0])
+
+        # Act
+        result = _close_sma(bars, 3)
+
+        # Assert
+        assert result == pytest.approx(20.0)
+
+    @pytest.mark.unit
+    def test_close_sma_raises_on_insufficient_bars(self) -> None:
+        """Fewer bars than period is a programming error, not a silent short average."""
+        # Arrange
+        bars = self._bars([10.0, 20.0])
+
+        # Act / Assert
+        with pytest.raises(ValueError, match="SMA requires 3 bars, got 2"):
+            _close_sma(bars, 3)
 
 
 @pytest.mark.usefixtures("db_session")
@@ -477,6 +531,72 @@ class TestSimulationEngineStepDay:
             snapshot = await engine.step_day(simulation.id)
 
         assert snapshot.decisions["AAPL"]["action"] == "NO_DATA"
+
+    @pytest.mark.unit
+    async def test_step_day_resume_empty_trading_days_raises(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        mock_agent,
+    ) -> None:
+        """Cold-engine resume with an empty rebuilt trading-day list fails loudly.
+
+        Regression: with an empty rebuild, ``current_day >= len([])`` used to fall
+        through to ``trading_days[-1]`` and crash with IndexError instead of a
+        descriptive error. The worker marks the simulation job failed on any
+        exception, so a clear ValueError is the loud-failure contract.
+        """
+        # Arrange: RUNNING simulation, fresh engine (cold cache), price cache
+        # present but empty so the lazy rebuild produces no trading days.
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._price_cache[simulation.id] = {"AAPL": []}
+        engine._sector_cache[simulation.id] = {"AAPL": None}
+
+        # Act / Assert
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            with pytest.raises(ValueError, match="no trading days could be rebuilt"):
+                await engine.step_day(simulation.id)
+
+    @pytest.mark.unit
+    async def test_step_day_resume_trading_day_count_mismatch_raises(
+        self,
+        db_session,
+        rollback_session_factory,
+        running_simulation_data,
+        sample_price_bars,
+        mock_agent,
+    ) -> None:
+        """Resume with a rebuilt day list that drifted from total_days fails loudly.
+
+        If the lazily rebuilt list length differs from the persisted total_days
+        (cache drift, provider backfill, derivation change), current_day would
+        index a different calendar than the one the simulation was initialized
+        with -- silently skipping or double-processing days.
+        """
+        # Arrange: simulation initialized with total_days=5, but the price cache
+        # now yields only 3 in-range trading days.
+        simulation = ArenaSimulation(**running_simulation_data)
+        db_session.add(simulation)
+        await db_session.commit()
+        await db_session.refresh(simulation)
+        assert simulation.total_days == 5
+
+        engine = SimulationEngine(db_session, session_factory=rollback_session_factory)
+        engine._price_cache[simulation.id] = {"AAPL": sample_price_bars[:3]}
+        engine._sector_cache[simulation.id] = {"AAPL": None}
+
+        # Act / Assert
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent):
+            with pytest.raises(
+                ValueError, match="rebuilt trading-day list has 3 days"
+            ):
+                await engine.step_day(simulation.id)
 
 
 @pytest.mark.usefixtures("db_session")
@@ -1829,7 +1949,11 @@ class TestSimulationEngineCaching:
         mock_agent,
     ) -> None:
         """Test trading days are lazy-loaded when resuming a simulation."""
-        # Create RUNNING simulation (already initialized)
+        # Create RUNNING simulation (already initialized). total_days must match
+        # the rebuilt trading-day count (sample_price_bars filtered to the
+        # simulation window = 6 days), or the resume reconciliation guard
+        # rejects the run as cache drift.
+        running_simulation_data["total_days"] = 6
         simulation = ArenaSimulation(**running_simulation_data)
         db_session.add(simulation)
         await db_session.commit()
@@ -6208,6 +6332,42 @@ class TestSimulationEngineMA50Filter:
         assert decisions.get("AAPL", {}).get("ma50_filtered") is True
 
     @pytest.mark.unit
+    async def test_ma50_filter_evaluates_across_gap_using_full_cached_history(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """A gap leaving <50 bars in the last 90 calendar days no longer skips the filter.
+
+        Regression: the filter used to read a fixed 90-calendar-day window; a
+        multi-week trading halt inside that window dropped the in-window bar
+        count below 50 and fail-opened (ma50_skipped='insufficient_history')
+        on exactly the volatile post-halt re-entry day, even though 50+ older
+        bars were cached. The filter now reads the full cached history.
+        """
+        current = date(2024, 1, 16)
+        # Arrange: 55 old bars at close=100 ending 80 days before today, a long
+        # gap, then 10 recent bars at close=50 ending today. Only 21 bars fall
+        # inside the last 90 calendar days (11 old + 10 recent) -- under the
+        # old fixed window the filter skipped with 'insufficient_history'.
+        old_bars = self._make_bars_with_ma50(
+            [100.0] * 55, target_date=current - timedelta(days=80)
+        )
+        recent_bars = self._make_bars_with_ma50([50.0] * 10, target_date=current)
+        bars = old_bars + recent_bars
+
+        # Act
+        pending_count, decisions = await self._run_step_day_ma50(
+            db_session, rollback_session_factory, bars
+        )
+
+        # Assert: last 50 closes = 40x100 + 10x50 → MA50 = 90; today close 50 < 90 → blocked
+        aapl = decisions.get("AAPL", {})
+        assert aapl.get("ma50_skipped") is None, (
+            "Filter must evaluate across the gap, not skip with insufficient_history"
+        )
+        assert aapl.get("ma50_filtered") is True
+        assert pending_count == 0, "Post-gap entry below MA50 must be blocked"
+
+    @pytest.mark.unit
     async def test_ma50_filter_stale_close_guard(
         self, db_session, rollback_session_factory
     ) -> None:
@@ -6717,6 +6877,141 @@ class TestSimulationEngineCircuitBreaker:
         )
 
     @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "threshold",
+        [
+            2.8,  # stale ATR ~3.0 would have read as an authoritative 'triggered'
+            10.0,  # stale ATR ~3.0 would have read as an authoritative 'clear'
+        ],
+    )
+    async def test_circuit_breaker_stale_proxy_bars_fail_open_as_data_unavailable(
+        self, db_session, rollback_session_factory, caplog, threshold
+    ) -> None:
+        """Proxy bars frozen before current_date: state='data_unavailable', no stale ATR.
+
+        Regression: a proxy feed gap on current_date used to compute ATR from
+        older bars and record an authoritative 'triggered'/'clear' state with a
+        stale circuit_breaker_atr_pct. Stale proxy data must instead be treated
+        exactly like missing data (fail-open, explicit state, WARNING logged).
+        """
+        import logging
+
+        # Arrange: 30 SPY bars (enough for ATR) whose LAST bar is 3 days before
+        # the current trading day (2024-01-16) -- a frozen proxy feed.
+        stale_spy_bars = self._make_spy_bars(3.0, target_date=date(2024, 1, 13), n_bars=30)
+
+        # Act
+        with caplog.at_level(logging.WARNING, logger="app.services.arena.simulation_engine"):
+            pending_count, _, snapshot = await self._run_step_day_cb(
+                db_session, rollback_session_factory,
+                circuit_breaker_atr_threshold=threshold,
+                spy_atr_pct=None,  # unused: spy_bars overrides bar construction
+                spy_bars=stale_spy_bars,
+            )
+
+        # Assert: fail-open with explicit data_unavailable state, stale ATR not persisted
+        assert pending_count == 1, "Stale proxy data must fail-open, not gate entries"
+        assert snapshot.circuit_breaker_state == "data_unavailable"
+        assert snapshot.circuit_breaker_atr_pct is None
+        assert any("stale" in r.message.lower() for r in caplog.records), (
+            "WARNING must identify the stale proxy bar"
+        )
+        assert any("Circuit breaker skipped" in r.message for r in caplog.records)
+
+    async def _run_step_day_cb_with_mocked_atr(
+        self, db_session, rollback_session_factory, atr_pct: float
+    ) -> "ArenaSnapshot":
+        """Run one step_day with _calculate_symbol_atr_pct mocked to atr_pct.
+
+        Shares the boundary-test pattern: engineering an exact ATR% from bar
+        geometry is infeasible with Wilder's smoothing, so the mock injects the
+        value while the snapshot still goes through the real persist/commit path
+        (real Postgres Numeric(10, 6) round-trip).
+        """
+        sim = ArenaSimulation(
+            name="CB ATR Persist Test",
+            symbols=["AAPL"],
+            start_date=date(2024, 1, 15),
+            end_date=date(2024, 1, 20),
+            initial_capital=Decimal("10000.00"),
+            position_size=Decimal("1000.00"),
+            agent_type="live20",
+            agent_config={
+                "trailing_stop_pct": 5.0,
+                "circuit_breaker_atr_threshold": 2.8,
+                "circuit_breaker_symbol": "SPY",
+            },
+            status=SimulationStatus.RUNNING.value,
+            current_day=0,
+            total_days=3,
+        )
+        db_session.add(sim)
+        await db_session.commit()
+        await db_session.refresh(sim)
+
+        engine = self._make_engine(db_session, rollback_session_factory)
+        target_date = date(2024, 1, 16)
+        engine._trading_days_cache[sim.id] = [target_date, date(2024, 1, 17)]
+        engine._price_cache[sim.id] = {
+            "AAPL": self._make_aapl_bars(target_date),
+            "SPY": self._make_spy_bars(3.0, target_date),
+        }
+        engine._sector_cache[sim.id] = {"AAPL": None}
+
+        mock_agent = MagicMock()
+        mock_agent.required_lookback_days = 5
+        mock_agent.evaluate = AsyncMock(
+            return_value=AgentDecision(symbol="AAPL", action="HOLD", score=40)
+        )
+
+        with patch("app.services.arena.simulation_engine.get_agent", return_value=mock_agent), \
+             patch.object(engine, "_calculate_symbol_atr_pct", return_value=atr_pct):
+            await engine.step_day(sim.id)
+
+        snap_result = await db_session.execute(
+            select(ArenaSnapshot).where(ArenaSnapshot.simulation_id == sim.id)
+        )
+        return snap_result.scalar_one()
+
+    @pytest.mark.unit
+    async def test_circuit_breaker_atr_pct_degenerate_value_clamped_to_column_max(
+        self, db_session, rollback_session_factory, caplog
+    ) -> None:
+        """ATR% beyond Numeric(10, 6) range is clamped on persist, not DataError'd.
+
+        A sub-penny proxy close can make (ATR/close)*100 exceed 9999.999999; the
+        flush used to fail mid-run with a DataError. The value is degenerate
+        anyway, so it is capped at the column max with a WARNING.
+        """
+        import logging
+
+        # Act: degenerate ATR% far beyond the column's storable range
+        with caplog.at_level(logging.WARNING, logger="app.services.arena.simulation_engine"):
+            snapshot = await self._run_step_day_cb_with_mocked_atr(
+                db_session, rollback_session_factory, atr_pct=25_000.0
+            )
+
+        # Assert: commit succeeded (real Postgres round-trip), value capped
+        assert snapshot.circuit_breaker_atr_pct == CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX
+        assert snapshot.circuit_breaker_state == "triggered"  # 25000 >= 2.8
+        assert any("clamping" in r.message for r in caplog.records), (
+            "WARNING must be logged when the ATR% is clamped"
+        )
+
+    @pytest.mark.unit
+    async def test_circuit_breaker_atr_pct_quantized_to_column_scale(
+        self, db_session, rollback_session_factory
+    ) -> None:
+        """ATR% is quantized to the column's 6-decimal scale at the persist boundary."""
+        # Act: more precision than Numeric(10, 6) can hold
+        snapshot = await self._run_step_day_cb_with_mocked_atr(
+            db_session, rollback_session_factory, atr_pct=2.12345678
+        )
+
+        # Assert: rounded to 6 decimals (matches Postgres numeric rounding)
+        assert snapshot.circuit_breaker_atr_pct == Decimal("2.123457")
+
+    @pytest.mark.unit
     async def test_circuit_breaker_snapshot_columns_populated(
         self, db_session, rollback_session_factory
     ) -> None:
@@ -6849,6 +7144,8 @@ class TestSimulationEngineCircuitBreaker:
         self, db_session, rollback_session_factory
     ) -> None:
         """Resume lazy-load (step_day with cold cache) loads CB symbol into price cache."""
+        # total_days=1 matches the single mocked trading day below, so the
+        # resume reconciliation guard does not reject the rebuilt day list.
         sim = ArenaSimulation(
             name="CB Resume Lazy Load Test",
             symbols=["AAPL"],
@@ -6864,7 +7161,7 @@ class TestSimulationEngineCircuitBreaker:
             },
             status=SimulationStatus.RUNNING.value,
             current_day=0,
-            total_days=3,
+            total_days=1,
         )
         db_session.add(sim)
         await db_session.commit()
@@ -6882,7 +7179,7 @@ class TestSimulationEngineCircuitBreaker:
             mock_get_agent.return_value = mock_agent
 
             # step_day with empty cache triggers resume lazy-load path.
-            # The simulation.current_day=0, total_days=3, so step_day checks the cache.
+            # The simulation.current_day=0, total_days=1, so step_day checks the cache.
             # The mocked _load_price_cache is a no-op, so _price_cache[sim.id] is never
             # populated; the agent loop returns NO_DATA for all symbols and step_day
             # normally completes without raising. If mocking gaps in the test setup ever

@@ -26,6 +26,11 @@ interface ArenaDecisionLogProps {
   onSelectSnapshot: (snapshot: Snapshot) => void;
   /** Configured circuit breaker market symbol (for data_unavailable banner) */
   circuitBreakerSymbol?: string;
+  /** Whether this simulation ran with the MA50 filter enabled. Undefined for
+   * legacy/pre-Phase-5 runs where the setting is unknown. Needed to explain
+   * filter interactions honestly: an IBS badge may only claim it pre-empted
+   * MA50 when MA50 was actually configured for the run. */
+  ma50FilterEnabled?: boolean;
 }
 
 interface MarketConditionsBannerProps {
@@ -38,8 +43,11 @@ interface MarketConditionsBannerProps {
 /** Why the MA50 filter could not be applied to a symbol that still entered. */
 const MA50_SKIP_REASONS: Record<NonNullable<DecisionEntry['ma50_skipped']>, string> = {
   no_data: 'MA50 was not applied: no price history was cached for this symbol.',
+  // "Proceeded to portfolio selection", not "entered": ma50_skipped only means the
+  // gate was bypassed — the signal can still be dropped by portfolio selection or
+  // its pending open cancelled.
   insufficient_history:
-    'MA50 was not applied: fewer than 50 bars of history (e.g. a recent listing). This symbol entered without the trend filter.',
+    'MA50 was not applied: fewer than 50 bars of history (e.g. a recent listing). The signal proceeded to portfolio selection without the trend filter.',
   stale_bar: 'MA50 was not applied: the most recent cached bar predates this date.',
 };
 
@@ -171,6 +179,7 @@ export const ArenaDecisionLog = ({
   snapshots,
   onSelectSnapshot,
   circuitBreakerSymbol,
+  ma50FilterEnabled,
 }: ArenaDecisionLogProps) => {
   // Empty state - no snapshots yet
   if (!snapshot) {
@@ -250,9 +259,14 @@ export const ArenaDecisionLog = ({
                       </Badge>
                     )}
                     {decision.ibs_filtered && (
+                      // The engine runs IBS first and removes filtered symbols
+                      // from buy_signals, so ma50_filtered is never set here.
+                      // Only claim that pre-emption when this run actually had
+                      // the MA50 filter enabled; when it was off (or unknown,
+                      // for legacy runs) there is no interaction to explain.
                       <span
                         title={
-                          decision.ma50_filtered === undefined
+                          ma50FilterEnabled
                             ? 'IBS filter caught this symbol before MA50 was evaluated. MA50 status unknown.'
                             : undefined
                         }

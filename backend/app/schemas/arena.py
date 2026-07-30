@@ -80,9 +80,10 @@ class _EntryFiltersMixin(StrictBaseModel):
         default=False,
         description=(
             "Enable MA50 trend filter. Blocks BUY signals for stocks trading below their "
-            "50-day moving average. 90 calendar days of history are pre-loaded when enabled, "
-            "but a symbol with fewer than 50 available bars (recent IPO, data gap) cannot be "
-            "evaluated and is allowed through unfiltered."
+            "50-day moving average. 90 calendar days of history are pre-loaded when enabled "
+            "and the filter evaluates over the full cached history, but a symbol with fewer "
+            "than 50 cached bars in total (e.g. a recent IPO) cannot be evaluated and is "
+            "allowed through unfiltered."
         ),
     )
     circuit_breaker_atr_threshold: float | None = Field(

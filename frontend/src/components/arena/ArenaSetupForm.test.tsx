@@ -888,7 +888,8 @@ describe('ArenaSetupForm', () => {
         />
       );
       await user.click(screen.getByRole('tab', { name: /portfolio/i }));
-      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+      // The restore already opened Entry Filters (a restored IBS threshold is in
+      // effect and must be visible) — no manual toggle click.
       const ibsInput = screen.getByLabelText(/ibs threshold/i) as HTMLInputElement;
       expect(ibsInput.value).toBe('0.55');
     });
@@ -1027,7 +1028,13 @@ describe('ArenaSetupForm', () => {
         />
       );
       await user.click(screen.getByRole('tab', { name: /portfolio/i }));
-      await user.click(screen.getByRole('button', { name: /entry filters/i }));
+
+      // Restored filters are in effect and must be visible: the section is
+      // force-opened by the restore, with no manual toggle click.
+      expect(screen.getByRole('button', { name: /entry filters/i })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
 
       const toggle = screen.getByTestId('ma50-filter-toggle');
       expect(toggle).toHaveAttribute('aria-pressed', 'true');
@@ -1037,6 +1044,34 @@ describe('ArenaSetupForm', () => {
 
       const symbolInput = screen.getByLabelText(/market symbol/i) as HTMLInputElement;
       expect(symbolInput.value).toBe('QQQ');
+    });
+
+    it('replay of a run with no entry filters leaves the section collapsed', async () => {
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2024-01-01',
+            end_date: '2024-06-01',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+          }}
+        />
+      );
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      // Nothing was restored into the filters, so there is nothing to reveal
+      expect(screen.getByRole('button', { name: /entry filters/i })).toHaveAttribute(
+        'aria-expanded',
+        'false'
+      );
+      expect(screen.queryByTestId('ma50-filter-toggle')).not.toBeInTheDocument();
     });
   });
 
@@ -1135,9 +1170,8 @@ describe('ArenaSetupForm', () => {
 
       await user.click(screen.getByRole('button', { name: /load aggressive/i }));
 
-      // Navigate to portfolio tab and open entry filters to verify
+      // Navigate to portfolio tab — the preset already opened Entry Filters
       await user.click(screen.getByRole('tab', { name: /portfolio/i }));
-      await user.click(screen.getByRole('button', { name: /entry filters/i }));
 
       const toggle = screen.getByTestId('ma50-filter-toggle');
       expect(toggle).toHaveAttribute('aria-pressed', 'true');
@@ -1152,11 +1186,35 @@ describe('ArenaSetupForm', () => {
 
       await user.click(screen.getByRole('button', { name: /load conservative/i }));
 
+      // The preset already opened the Entry Filters section
       await user.click(screen.getByRole('tab', { name: /portfolio/i }));
-      await user.click(screen.getByRole('button', { name: /entry filters/i }));
 
       const ibsInput = screen.getByLabelText(/ibs threshold/i) as HTMLInputElement;
       expect(ibsInput.value).toBe('0.55');
+    });
+
+    it('preset force-opens the Entry Filters section so applied filters are visible', async () => {
+      // Presets enable MA50 + a 2.8% SPY circuit breaker, and handleSubmit sends
+      // them unconditionally — a value that takes effect must never sit in a
+      // collapsed section with zero indication it exists (same rule the
+      // Constraints section already follows).
+      const user = userEvent.setup();
+      renderWithSetupInputs();
+
+      await user.click(screen.getByRole('button', { name: /load aggressive/i }));
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      // No manual toggle click: the section must already be expanded
+      expect(screen.getByRole('button', { name: /entry filters/i })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+      // The toggle's accessible name comes from its <Label htmlFor>, not its
+      // text content, so the on/off state is asserted via aria-pressed.
+      expect(screen.getByTestId('ma50-filter-toggle')).toHaveAttribute('aria-pressed', 'true');
+      expect(
+        (screen.getByLabelText(/market atr% threshold/i) as HTMLInputElement).value
+      ).toBe('2.8');
     });
 
     it('aggressive preset clears ibs threshold', async () => {
@@ -1264,6 +1322,81 @@ describe('ArenaSetupForm', () => {
 
       await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
       expect(mockOnSubmit.mock.calls[0][0].max_per_sector).toBe(2);
+    });
+
+    it('replay does not resurrect the sector-cap default for a run stored without one', async () => {
+      // Reachable today: preset under strategy 'none' -> clear Max Per Sector ->
+      // run -> Replay. The stored run has max_per_sector=null but
+      // max_open_positions set; restoring used to backfill constraintsTouched
+      // while leaving maxPerSector at its '2' useState default, so the replayed
+      // submission sent a sector cap the original run never had — breaking
+      // replay comparability.
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: 10,
+            max_per_sector: null,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: /start simulation/i }));
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+      const payload = mockOnSubmit.mock.calls[0][0];
+      expect(payload.max_per_sector).toBeNull();
+      expect(payload.max_open_positions).toBe(10);
+    });
+
+    it('replay shows a cleared Max Per Sector field, not the form default', async () => {
+      // The visible field must agree with what will be submitted: a null
+      // constraint restores as an empty input (serializes back to null), not
+      // as the untouched '2' default.
+      const user = userEvent.setup();
+      render(
+        <ArenaSetupForm
+          onSubmit={mockOnSubmit}
+          onSubmitComparison={mockOnSubmitComparison}
+          isLoading={false}
+          initialValues={{
+            symbols: ['AAPL'],
+            start_date: '2025-01-01',
+            end_date: '2025-12-31',
+            initial_capital: 10000,
+            position_size: 1000,
+            trailing_stop_pct: 5,
+            min_buy_score: 60,
+            stock_list_id: null,
+            stock_list_name: null,
+            portfolio_strategy: 'none',
+            max_open_positions: 10,
+            max_per_sector: null,
+          }}
+        />
+      );
+
+      await user.click(screen.getByRole('tab', { name: /portfolio/i }));
+
+      const maxPerSectorInput = screen.getByLabelText(/max per sector/i) as HTMLInputElement;
+      expect(maxPerSectorInput.value).toBe('');
+      const maxOpenPositionsInput = screen.getByLabelText(
+        /max open positions/i
+      ) as HTMLInputElement;
+      expect(maxOpenPositionsInput.value).toBe('10');
     });
 
     it('replay of a run with no position limits still submits null', async () => {

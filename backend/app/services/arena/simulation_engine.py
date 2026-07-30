@@ -12,7 +12,7 @@ trading simulations. It manages:
 import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Sequence
 
 from sqlalchemy import select
@@ -51,6 +51,12 @@ ATR_LOOKBACK_DAYS = 90
 # how far back the cache actually reaches must use this rather than repeat the
 # literal, or the two can drift apart silently.
 CACHE_LOOKBACK_MARGIN_DAYS = 30
+# Upper bound of the Numeric(10, 6) column backing ArenaSnapshot.circuit_breaker_atr_pct.
+# An ATR% at or above this is degenerate market data (e.g. a sub-penny proxy close),
+# but it must not DataError the snapshot flush mid-run, so it is clamped on persist.
+CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX = Decimal("9999.999999")
+# Quantization step matching the column's 6-decimal scale.
+_ATR_PCT_COLUMN_QUANT = Decimal("0.000001")
 
 
 def _main_lookback_days(agent_lookback_days: int, agent_config: dict) -> int:
@@ -62,6 +68,51 @@ def _main_lookback_days(agent_lookback_days: int, agent_config: dict) -> int:
     if agent_config.get("ma50_filter_enabled", False):
         return max(agent_lookback_days, MA50_MIN_LOOKBACK_DAYS)
     return agent_lookback_days
+
+
+def _close_sma(bars: Sequence[PriceBar], period: int) -> float:
+    """Simple moving average of the last ``period`` closes, in float arithmetic.
+
+    The single SMA implementation for engine filters (MA50 entry filter and
+    market-regime detection) so their math can never drift apart. Callers must
+    guarantee ``len(bars) >= period``: averaging a shorter window would divide
+    by the wrong count, so that is treated as a programming error.
+
+    Args:
+        bars: Price bars ordered oldest to newest.
+        period: Number of trailing closes to average.
+
+    Returns:
+        Arithmetic mean of the last ``period`` closes as a float.
+
+    Raises:
+        ValueError: If fewer than ``period`` bars are provided.
+    """
+    if len(bars) < period:
+        msg = f"SMA requires {period} bars, got {len(bars)}"
+        raise ValueError(msg)
+    return sum(float(b.close) for b in bars[-period:]) / period
+
+
+def _breaker_atr_pct_column_value(
+    atr_pct: float, simulation_id: int, current_date: date
+) -> Decimal:
+    """Quantize ATR% to the snapshot column scale, clamping degenerate values.
+
+    ``ROUND_HALF_UP`` matches how PostgreSQL rounds when casting to
+    ``numeric(10, 6)``, so quantizing here changes nothing for normal values —
+    it only moves the rounding to the persist boundary, where the column cap
+    can be applied before the flush instead of erroring inside it.
+    """
+    value = Decimal(str(atr_pct)).quantize(_ATR_PCT_COLUMN_QUANT, rounding=ROUND_HALF_UP)
+    if value > CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX:
+        logger.warning(
+            "Circuit breaker ATR%% %s for simulation %s on %s exceeds column max %s; "
+            "clamping before persist (proxy data is degenerate at this magnitude).",
+            value, simulation_id, current_date, CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX,
+        )
+        return CIRCUIT_BREAKER_ATR_PCT_COLUMN_MAX
+    return value
 
 
 class SimulationEngine:
@@ -340,12 +391,34 @@ class SimulationEngine:
 
         # Use cached trading days (lazy-load for resume case)
         if simulation_id not in self._trading_days_cache:
-            self._trading_days_cache[simulation_id] = self._get_trading_days_from_cache(
+            rebuilt_days = self._get_trading_days_from_cache(
                 simulation_id,
                 simulation.symbols,
                 simulation.start_date,
                 simulation.end_date,
             )
+            # Fail loudly on resume rather than silently corrupting the run:
+            # an empty rebuild would IndexError on trading_days[-1] below, and
+            # a length drift against the persisted total_days means current_day
+            # no longer indexes the same calendar the simulation was
+            # initialized with (days would be skipped or double-processed).
+            if not rebuilt_days:
+                msg = (
+                    f"Simulation {simulation_id} resume: no trading days could be "
+                    f"rebuilt from the price cache (simulation was initialized "
+                    f"with {simulation.total_days}). Check price data availability."
+                )
+                raise ValueError(msg)
+            if len(rebuilt_days) != simulation.total_days:
+                msg = (
+                    f"Simulation {simulation_id} resume: rebuilt trading-day list "
+                    f"has {len(rebuilt_days)} days but the simulation was "
+                    f"initialized with {simulation.total_days}. Price cache no "
+                    f"longer matches the initialized day list (cache drift or "
+                    f"provider backfill); refusing to continue."
+                )
+                raise ValueError(msg)
+            self._trading_days_cache[simulation_id] = rebuilt_days
         trading_days = self._trading_days_cache[simulation_id]
 
         # Check if simulation is complete
@@ -829,10 +902,15 @@ class SimulationEngine:
         if simulation.agent_config.get("ma50_filter_enabled", False):
             ma50_filtered_buy_signals: list[tuple[str, AgentDecision, PriceBar]] = []
             for symbol, decision, today_bar in buy_signals:
+                # Read the FULL cached history up to current_date (date.min start)
+                # rather than a fixed 90-calendar-day slice: a multi-week trading
+                # halt inside such a slice can drop the in-window bar count below
+                # 50 and fail-open the trend gate on exactly the volatile
+                # post-halt re-entry day, even though 50+ older bars are cached.
+                # MA50_MIN_LOOKBACK_DAYS still sizes the cache pre-load in
+                # _main_lookback_days; this read just uses everything it loaded.
                 ph = self._get_cached_price_history(
-                    simulation_id, symbol,
-                    current_date - timedelta(days=MA50_MIN_LOOKBACK_DAYS + CACHE_LOOKBACK_MARGIN_DAYS),
-                    current_date,
+                    simulation_id, symbol, date.min, current_date
                 )
                 if not ph:
                     # Should not happen now the main cache is pre-loaded wide enough;
@@ -860,7 +938,7 @@ class SimulationEngine:
                         symbol, ph[-1].date, current_date,
                     )
                     decisions[symbol]["ma50_skipped"] = "stale_bar"
-                elif float(today_bar.close) < sum(float(b.close) for b in ph[-50:]) / 50:
+                elif float(today_bar.close) < _close_sma(ph, 50):
                     _mark_filtered(symbol, "ma50_filtered")
                     continue
                 ma50_filtered_buy_signals.append((symbol, decision, today_bar))
@@ -989,7 +1067,9 @@ class SimulationEngine:
             decisions=decisions,
             circuit_breaker_state=circuit_breaker_state,
             circuit_breaker_atr_pct=(
-                Decimal(str(circuit_breaker_atr_pct_today))
+                _breaker_atr_pct_column_value(
+                    circuit_breaker_atr_pct_today, simulation_id, current_date
+                )
                 if circuit_breaker_atr_pct_today is not None
                 else None
             ),
@@ -1308,8 +1388,7 @@ class SimulationEngine:
             )
             return "neutral"
 
-        recent_closes = [float(b.close) for b in bars[-sma_period:]]
-        sma = sum(recent_closes) / len(recent_closes)
+        sma = _close_sma(bars, sma_period)
         regime_close = float(bars[-1].close)
         regime = "bull" if regime_close > sma else "bear"
         logger.debug(
@@ -1363,6 +1442,19 @@ class SimulationEngine:
             current_date,
         )
         if not price_history or len(price_history) < 15:
+            return None
+        if price_history[-1].date != current_date:
+            # A feed gap on current_date would otherwise let an ATR computed
+            # from older bars masquerade as an authoritative reading (e.g. the
+            # circuit breaker recording 'clear'/'triggered' from stale data).
+            # Tradable symbols always have a bar on current_date by the time
+            # ATR is consulted, so this fires only for market proxies with a
+            # data gap. Mirrors the MA50 filter's stale-bar guard.
+            logger.warning(
+                "ATR%% unavailable for %s on %s: latest cached bar is %s (stale). "
+                "Treating as missing data.",
+                symbol, current_date, price_history[-1].date,
+            )
             return None
         highs = [float(bar.high) for bar in price_history]
         lows = [float(bar.low) for bar in price_history]

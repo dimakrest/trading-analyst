@@ -1869,6 +1869,52 @@ class TestPhase5Fields:
         assert data["circuit_breaker_symbol"] == "SPY"
 
     @pytest.mark.asyncio
+    async def test_create_simulation_stores_all_entry_filter_fields_in_agent_config(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """Stored agent_config carries every _EntryFiltersMixin field with the request values.
+
+        Guards against drift between the schema mixin and the agent_config
+        assembly in create_simulation: any filter field added to the mixin must
+        land in the stored config with its raw request value.
+        """
+        from app.schemas.arena import _EntryFiltersMixin
+
+        # Arrange
+        request_data = {
+            "symbols": ["AAPL"],
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-01",
+            "ibs_max_threshold": 0.55,
+            "ma50_filter_enabled": True,
+            "circuit_breaker_atr_threshold": 2.8,
+            "circuit_breaker_symbol": "QQQ",
+        }
+        expected_entry_filters = {
+            "ibs_max_threshold": 0.55,
+            "ma50_filter_enabled": True,
+            "circuit_breaker_atr_threshold": 2.8,
+            "circuit_breaker_symbol": "QQQ",
+        }
+
+        # Act
+        response = await async_client.post(
+            "/api/v1/arena/simulations",
+            json=request_data,
+        )
+
+        # Assert
+        assert response.status_code == 202
+        sim = await db_session.get(ArenaSimulation, response.json()["id"])
+        assert sim is not None
+        # The mixin is the source of truth: this test must cover ALL its fields.
+        assert set(_EntryFiltersMixin.model_fields.keys()) == set(expected_entry_filters)
+        stored = {k: sim.agent_config[k] for k in expected_entry_filters}
+        assert stored == expected_entry_filters
+
+    @pytest.mark.asyncio
     async def test_create_simulation_phase5_defaults(
         self,
         async_client: AsyncClient,
@@ -2010,9 +2056,17 @@ class TestPhase5Fields:
         )
         db_session.add(snap)
         await db_session.commit()
-        await db_session.refresh(sim)
 
-        response = await async_client.get(f"/api/v1/arena/simulations/{sim.id}")
+        # Expire the identity map so the GET handler (which shares this session
+        # via override_get_db_session with expire_on_commit=False) re-reads from
+        # the database instead of returning the unexpired in-memory Decimal.
+        # Without this the Numeric(10, 6) round-trip is never exercised.
+        # sim.id is captured first: attribute access on an expired object would
+        # trigger a sync lazy-load, which AsyncSession forbids outside greenlets.
+        sim_id = sim.id
+        db_session.expire_all()
+
+        response = await async_client.get(f"/api/v1/arena/simulations/{sim_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -2020,7 +2074,10 @@ class TestPhase5Fields:
         assert len(snapshots) == 1
         snap_data = snapshots[0]
         assert snap_data["circuit_breaker_state"] == "clear"
-        assert snap_data["circuit_breaker_atr_pct"] == "2.1234"  # Decimal serializes as string
+        # Postgres numeric(10, 6) pads to the column scale, so the wire value is
+        # the string '2.123400' (Decimal serializes as string), not '2.1234'.
+        assert snap_data["circuit_breaker_atr_pct"] == "2.123400"
+        assert Decimal(snap_data["circuit_breaker_atr_pct"]) == Decimal("2.1234")
         assert snap_data["regime_state"] == "bull"
 
     @pytest.mark.asyncio

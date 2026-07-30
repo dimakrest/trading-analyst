@@ -45,7 +45,30 @@ export function useEntryFilterState() {
         ? 'Dot-notation tickers like BRK.B are not supported'
         : 'Must be 1–5 uppercase letters (e.g. SPY)';
 
-    return { hasIbsError, hasCbThresholdError, hasCbSymbolError, cbSymbolError };
+    // Payload-ready values: the parsed number only when it is a valid enabled
+    // value, null when the filter is off OR the raw value is invalid (NaN,
+    // out of range, browser-rejected). canSubmit already blocks invalid values;
+    // this is defense-in-depth so a stale state can never serialize NaN -> JSON
+    // null and silently disarm a filter while looking configured. The form must
+    // submit these, not re-parse the raw strings.
+    const ibsSubmitValue =
+      !ibsBadInput && ibsParsed !== null && ibsParsed > 0 && ibsParsed <= 1 ? ibsParsed : null;
+    const cbThresholdSubmitValue =
+      !cbThresholdBadInput &&
+      cbThresholdParsed !== null &&
+      cbThresholdParsed > 0 &&
+      isFinite(cbThresholdParsed)
+        ? cbThresholdParsed
+        : null;
+
+    return {
+      hasIbsError,
+      hasCbThresholdError,
+      hasCbSymbolError,
+      cbSymbolError,
+      ibsSubmitValue,
+      cbThresholdSubmitValue,
+    };
   }, [
     ibsMaxThreshold,
     circuitBreakerThreshold,
@@ -78,14 +101,19 @@ export function useEntryFilterState() {
   }, []);
 
   const applyInitialValues = useCallback((iv: EntryFilterInitialValues) => {
-    if (iv.ibs_max_threshold != null) setIbsMaxThreshold(String(iv.ibs_max_threshold));
-    if (iv.ma50_filter_enabled !== undefined && iv.ma50_filter_enabled !== null) {
-      setMa50FilterEnabled(!!iv.ma50_filter_enabled);
-    }
-    if (iv.circuit_breaker_atr_threshold != null) {
-      setCircuitBreakerThreshold(String(iv.circuit_breaker_atr_threshold));
-    }
-    if (iv.circuit_breaker_symbol) setCircuitBreakerSymbol(iv.circuit_breaker_symbol);
+    // Full restore, mirroring applyPresetFilters: a replayed run must reproduce
+    // the original configuration exactly, so an absent/null field is an explicit
+    // "filter off" that resets to the default — not "keep whatever is in the
+    // form". Skip-keep-current would let a previous edit leak into the replay.
+    setIbsMaxThreshold(iv.ibs_max_threshold != null ? String(iv.ibs_max_threshold) : '');
+    setMa50FilterEnabled(iv.ma50_filter_enabled ?? false);
+    setCircuitBreakerThreshold(
+      iv.circuit_breaker_atr_threshold != null ? String(iv.circuit_breaker_atr_threshold) : '',
+    );
+    setCircuitBreakerSymbol(iv.circuit_breaker_symbol || 'SPY');
+    // Programmatic values are always well-formed; clear any stale typo state.
+    setIbsBadInput(false);
+    setCbThresholdBadInput(false);
   }, []);
 
   return {

@@ -35,6 +35,7 @@ from app.schemas.arena import (
     SimulationListResponse,
     SimulationResponse,
     SnapshotResponse,
+    _EntryFiltersMixin,
 )
 from app.services.arena.agent_registry import list_agents
 from app.services.data_service import DataService
@@ -42,6 +43,13 @@ from app.services.live20_evaluator import Live20Evaluator
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Layer 10 entry-filter field names, derived from the schema mixin so the three
+# places that touch them (create_simulation, create_comparison, and the response
+# builder) can never drift from the schema definition. The request fields are
+# plain float/bool/str, so a python-mode model_dump stores exactly the same
+# values as the previous hand-written per-field assignments.
+_ENTRY_FILTER_FIELDS: set[str] = set(_EntryFiltersMixin.model_fields.keys())
 
 
 async def _resolve_scoring_algorithm(
@@ -105,10 +113,12 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
     risk_per_trade_pct = agent_config.get("risk_per_trade_pct")
     win_streak_bonus_pct = agent_config.get("win_streak_bonus_pct")
     max_risk_pct = agent_config.get("max_risk_pct")
-    ibs_max_threshold = agent_config.get("ibs_max_threshold")
-    ma50_filter_enabled = agent_config.get("ma50_filter_enabled", False)
-    circuit_breaker_atr_threshold = agent_config.get("circuit_breaker_atr_threshold")
-    circuit_breaker_symbol = agent_config.get("circuit_breaker_symbol", "SPY")
+    # Layer 10 entry filters: field names AND legacy-config defaults come from
+    # the schema mixin (single source of truth), so extraction cannot drift.
+    entry_filters = {
+        name: agent_config.get(name, field.get_default(call_default_factory=True))
+        for name, field in _EntryFiltersMixin.model_fields.items()
+    }
 
     return SimulationResponse(
         id=simulation.id,
@@ -140,10 +150,7 @@ def _build_simulation_response(simulation: ArenaSimulation) -> SimulationRespons
         risk_per_trade_pct=risk_per_trade_pct,
         win_streak_bonus_pct=win_streak_bonus_pct,
         max_risk_pct=max_risk_pct,
-        ibs_max_threshold=ibs_max_threshold,
-        ma50_filter_enabled=ma50_filter_enabled,
-        circuit_breaker_atr_threshold=circuit_breaker_atr_threshold,
-        circuit_breaker_symbol=circuit_breaker_symbol,
+        **entry_filters,
         group_id=simulation.group_id,
         status=simulation.status,
         current_day=simulation.current_day,
@@ -302,11 +309,9 @@ async def create_simulation(
         "regime_bear_max_positions": request.regime_bear_max_positions,
         # Layer 9: Portfolio selector tuning
         "ma_sweet_spot_center": request.ma_sweet_spot_center,
-        # Layer 10: Entry filters
-        "ibs_max_threshold": request.ibs_max_threshold,
-        "ma50_filter_enabled": request.ma50_filter_enabled,
-        "circuit_breaker_atr_threshold": request.circuit_breaker_atr_threshold,
-        "circuit_breaker_symbol": request.circuit_breaker_symbol,
+        # Layer 10: Entry filters -- slice derived from the schema mixin so the
+        # stored config always matches the declared filter fields exactly.
+        **request.model_dump(include=_ENTRY_FILTER_FIELDS),
     }
     if request.agent_config_id is not None:
         agent_config["agent_config_id"] = request.agent_config_id
@@ -729,11 +734,9 @@ async def create_comparison(
         "risk_per_trade_pct": request.risk_per_trade_pct,
         "win_streak_bonus_pct": request.win_streak_bonus_pct,
         "max_risk_pct": request.max_risk_pct,
-        # Layer 10: Entry filters
-        "ibs_max_threshold": request.ibs_max_threshold,
-        "ma50_filter_enabled": request.ma50_filter_enabled,
-        "circuit_breaker_atr_threshold": request.circuit_breaker_atr_threshold,
-        "circuit_breaker_symbol": request.circuit_breaker_symbol,
+        # Layer 10: Entry filters -- slice derived from the schema mixin so the
+        # stored config always matches the declared filter fields exactly.
+        **request.model_dump(include=_ENTRY_FILTER_FIELDS),
     }
     if request.agent_config_id is not None:
         base_agent_config["agent_config_id"] = request.agent_config_id
